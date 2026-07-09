@@ -1,0 +1,9 @@
+{
+  "name": "Flora CRM",
+  "short_name": "Flora",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EEF0F3",
+  "theme_color": "#0FB5AC",
+  "icons": []
+}
