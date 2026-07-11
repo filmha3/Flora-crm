@@ -2,13 +2,13 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Home, Building2, Users, Search, Plus, X, Moon, Sun, Sparkles, MapPin, Ruler,
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
-  ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Hammer, LocateFixed,
-  CalendarDays, Trees, Store, Briefcase, ArrowUpDown, BadgeCheck, RotateCcw,
-  LayoutGrid, Table2, Menu, LayoutDashboard, Activity, Filter, Phone,
+  ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
+  ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
+  LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -79,37 +79,15 @@ const jalaliFirstWeekday = (jy, jm) => { const [gy, gm, gd] = jalaliToGregorian(
 const TYPE_ICON = { "آپارتمان": Building2, "ویلا": Home, "زمین": Trees, "مغازه": Store, "اداری": Briefcase };
 const typeIcon = (t) => TYPE_ICON[t] || Building2;
 
-// ---------- Bitrix24-style business CRM tokens: crisp cards, real borders, corporate blue ----------
-const T = {
-  light: {
-    bg: "#F4F6FB", sidebarBg: "#12172B", sidebarInk: "#D3D9E8", sidebarMuted: "#7C87A3",
-    surface: "#FFFFFF", surfaceAlt: "#F0F2F7", border: "#E3E7EF",
-    ink: "#1B2436", muted: "#6B7386",
-    primary: "#0B84FF", primarySoft: "#E7F2FF",
-    accent: "#FF9F43", accentSoft: "#FFF1E2",
-    danger: "#E5484D", dangerSoft: "#FDEBEC", success: "#22C55E", successSoft: "#E8F9EF",
-  },
-  dark: {
-    bg: "#0C1020", sidebarBg: "#080B17", sidebarInk: "#D7DDEB", sidebarMuted: "#68708A",
-    surface: "#141A2E", surfaceAlt: "#1A2138", border: "#262D45",
-    ink: "#EAEDF6", muted: "#8A93AC",
-    primary: "#3AA0FF", primarySoft: "rgba(58,160,255,0.14)",
-    accent: "#FFB35C", accentSoft: "rgba(255,179,92,0.14)",
-    danger: "#FF6B6F", dangerSoft: "rgba(255,107,111,0.14)", success: "#34D399", successSoft: "rgba(52,211,153,0.14)",
-  },
-};
-const card = (c) => ({ background: c.surface, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" });
-
-const uid = () => Math.random().toString(36).slice(2, 10);
-const fmtToman = (n) => (n ? Math.round(n).toLocaleString("fa-IR") : "۰") + " تومان";
-const todayISO = () => new Date().toISOString().slice(0, 10);
-// Accepts Persian (۰-۹) and Arabic-Indic (٠-٩) digits alongside plain English digits
 const toEnDigits = (s) => String(s ?? "").replace(/[۰-۹٠-٩]/g, (d) => {
   const p = "۰۱۲۳۴۵۶۷۸۹".indexOf(d); if (p > -1) return p;
   const a = "٠١٢٣٤٥٦٧٨٩".indexOf(d); return a > -1 ? a : d;
 });
 const toNum = (v) => Number(toEnDigits(v).replace(/[^0-9.]/g, "")) || 0;
-const SETTINGS_KEY = "flora-settings";
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+const fmtToman = (n) => (n ? Math.round(n).toLocaleString("fa-IR") : "۰") + " تومان";
+const todayISO = () => new Date().toISOString().slice(0, 10);
 const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map((file) => new Promise((resolve) => {
   const reader = new FileReader();
   reader.onload = () => resolve({ id: uid(), type: file.type.startsWith("video") ? "video" : "image", url: reader.result, name: file.name });
@@ -118,42 +96,61 @@ const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map((file) =
 
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
 const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش", "اجاره", "رهن کامل"];
+const STAGE_FILTERS = ["همه", "فعال", "در حال مذاکره", "فروخته شد"];
+
+// ---------- Glassmorphism tokens ----------
+const T = {
+  dark: {
+    bg: "#0B0F1C", orb1: "#0B0F1C", orb2: "#0B0F1C",
+    surface: "#141A2E", surface2: "#1A2138",
+    border: "#262D45", ink: "#EAEDF6", muted: "#8A93AC",
+    primary: "#3AA0FF", primarySoft: "rgba(58,160,255,0.14)",
+    attn: "#FFB35C", attnSoft: "rgba(255,179,92,0.14)",
+    danger: "#FF6B6F", dangerSoft: "rgba(255,107,111,0.14)",
+    success: "#34D399", successSoft: "rgba(52,211,153,0.14)",
+  },
+  light: {
+    bg: "#F4F6FB", orb1: "#F4F6FB", orb2: "#F4F6FB",
+    surface: "#FFFFFF", surface2: "#F0F2F7",
+    border: "#E3E7EF", ink: "#1B2436", muted: "#6B7386",
+    primary: "#0B84FF", primarySoft: "#E7F2FF",
+    attn: "#FF9F43", attnSoft: "#FFF1E2",
+    danger: "#E5484D", dangerSoft: "#FDEBEC",
+    success: "#22C55E", successSoft: "#E8F9EF",
+  },
+};
+const glass = (c) => ({
+  background: c.surface,
+  border: `1px solid ${c.border}`,
+  boxShadow: "0 1px 3px rgba(16,24,40,0.08)",
+});
 
 // ---------- Seed data ----------
 const seedOwners = [{ id: "o1", name: "آقای رحیمی", phone: "09121234567" }, { id: "o2", name: "خانم صادقی", phone: "09351234567" }];
 const seedBuilders = [{ id: "b1", name: "شرکت سازه پارس", phone: "02122223333" }];
 const seedProperties = [
-  { id: "p1", title: "آپارتمان ۱۲۰ متری سعادت‌آباد", type: "آپارتمان", deal: "فروش", pricePerMeter: 70000000, price: 8400000000, area: 120, rooms: 2, address: "سعادت‌آباد، خیابان سرو", ownerId: "o1", builderId: "", stage: "فعال", desc: "", media: [] },
-  { id: "p2", title: "ویلا دوبلکس لواسان", type: "ویلا", deal: "اجاره", pricePerMeter: 150000, price: 45000000, area: 300, rooms: 4, address: "لواسان، جاده امام‌زاده", ownerId: "o2", builderId: "", stage: "در حال مذاکره", desc: "", media: [] },
-  { id: "p3", title: "پیش‌فروش برج مروارید", type: "آپارتمان", deal: "پیش‌فروش", pricePerMeter: 55000000, price: 4950000000, area: 90, rooms: 2, address: "پونک، بلوار گلستان", ownerId: "", builderId: "b1", stage: "فعال", desc: "", media: [] },
+  { id: "p1", title: "آپارتمان ۱۲۰ متری سعادت‌آباد", type: "آپارتمان", deal: "فروش", pricePerMeter: 70000000, price: 8400000000, area: 120, rooms: 2, floor: 3, furnished: "با لوازم", address: "سعادت‌آباد، خیابان سرو", ownerId: "o1", builderId: "", stage: "فعال", desc: "", media: [] },
+  { id: "p2", title: "ویلا دوبلکس لواسان", type: "ویلا", deal: "اجاره", pricePerMeter: 150000, price: 45000000, area: 300, rooms: 4, floor: 1, furnished: "بدون لوازم", address: "لواسان، جاده امام‌زاده", ownerId: "o2", builderId: "", stage: "در حال مذاکره", desc: "", media: [] },
+  { id: "p3", title: "پیش‌فروش برج مروارید", type: "آپارتمان", deal: "پیش‌فروش", pricePerMeter: 55000000, price: 4950000000, area: 90, rooms: 2, floor: 7, furnished: "بدون لوازم", address: "پونک، بلوار گلستان", ownerId: "", builderId: "b1", stage: "فعال", desc: "", media: [] },
 ];
 const seedCustomers = [
   { id: "c1", name: "مهدی کریمی", phone: "09190001122", need: "خرید آپارتمان ۲ خواب سعادت‌آباد", budget: 9000000000 },
   { id: "c2", name: "سارا محمدی", phone: "09380002233", need: "اجاره ویلا شمال یا لواسان", budget: 50000000 },
 ];
-const seedAppointments = [{ id: "a1", propertyId: "p1", customerId: "c1", date: todayISO(), time: "17:00", notes: "بازدید اول" }];
+const seedAppointments = [{ id: "a1", propertyId: "p1", customerId: "c1", customerName: "مهدی کریمی", date: todayISO(), time: "17:00", notes: "بازدید اول" }];
 const seedCalls = [{ id: "cl1", customerId: "c2", customerName: "سارا محمدی", customerPhone: "09380002233", date: todayISO(), status: "در انتظار پاسخ", notes: "پیگیری قیمت ویلا" }];
 
-const NAV = [
-  { id: "dashboard", label: "داشبورد", icon: LayoutDashboard },
-  { id: "properties", label: "فایل‌های ملکی", icon: Building2 },
-  { id: "customers", label: "مشتریان", icon: Users },
-  { id: "owners", label: "مالکین", icon: UserCircle2 },
-  { id: "builders", label: "سازندگان", icon: Hammer },
-  { id: "calendar", label: "تقویم بازدید", icon: CalendarDays },
-  { id: "calls", label: "پیگیری تماس‌ها", icon: PhoneCall },
-];
-
 export default function FloraCRM() {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(true);
   const c = dark ? T.dark : T.light;
-  const [view, setView] = useState("dashboard");
-  const [drawer, setDrawer] = useState(false);
-  const [modal, setModal] = useState(null); // { kind, id? }
+
+  const [tab, setTab] = useState("home");
+  const [sheet, setSheet] = useState(null); // bottom-sheet forms
+  const [detail, setDetail] = useState(null); // full-screen property/customer detail
   const [search, setSearch] = useState("");
   const [lightbox, setLightbox] = useState(null);
-  const [toast, setToast] = useState(null);
-  const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
+  const [mapPicker, setMapPicker] = useState(null); // separate overlay so it never closes the form underneath
+  const [propStageHint, setPropStageHint] = useState("همه");
 
   const [properties, setProperties] = useState(seedProperties);
   const [owners, setOwners] = useState(seedOwners);
@@ -164,7 +161,9 @@ export default function FloraCRM() {
   const [geminiKey, setGeminiKey] = useState("");
   const [loaded, setLoaded] = useState(false);
 
-  // Hydrate once from this browser's local database (falls back to the sample data on first-ever visit)
+  const [toast, setToast] = useState(null);
+  const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
+
   useEffect(() => {
     (async () => {
       try {
@@ -179,540 +178,552 @@ export default function FloraCRM() {
         }
         const settings = await dbGet(SETTINGS_KEY);
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
-      } catch (e) { console.error("Flora: failed to load local data", e); }
+      } catch (e) { console.error("Flora: load failed", e); }
       setLoaded(true);
     })();
   }, []);
+  useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey }).catch(() => {}); }, [loaded, geminiKey]);
 
-  // Persist on every change, once initial hydration is done (so we never overwrite saved data with the seed)
-  useEffect(() => {
-    if (!loaded) return;
-    dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls }).catch((e) => console.error("Flora: failed to save data", e));
-  }, [loaded, properties, owners, builders, customers, appointments, calls]);
+  const scheduleReminder = (appt, propTitle) => {
+    if (!("Notification" in window)) { notify("مرورگر از اعلان پشتیبانی نمی‌کند"); return; }
+    Notification.requestPermission().then((perm) => {
+      if (perm !== "granted") { notify("اجازه‌ی اعلان داده نشد"); return; }
+      const target = new Date(`${appt.date}T${appt.time}:00`);
+      const ms = target.getTime() - Date.now();
+      if (ms <= 0) { notify("زمان این بازدید گذشته است"); return; }
+      notify("یادآور تنظیم شد (تا وقتی این صفحه باز بماند فعال است)");
+      setTimeout(() => { try { new Notification("یادآوری بازدید ملکی", { body: `${propTitle || "بازدید"} — ساعت ${appt.time}` }); } catch (e) {} }, ms);
+    });
+  };
 
-  useEffect(() => {
-    if (!loaded) return;
-    dbSet(SETTINGS_KEY, { geminiKey }).catch((e) => console.error("Flora: failed to save settings", e));
-  }, [loaded, geminiKey]);
+  const exportBackup = () => {
+    const payload = { version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `flora-backup-${todayISO()}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    notify("فایل بکاپ دانلود شد");
+  };
+  const importBackup = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (data.properties) setProperties(data.properties);
+        if (data.owners) setOwners(data.owners);
+        if (data.builders) setBuilders(data.builders);
+        if (data.customers) setCustomers(data.customers);
+        if (data.appointments) setAppointments(data.appointments);
+        if (data.calls) setCalls(data.calls);
+        notify("بکاپ با موفقیت بازیابی شد");
+      } catch (e) { notify("فایل بکاپ نامعتبر است"); }
+    };
+    reader.readAsText(file);
+  };
 
   const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
   const todaysAppts = appointments.filter((a) => a.date === todayISO()).length;
+  const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
+
+  const goProperties = (stageHint) => { setPropStageHint(stageHint || "همه"); setTab("properties"); };
 
   const ctx = {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    notify, setModal, setLightbox, setView, geminiKey, setGeminiKey,
+    notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
+    scheduleReminder, goProperties, exportBackup, importBackup,
   };
 
   if (!loaded) {
     return (
-      <div dir="rtl" style={{ background: c.bg, color: c.ink, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex items-center justify-center">
+      <div dir="rtl" style={{ background: c.bg, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex items-center justify-center">
         <Loader2 size={22} className="animate-spin" color={c.primary} />
       </div>
     );
   }
 
-  const titles = { dashboard: "داشبورد", properties: "فایل‌های ملکی", customers: "مشتریان", owners: "مالکین", builders: "سازندگان", calendar: "تقویم بازدید", calls: "پیگیری تماس‌ها" };
-
   return (
-    <div dir="rtl" style={{ background: c.bg, color: c.ink, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex">
+    <div dir="rtl" style={{ background: c.bg, color: c.ink, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex justify-center relative overflow-hidden">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-thumb { background: ${c.border}; border-radius: 8px; }
-        .press { transition: transform .12s ease, background .15s ease; }
-        .press:active { transform: scale(0.97); }
-        @keyframes floraUp { from { opacity:0; transform: translateY(8px);} to {opacity:1; transform: translateY(0);} }
-        @keyframes floraPop { from { opacity:0; transform: scale(.96);} to { opacity:1; transform: scale(1);} }
-        .flora-up { animation: floraUp .25s ease both; }
-        .flora-pop { animation: floraPop .18s ease both; }
+        ::-webkit-scrollbar { display: none; }
+        .press { transition: transform .16s cubic-bezier(.34,1.56,.64,1); }
+        .press:active { transform: scale(0.96); }
+        @keyframes floraUp { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
+        @keyframes floraSheet { from { transform: translateY(100%);} to { transform: translateY(0);} }
+        @keyframes floraPop { from { opacity:0; transform: scale(.95);} to { opacity:1; transform: scale(1);} }
+        @keyframes floraPulse { 0%,100% { opacity:1; transform:scale(1);} 50% { opacity:.4; transform:scale(.8);} }
+        .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) both; }
+        .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) both; }
+        .flora-pop { animation: floraPop .2s ease both; }
+        .flora-pulse { animation: floraPulse 1.6s ease-in-out infinite; }
         select { -webkit-appearance: none; appearance: none; }
-        table { border-collapse: collapse; }
-        .kanban-drop:hover { background: ${c.primarySoft} !important; }
       `}</style>
 
-      {/* ---- Desktop sidebar (Bitrix-style dark rail) ---- */}
-      <div className="hidden md:flex flex-col shrink-0" style={{ width: 236, background: c.sidebarBg, minHeight: "100vh" }}>
-        <div className="flex items-center gap-2.5 px-5 py-5">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${c.primary}, ${c.accent})` }}>
-            <span style={{ fontSize: 17 }}>🌿</span>
+
+      {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
+      <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh" }}>
+        <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} />
+
+        <div className="flex-1 overflow-y-auto pb-28 px-4 relative">
+          <div key={detail ? `d-${detail.id}` : tab} className="flora-up">
+            {detail ? (
+              <DetailView detail={detail} ctx={ctx} onBack={() => setDetail(null)} />
+            ) : tab === "home" ? (
+              <HomeTab ctx={ctx} />
+            ) : tab === "properties" ? (
+              <PropertiesTab ctx={ctx} search={search} stageHint={propStageHint} />
+            ) : tab === "customers" ? (
+              <CustomersTab ctx={ctx} search={search} />
+            ) : tab === "calendar" ? (
+              <CalendarTab ctx={ctx} />
+            ) : (
+              <MoreTab ctx={ctx} />
+            )}
           </div>
-          <span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>Flora CRM</span>
         </div>
-        <div className="flex flex-col gap-1 px-3 mt-2">
-          {NAV.map((n) => {
-            const active = view === n.id;
-            const Icon = n.icon;
-            return (
-              <button key={n.id} onClick={() => setView(n.id)} className="press flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-right"
-                style={{ background: active ? "rgba(255,255,255,0.08)" : "transparent" }}>
-                <Icon size={17} color={active ? c.primary : c.sidebarMuted} />
-                <span style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? "#fff" : c.sidebarInk }}>{n.label}</span>
-                {n.id === "calls" && pendingCalls > 0 && <span className="mr-auto" style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: c.accent, borderRadius: 999, padding: "1px 7px" }}>{faDigits(pendingCalls)}</span>}
-                {n.id === "calendar" && todaysAppts > 0 && <span className="mr-auto" style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: c.primary, borderRadius: 999, padding: "1px 7px" }}>{faDigits(todaysAppts)}</span>}
-              </button>
-            );
-          })}
-        </div>
-        <button onClick={() => setModal({ kind: "ai-settings" })} className="press mx-3 mt-auto mb-2 flex items-center gap-2.5 rounded-lg px-3 py-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
-          <Sparkles size={16} color={c.sidebarInk} />
-          <span style={{ fontSize: 12.5, color: c.sidebarInk, fontWeight: 600 }}>تنظیمات هوش مصنوعی</span>
-        </button>
-        <button onClick={() => setDark(!dark)} className="press mx-3 mb-5 flex items-center gap-2.5 rounded-lg px-3 py-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
-          {dark ? <Sun size={16} color={c.sidebarInk} /> : <Moon size={16} color={c.sidebarInk} />}
-          <span style={{ fontSize: 12.5, color: c.sidebarInk, fontWeight: 600 }}>{dark ? "حالت روشن" : "حالت تیره"}</span>
-        </button>
+
+        {tab !== "home" && !detail && (
+          <div className="absolute left-0 right-0 px-4" style={{ top: 66 }}>
+            <SearchBox c={c} value={search} setValue={setSearch} />
+          </div>
+        )}
+
+        {!detail && (
+          <button onClick={() => setSheet("add")} className="press fixed rounded-full flex items-center justify-center"
+            style={{ bottom: 92, left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 58, height: 58, background: c.primary, boxShadow: `0 8px 20px -6px ${c.primary}90` }}>
+            <Plus color="#fff" size={26} strokeWidth={2.4} />
+          </button>
+        )}
+
+        {!detail && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} />}
+
+        {sheet === "add" && <QuickAddSheet ctx={ctx} onClose={() => setSheet(null)} />}
+        {sheet && sheet !== "add" && <FormSheet kind={sheet} ctx={ctx} onClose={() => setSheet(null)} />}
+
+        {mapPicker && <MapPickerModal c={c} onPick={mapPicker.onPick} onClose={() => setMapPicker(null)} />}
+        {lightbox && <Lightbox item={lightbox} onClose={() => setLightbox(null)} />}
+
+        {toast && (
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-40 px-4 py-2.5 rounded-2xl text-sm flora-up z-40" style={{ ...glass(c, 20), color: c.ink, fontWeight: 600 }}>{toast}</div>
+        )}
       </div>
-
-      {/* ---- Mobile drawer ---- */}
-      {drawer && (
-        <div className="fixed inset-0 z-40 flex md:hidden" onClick={() => setDrawer(false)}>
-          <div style={{ background: "rgba(0,0,0,0.5)" }} className="flex-1" />
-          <div onClick={(e) => e.stopPropagation()} className="flex flex-col flora-up" style={{ width: 250, background: c.sidebarBg, minHeight: "100vh" }}>
-            <div className="flex items-center justify-between px-5 py-5">
-              <span style={{ color: "#fff", fontWeight: 800, fontSize: 16 }}>🌿 Flora CRM</span>
-              <button onClick={() => setDrawer(false)}><X size={18} color="#fff" /></button>
-            </div>
-            <div className="flex flex-col gap-1 px-3">
-              {NAV.map((n) => {
-                const active = view === n.id; const Icon = n.icon;
-                return (
-                  <button key={n.id} onClick={() => { setView(n.id); setDrawer(false); }} className="press flex items-center gap-2.5 rounded-lg px-3 py-3 text-right" style={{ background: active ? "rgba(255,255,255,0.08)" : "transparent" }}>
-                    <Icon size={17} color={active ? c.primary : c.sidebarMuted} />
-                    <span style={{ fontSize: 13.5, fontWeight: active ? 700 : 500, color: active ? "#fff" : c.sidebarInk }}>{n.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ---- Main column ---- */}
-      <div className="flex-1 min-w-0 flex flex-col" style={{ minHeight: "100vh" }}>
-        <div className="flex items-center gap-3 px-4 md:px-7 py-4 shrink-0" style={{ background: c.surface, borderBottom: `1px solid ${c.border}` }}>
-          <button onClick={() => setDrawer(true)} className="press md:hidden w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: c.surfaceAlt }}>
-            <Menu size={17} color={c.ink} />
-          </button>
-          <h1 style={{ fontSize: 17, fontWeight: 800 }}>{titles[view]}</h1>
-          <div className="flex-1 max-w-md mr-auto hidden sm:flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: c.surfaceAlt, border: `1px solid ${c.border}` }}>
-            <Search size={15} color={c.muted} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جستجوی سریع..." style={{ background: "transparent", outline: "none", color: c.ink, width: "100%", fontSize: 13, fontFamily: "inherit" }} />
-          </div>
-          <button onClick={() => setModal({ kind: "ai-settings" })} className="press md:hidden w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: c.surfaceAlt }}>
-            <Sparkles size={16} color={c.ink} />
-          </button>
-          <button onClick={() => setDark(!dark)} className="press md:hidden w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: c.surfaceAlt }}>
-            {dark ? <Sun size={16} color={c.ink} /> : <Moon size={16} color={c.ink} />}
-          </button>
-          <button onClick={() => setModal({ kind: "quickadd" })} className="press flex items-center gap-1.5 rounded-lg px-3.5 py-2.5" style={{ background: c.primary }}>
-            <Plus size={15} color="#fff" /> <span style={{ fontSize: 12.5, fontWeight: 700, color: "#fff" }} className="hidden sm:inline">افزودن</span>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 md:p-7">
-          <div key={view} className="flora-up">
-            {view === "dashboard" && <Dashboard ctx={ctx} />}
-            {view === "properties" && <PropertiesView ctx={ctx} search={search} />}
-            {view === "customers" && <CustomersView ctx={ctx} search={search} />}
-            {view === "owners" && <OwnersView ctx={ctx} />}
-            {view === "builders" && <BuildersView ctx={ctx} />}
-            {view === "calendar" && <CalendarView ctx={ctx} />}
-            {view === "calls" && <CallsView ctx={ctx} />}
-          </div>
-        </div>
-      </div>
-
-      {modal && <ModalRouter modal={modal} ctx={ctx} onClose={() => setModal(null)} />}
-      {lightbox && <Lightbox item={lightbox} onClose={() => setLightbox(null)} />}
-      {toast && (
-        <div className="fixed left-1/2 -translate-x-1/2 bottom-6 px-4 py-2.5 rounded-xl text-sm z-50 flora-up" style={{ ...card(c), color: c.ink, fontWeight: 600 }}>
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
 
-// ---------- shared bits ----------
-function SectionTitle({ c, title, action }) {
-  return <div className="flex items-center justify-between mb-3"><h2 style={{ fontSize: 14.5, fontWeight: 700 }}>{title}</h2>{action}</div>;
+// ---------- Top bar / search / nav ----------
+function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet }) {
+  const titles = { home: "داشبورد", properties: "فایل‌های ملکی", customers: "مشتریان", calendar: "تقویم بازدید", more: "بیشتر" };
+  return (
+    <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0 relative z-10">
+      <div>
+        <p style={{ fontSize: 12, color: c.muted }}>خوش آمدی 👋</p>
+        <h1 style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.015em" }}>{titles[tab] || "Flora"}</h1>
+      </div>
+      <div className="flex items-center gap-2">
+        {pendingCalls > 0 && (
+          <div className="flex items-center gap-1.5 rounded-full px-2.5 py-2" style={{ background: c.attnSoft }}>
+            <span className="flora-pulse" style={{ width: 7, height: 7, borderRadius: 99, background: c.attn, display: "inline-block" }} />
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: c.attn }}>{faDigits(pendingCalls)}</span>
+          </div>
+        )}
+        <button onClick={() => setSheet("ai-settings")} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><Sparkles size={16} color={c.ink} /></button>
+        <button onClick={() => setDark(!dark)} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}>{dark ? <Sun size={16} color={c.ink} /> : <Moon size={16} color={c.ink} />}</button>
+      </div>
+    </div>
+  );
 }
-function EmptyLine({ c, text }) { return <p style={{ color: c.muted, fontSize: 12.5, padding: "16px 4px", textAlign: "center" }}>{text}</p>; }
-function Badge({ c, color, bg, children }) { return <span style={{ fontSize: 10.5, fontWeight: 700, color, background: bg, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap" }}>{children}</span>; }
+function SearchBox({ c, value, setValue }) {
+  return (
+    <div className="flex items-center rounded-lg px-3.5 py-2.5" style={glass(c, 26)}>
+      <Search size={16} color={c.muted} />
+      <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="جستجوی سریع..." style={{ background: "transparent", outline: "none", color: c.ink, width: "100%", marginRight: 8, fontSize: 13.5, fontFamily: "inherit" }} />
+      {value && <button onClick={() => setValue("")}><X size={15} color={c.muted} /></button>}
+    </div>
+  );
+}
+function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts }) {
+  const items = [
+    { id: "home", label: "خانه", icon: Home },
+    { id: "properties", label: "فایل‌ها", icon: Building2 },
+    { id: "customers", label: "مشتریان", icon: Users },
+    { id: "calendar", label: "تقویم", icon: CalendarDays, dot: todaysAppts > 0 },
+    { id: "more", label: "بیشتر", icon: MoreHorizontal, dot: pendingCalls > 0 },
+  ];
+  return (
+    <div className="fixed px-3 pb-3 pt-2" style={{ bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, zIndex: 20 }}>
+      <div className="flex justify-between items-center rounded-2xl px-2 py-2" style={glass(c)}>
+        {items.map((it) => {
+          const active = tab === it.id; const Icon = it.icon;
+          return (
+            <button key={it.id} onClick={() => setTab(it.id)} className="press relative flex flex-col items-center gap-1 flex-1 py-1.5 rounded-2xl" style={{ background: active ? c.primarySoft : "transparent" }}>
+              <div className="relative">
+                <Icon size={19} color={active ? c.primary : c.muted} strokeWidth={active ? 2.5 : 2} />
+                {it.dot && <span className="flora-pulse" style={{ position: "absolute", top: -3, left: -3, width: 7, height: 7, borderRadius: 99, background: c.attn }} />}
+              </div>
+              <span style={{ fontSize: 10, color: active ? c.primary : c.muted, fontWeight: active ? 700 : 500 }}>{it.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+function SectionHeader({ c, title }) { return <div className="flex items-center justify-between mt-6 mb-2.5"><h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2></div>; }
+function EmptyLine({ c, text }) { return <p style={{ color: c.muted, fontSize: 12.5, padding: "10px 2px" }}>{text}</p>; }
+function StageBadge({ c, stage }) {
+  if (stage === "فروخته شد") return <span style={{ fontSize: 10, fontWeight: 700, color: c.danger, background: c.dangerSoft, padding: "3px 9px", borderRadius: 999 }}>فروخته شد</span>;
+  if (stage === "در حال مذاکره") return <span style={{ fontSize: 10, fontWeight: 700, color: c.attn, background: c.attnSoft, padding: "3px 9px", borderRadius: 999 }}>مذاکره</span>;
+  return <span style={{ fontSize: 10, fontWeight: 700, color: c.success, background: c.successSoft, padding: "3px 9px", borderRadius: 999 }}>فعال</span>;
+}
 
 // ---------- Dashboard ----------
-function Dashboard({ ctx }) {
-  const { c, properties, customers, appointments, calls, setModal, setView } = ctx;
+function HomeTab({ ctx }) {
+  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties } = ctx;
+  const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
   const stats = [
-    { label: "فایل فعال", value: properties.filter((p) => p.stage !== "فروخته شد").length, icon: Building2, color: c.primary },
-    { label: "مشتری", value: customers.length, icon: Users, color: c.primary },
-    { label: "بازدید امروز", value: appointments.filter((a) => a.date === todayISO()).length, icon: CalendarDays, color: c.accent },
-    { label: "تماس در انتظار", value: calls.filter((cl) => cl.status !== "انجام‌شد").length, icon: PhoneCall, color: c.accent },
+    { label: "فایل فعال", value: activeProps, icon: Building2, color: c.primary, onClick: () => goProperties("فعال") },
+    { label: "مشتری", value: customers.length, icon: Users, color: c.primary, onClick: () => setTab("customers") },
+    { label: "بازدید امروز", value: appointments.filter((a) => a.date === todayISO()).length, icon: CalendarDays, color: c.attn, onClick: () => setTab("calendar") },
+    { label: "تماس در انتظار", value: calls.filter((cl) => cl.status !== "انجام‌شد").length, icon: PhoneCall, color: c.attn, onClick: () => setTab("more") },
   ];
   const feed = [
     ...appointments.map((a) => ({ type: "appt", date: a.date, ...a })),
     ...calls.map((cl) => ({ type: "call", date: cl.date, ...cl })),
-  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
 
   return (
-    <div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div className="pt-3">
+      <div className="grid grid-cols-2 gap-3">
         {stats.map((s, i) => (
-          <div key={i} className="p-4" style={card(c)}>
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3" style={{ background: s.color + "1A" }}><s.icon size={17} color={s.color} /></div>
+          <button key={i} onClick={s.onClick} className="press text-right rounded-xl p-4" style={glass(c, 24)}>
+            <div className="w-9 h-9 rounded-2xl flex items-center justify-center mb-3" style={{ background: s.color + "22" }}><s.icon size={17} color={s.color} /></div>
             <p style={{ fontSize: 22, fontWeight: 800 }}>{faDigits(s.value)}</p>
             <p style={{ fontSize: 12, color: c.muted }}>{s.label}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2">
-          <SectionTitle c={c} title="آخرین فایل‌های ملکی" action={<button onClick={() => setView("properties")} style={{ fontSize: 12, color: c.primary, fontWeight: 700 }}>مشاهده همه</button>} />
-          <div className="flex flex-col gap-2">
-            {properties.slice(0, 5).map((p) => <PropertyListItem key={p.id} p={p} ctx={ctx} />)}
-          </div>
-        </div>
-        <div>
-          <SectionTitle c={c} title="فعالیت‌های اخیر" />
-          <div style={card(c)} className="p-3">
-            {feed.length === 0 && <EmptyLine c={c} text="فعالیتی ثبت نشده" />}
-            <div className="flex flex-col">
-              {feed.map((f, i) => (
-                <div key={i} className="flex items-center gap-2.5 py-2.5" style={{ borderBottom: i < feed.length - 1 ? `1px solid ${c.border}` : "none" }}>
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: f.type === "appt" ? c.primarySoft : c.accentSoft }}>
-                    {f.type === "appt" ? <CalendarDays size={13} color={c.primary} /> : <Phone size={13} color={c.accent} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.notes || (f.type === "appt" ? "بازدید" : "تماس")}</p>
-                    <p style={{ fontSize: 10.5, color: c.muted }}>{fmtJalali(f.date)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <button onClick={() => setModal({ kind: "quickadd" })} className="press w-full mt-3 rounded-lg py-2.5 flex items-center justify-center gap-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}>
-            <Plus size={14} /> افزودن سریع
-          </button>
-        </div>
+      <SectionHeader c={c} title="فعالیت‌های اخیر" />
+      <div className="flex flex-col gap-2">
+        {feed.map((f, i) => f.type === "appt" ? <ActivityApptRow key={i} a={f} ctx={ctx} /> : <ActivityCallRow key={i} cl={f} c={c} />)}
+        {feed.length === 0 && <EmptyLine c={c} text="فعالیتی ثبت نشده" />}
+      </div>
+
+      <SectionHeader c={c} title="جدیدترین فایل‌ها" />
+      <div className="flex flex-col gap-2 mb-6">
+        {properties.slice(0, 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
       </div>
     </div>
   );
 }
 
-function PropertyListItem({ p, ctx }) {
-  const { c, setModal } = ctx;
-  const Icon = typeIcon(p.type);
-  const sold = p.stage === "فروخته شد";
+function ActivityApptRow({ a, ctx }) {
+  const { c, properties, setAppointments, scheduleReminder } = ctx;
+  const p = properties.find((x) => x.id === a.propertyId);
   return (
-    <button onClick={() => setModal({ kind: "property-detail", id: p.id })} className="press w-full text-right flex items-center gap-3 p-3" style={{ ...card(c), opacity: sold ? 0.65 : 1 }}>
-      <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.primarySoft }}><Icon size={17} color={c.primary} /></div>
+    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
+      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><CalendarDays size={14} color={c.primary} /></div>
+      <div className="flex-1 min-w-0">
+        <p style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.title || a.customerName || "بازدید"}</p>
+        <p style={{ fontSize: 10.5, color: c.muted }}>{a.customerName ? `با ${a.customerName} · ` : ""}{fmtJalali(a.date)}</p>
+      </div>
+      <input type="time" value={a.time} onChange={(e) => setAppointments((prev) => prev.map((x) => x.id === a.id ? { ...x, time: e.target.value } : x))}
+        style={{ background: c.surface2, border: "none", borderRadius: 8, padding: "5px 7px", fontSize: 11, color: c.ink, width: 72 }} />
+      <button onClick={() => scheduleReminder(a, p?.title)} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><Bell size={14} color={c.attn} /></button>
+    </div>
+  );
+}
+function ActivityCallRow({ cl, c }) {
+  return (
+    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
+      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><PhoneCall size={14} color={c.attn} /></div>
+      <div className="flex-1 min-w-0">
+        <p style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cl.customerName || "تماس"}</p>
+        <p style={{ fontSize: 10.5, color: c.muted }}>{cl.notes || cl.status} · {fmtJalali(cl.date)}</p>
+      </div>
+    </div>
+  );
+}
+
+function PropertyMiniCard({ p, c, onClick }) {
+  const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
+  return (
+    <button onClick={onClick} className="press w-full text-right rounded-xl p-3 flex items-center gap-3" style={{ ...glass(c, 22), opacity: sold ? 0.6 : 1 }}>
+      <div className="rounded-2xl flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 52, height: 52, background: c.primarySoft }}>
+        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={20} color={c.primary} />}
+      </div>
       <div className="flex-1 min-w-0">
         <p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: sold ? "line-through" : "none" }}>{p.title}</p>
-        <p style={{ fontSize: 11, color: c.muted }}>{faDigits(p.area)} متر · {p.deal} · {fmtToman(p.price)}</p>
+        <p style={{ fontSize: 11, color: c.muted }}>{faDigits(p.area)} متر · {fmtToman(p.price)}</p>
       </div>
       <StageBadge c={c} stage={p.stage} />
     </button>
   );
 }
-function StageBadge({ c, stage }) {
-  if (stage === "فروخته شد") return <Badge c={c} color={c.danger} bg={c.dangerSoft}>فروخته شد</Badge>;
-  if (stage === "در حال مذاکره") return <Badge c={c} color={c.accent} bg={c.accentSoft}>مذاکره</Badge>;
-  return <Badge c={c} color={c.success} bg={c.successSoft}>فعال</Badge>;
-}
 
-// ---------- Properties view (table + kanban) ----------
-function PropertiesView({ ctx, search }) {
-  const { c, properties, setModal } = ctx;
-  const [mode, setMode] = useState("table");
+// ---------- Properties tab: big list + pipeline ----------
+function PropertiesTab({ ctx, search, stageHint }) {
+  const { c, properties, setDetail } = ctx;
+  const [mode, setMode] = useState("list");
   const [dealFilter, setDealFilter] = useState("همه");
+  const [stageFilter, setStageFilter] = useState(stageHint || "همه");
   const [sortAsc, setSortAsc] = useState(true);
-  const [sortKey, setSortKey] = useState("price");
 
   const filtered = useMemo(() => {
     let out = properties;
     if (search) { const q = search.toLowerCase(); out = out.filter((p) => Object.values(p).some((v) => String(v).toLowerCase().includes(q))); }
     if (dealFilter !== "همه") out = out.filter((p) => p.deal === dealFilter);
-    out = [...out].sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
-      const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv));
-      return sortAsc ? cmp : -cmp;
-    });
-    return out;
-  }, [properties, search, dealFilter, sortAsc, sortKey]);
+    if (stageFilter !== "همه") out = out.filter((p) => p.stage === stageFilter);
+    return [...out].sort((a, b) => (sortAsc ? a.price - b.price : b.price - a.price));
+  }, [properties, search, dealFilter, stageFilter, sortAsc]);
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="flex items-center rounded-lg p-1 gap-1" style={{ background: c.surfaceAlt, border: `1px solid ${c.border}` }}>
-          <button onClick={() => setMode("table")} className="press flex items-center gap-1.5 rounded-md px-3 py-1.5" style={{ background: mode === "table" ? c.surface : "transparent", boxShadow: mode === "table" ? "0 1px 2px rgba(16,24,40,0.08)" : "none" }}>
-            <Table2 size={13} color={mode === "table" ? c.primary : c.muted} /> <span style={{ fontSize: 11.5, fontWeight: 700, color: mode === "table" ? c.primary : c.muted }}>جدول</span>
-          </button>
-          <button onClick={() => setMode("kanban")} className="press flex items-center gap-1.5 rounded-md px-3 py-1.5" style={{ background: mode === "kanban" ? c.surface : "transparent", boxShadow: mode === "kanban" ? "0 1px 2px rgba(16,24,40,0.08)" : "none" }}>
-            <LayoutGrid size={13} color={mode === "kanban" ? c.primary : c.muted} /> <span style={{ fontSize: 11.5, fontWeight: 700, color: mode === "kanban" ? c.primary : c.muted }}>پایپ‌لاین</span>
-          </button>
+    <div className="pt-16">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center rounded-full p-1 gap-1" style={glass(c, 20)}>
+          <button onClick={() => setMode("list")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "list" ? c.primary : "transparent" }}><LayoutGrid size={13} color={mode === "list" ? "#fff" : c.muted} /></button>
+          <button onClick={() => setMode("pipeline")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "pipeline" ? c.primary : "transparent" }}><Columns3 size={13} color={mode === "pipeline" ? "#fff" : c.muted} /></button>
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {DEAL_FILTERS.map((d) => {
-            const active = dealFilter === d;
-            return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={{ background: active ? c.primary : c.surfaceAlt, border: `1px solid ${active ? c.primary : c.border}` }}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted }}>{d}</span></button>;
-          })}
-        </div>
-        <button onClick={() => { setSortKey("price"); setSortAsc((s) => !s); }} className="press flex items-center gap-1.5 rounded-full px-3 py-1.5 mr-auto" style={{ background: c.surfaceAlt, border: `1px solid ${c.border}` }}>
-          <ArrowUpDown size={12} color={c.primary} /> <span style={{ fontSize: 11, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{sortAsc ? "ارزان‌ترین اول" : "گران‌ترین اول"}</span>
+        <button onClick={() => setSortAsc((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2 mr-auto" style={glass(c, 20)}>
+          <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{sortAsc ? "ارزان‌ترین" : "گران‌ترین"}</span>
         </button>
       </div>
-
-      {mode === "table" ? <PropertiesTable rows={filtered} ctx={ctx} sortKey={sortKey} sortAsc={sortAsc} setSortKey={setSortKey} setSortAsc={setSortAsc} /> : <PropertiesKanban rows={filtered} ctx={ctx} />}
-    </div>
-  );
-}
-
-function Th({ c, label, active, dir, onClick }) {
-  return (
-    <th onClick={onClick} style={{ padding: "10px 14px", fontSize: 11.5, color: active ? c.primary : c.muted, fontWeight: 700, textAlign: "right", cursor: "pointer", whiteSpace: "nowrap" }}>
-      <span className="flex items-center gap-1">{label} {active && (dir ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}</span>
-    </th>
-  );
-}
-
-function PropertiesTable({ rows, ctx, sortKey, sortAsc, setSortKey, setSortAsc }) {
-  const { c, setModal } = ctx;
-  const setSort = (k) => { if (sortKey === k) setSortAsc((s) => !s); else { setSortKey(k); setSortAsc(true); } };
-  return (
-    <div style={{ ...card(c), overflow: "hidden" }}>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead style={{ background: c.surfaceAlt, borderBottom: `1px solid ${c.border}` }}>
-            <tr>
-              <Th c={c} label="عنوان" active={sortKey === "title"} dir={sortAsc} onClick={() => setSort("title")} />
-              <Th c={c} label="نوع معامله" active={sortKey === "deal"} dir={sortAsc} onClick={() => setSort("deal")} />
-              <Th c={c} label="متراژ" active={sortKey === "area"} dir={sortAsc} onClick={() => setSort("area")} />
-              <Th c={c} label="قیمت کل" active={sortKey === "price"} dir={sortAsc} onClick={() => setSort("price")} />
-              <Th c={c} label="وضعیت" active={sortKey === "stage"} dir={sortAsc} onClick={() => setSort("stage")} />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => {
-              const Icon = typeIcon(p.type);
-              return (
-                <tr key={p.id} onClick={() => setModal({ kind: "property-detail", id: p.id })} className="press" style={{ borderBottom: `1px solid ${c.border}`, cursor: "pointer" }}>
-                  <td style={{ padding: "12px 14px" }}>
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Icon size={14} color={c.primary} /></div>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, textDecoration: p.stage === "فروخته شد" ? "line-through" : "none" }}>{p.title}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: "12px 14px", fontSize: 12, color: c.muted, whiteSpace: "nowrap" }}>{p.deal}</td>
-                  <td style={{ padding: "12px 14px", fontSize: 12, color: c.muted, whiteSpace: "nowrap" }}>{faDigits(p.area)} متر</td>
-                  <td style={{ padding: "12px 14px", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>{fmtToman(p.price)}</td>
-                  <td style={{ padding: "12px 14px" }}><StageBadge c={c} stage={p.stage} /></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {rows.length === 0 && <EmptyLine c={c} text="فایلی پیدا نشد" />}
+      <div className="flex items-center gap-2 mb-2 overflow-x-auto pb-1">
+        {STAGE_FILTERS.map((s) => { const active = stageFilter === s; return <button key={s} onClick={() => setStageFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.attn } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span></button>; })}
       </div>
+      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
+        {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
+      </div>
+
+      {mode === "list" ? (
+        <div className="grid grid-cols-2 gap-3 pb-4">
+          {filtered.map((p) => <PropertyGridCard key={p.id} p={p} ctx={ctx} onClick={() => setDetail({ type: "property", id: p.id })} />)}
+          {filtered.length === 0 && <div className="col-span-2"><EmptyLine c={c} text="فایلی پیدا نشد" /></div>}
+        </div>
+      ) : (
+        <PipelineBoard rows={filtered} ctx={ctx} />
+      )}
     </div>
   );
 }
 
-function PropertiesKanban({ rows, ctx }) {
-  const { c, setProperties, setModal, notify } = ctx;
-  const dragId = useRef(null);
-  const onDrop = (stage) => {
-    if (!dragId.current) return;
-    setProperties((prev) => prev.map((p) => p.id === dragId.current ? { ...p, stage } : p));
-    notify("مرحله فایل بروزرسانی شد");
-    dragId.current = null;
+function PropertyGridCard({ p, ctx, onClick }) {
+  const { c } = ctx;
+  const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
+  const meta = [`${faDigits(p.area)} متر`, `${faDigits(p.rooms)} خواب`].join(" · ");
+  return (
+    <button onClick={onClick} className="press text-right rounded-xl overflow-hidden" style={glass(c)}>
+      <div className="relative w-full" style={{ aspectRatio: "4 / 3", background: c.primarySoft }}>
+        {cover ? (
+          cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center"><Icon size={30} color={c.primary} style={{ opacity: 0.45 }} /></div>
+        )}
+        <span className="absolute top-2 right-2" style={{ fontSize: 9.5, fontWeight: 700, color: "#fff", background: "rgba(15,20,35,0.72)", padding: "3px 8px", borderRadius: 6 }}>{p.deal}</span>
+        {sold && (
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(15,20,35,0.55)" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: c.danger, padding: "4px 10px", borderRadius: 6 }}>فروخته شد</span>
+          </div>
+        )}
+      </div>
+      <div className="p-2.5">
+        <p style={{ fontSize: 13.5, fontWeight: 800, color: c.primary }}>{fmtToman(p.price)}</p>
+        <p style={{ fontSize: 11.5, fontWeight: 600, marginTop: 3, color: c.ink, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.4, minHeight: 30 }}>{p.title}</p>
+        <p style={{ fontSize: 10.5, color: c.muted, marginTop: 4 }}>{meta}</p>
+      </div>
+    </button>
+  );
+}
+
+function PipelineBoard({ rows, ctx }) {
+  const { c, setProperties, setDetail, notify } = ctx;
+  const advance = (p) => {
+    const idx = STAGES.indexOf(p.stage);
+    const next = STAGES[Math.min(idx + 1, STAGES.length - 1)];
+    setProperties((prev) => prev.map((x) => x.id === p.id ? { ...x, stage: next } : x));
+    notify(`مرحله به «${next}» تغییر کرد`);
   };
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      {STAGES.map((stage) => (
-        <div key={stage} onDragOver={(e) => e.preventDefault()} onDrop={() => onDrop(stage)} className="kanban-drop rounded-xl p-3" style={{ background: c.surfaceAlt, border: `1px dashed ${c.border}`, minHeight: 160 }}>
-          <div className="flex items-center justify-between mb-3 px-1">
-            <span style={{ fontSize: 12.5, fontWeight: 700 }}>{stage}</span>
-            <span style={{ fontSize: 11, color: c.muted }}>{faDigits(rows.filter((p) => p.stage === stage).length)}</span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {rows.filter((p) => p.stage === stage).map((p) => {
-              const Icon = typeIcon(p.type);
-              return (
-                <div key={p.id} draggable onDragStart={() => (dragId.current = p.id)} onClick={() => setModal({ kind: "property-detail", id: p.id })}
-                  className="press p-3 cursor-grab" style={card(c)}>
-                  <div className="flex items-center gap-2 mb-1.5"><Icon size={14} color={c.primary} /><span style={{ fontSize: 12, fontWeight: 700 }}>{p.title}</span></div>
-                  <p style={{ fontSize: 11, color: c.muted }}>{p.deal} · {faDigits(p.area)} متر</p>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: c.primary, marginTop: 4 }}>{fmtToman(p.price)}</p>
-                </div>
-              );
-            })}
-            {rows.filter((p) => p.stage === stage).length === 0 && <p style={{ fontSize: 11, color: c.muted, textAlign: "center", padding: "10px 0" }}>خالی</p>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ---------- Customers view ----------
-function CustomersView({ ctx, search }) {
-  const { c, customers, setModal } = ctx;
-  const [sortKey, setSortKey] = useState("name");
-  const [sortAsc, setSortAsc] = useState(true);
-  const rows = useMemo(() => {
-    let out = customers;
-    if (search) { const q = search.toLowerCase(); out = out.filter((cu) => Object.values(cu).some((v) => String(v).toLowerCase().includes(q))); }
-    return [...out].sort((a, b) => { const av = a[sortKey], bv = b[sortKey]; const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv)); return sortAsc ? cmp : -cmp; });
-  }, [customers, search, sortKey, sortAsc]);
-  const setSort = (k) => { if (sortKey === k) setSortAsc((s) => !s); else { setSortKey(k); setSortAsc(true); } };
-
-  return (
-    <div style={{ ...card(c), overflow: "hidden" }}>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead style={{ background: c.surfaceAlt, borderBottom: `1px solid ${c.border}` }}>
-            <tr>
-              <Th c={c} label="نام" active={sortKey === "name"} dir={sortAsc} onClick={() => setSort("name")} />
-              <Th c={c} label="موبایل" active={sortKey === "phone"} dir={sortAsc} onClick={() => setSort("phone")} />
-              <Th c={c} label="نیاز" active={false} dir={true} onClick={() => {}} />
-              <Th c={c} label="بودجه" active={sortKey === "budget"} dir={sortAsc} onClick={() => setSort("budget")} />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((cu) => (
-              <tr key={cu.id} onClick={() => setModal({ kind: "customer-detail", id: cu.id })} className="press" style={{ borderBottom: `1px solid ${c.border}`, cursor: "pointer" }}>
-                <td style={{ padding: "12px 14px" }}>
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><UserCircle2 size={16} color={c.primary} /></div>
-                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{cu.name}</span>
+    <div className="flex gap-3 overflow-x-auto pb-4" style={{ scrollSnapType: "x proximity" }}>
+      {STAGES.map((stage) => {
+        const items = rows.filter((p) => p.stage === stage);
+        return (
+          <div key={stage} className="shrink-0 rounded-xl p-3" style={{ ...glass(c, 24), width: 260, scrollSnapAlign: "start" }}>
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span style={{ fontSize: 13, fontWeight: 800 }}>{stage}</span>
+              <span style={{ fontSize: 11, color: c.muted }}>{faDigits(items.length)}</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              {items.map((p) => {
+                const cover = p.media && p.media[0]; const Icon = typeIcon(p.type);
+                return (
+                  <div key={p.id} className="rounded-lg overflow-hidden" style={glass(c, 22)}>
+                    <button onClick={() => setDetail({ type: "property", id: p.id })} className="press w-full text-right">
+                      <div className="w-full" style={{ height: 90, background: c.primarySoft }}>
+                        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} style={{ opacity: 0.5 }} /></div>}
+                      </div>
+                      <div className="p-2.5">
+                        <p style={{ fontSize: 12.5, fontWeight: 700 }}>{p.title}</p>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: c.primary, marginTop: 2 }}>{fmtToman(p.price)}</p>
+                      </div>
+                    </button>
+                    {stage !== "فروخته شد" && (
+                      <button onClick={() => advance(p)} className="press w-full flex items-center justify-center gap-1.5 py-2" style={{ background: c.primarySoft, color: c.primary, fontSize: 11, fontWeight: 700 }}>
+                        <ChevronLeft size={13} /> حرکت به مرحله بعد
+                      </button>
+                    )}
                   </div>
-                </td>
-                <td style={{ padding: "12px 14px", fontSize: 12, color: c.muted }} dir="ltr">{cu.phone}</td>
-                <td style={{ padding: "12px 14px", fontSize: 12, color: c.muted, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cu.need}</td>
-                <td style={{ padding: "12px 14px", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>{fmtToman(cu.budget)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
-      </div>
+                );
+              })}
+              {items.length === 0 && <p style={{ fontSize: 11, color: c.muted, textAlign: "center", padding: "14px 0" }}>خالی</p>}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// ---------- Owners / Builders ----------
-function OwnersView({ ctx }) {
-  const { c, owners, setModal } = ctx;
+// ---------- Customers tab ----------
+function CustomersTab({ ctx, search }) {
+  const { c, customers, setDetail } = ctx;
+  const filtered = useMemo(() => {
+    if (!search) return customers;
+    const q = search.toLowerCase();
+    return customers.filter((cu) => Object.values(cu).some((v) => String(v).toLowerCase().includes(q)));
+  }, [customers, search]);
   return (
-    <div>
-      <SectionTitle c={c} title="مالکین" action={<button onClick={() => setModal({ kind: "owner-form" })} className="press flex items-center gap-1.5 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12 }}><Plus size={13} /> مالک جدید</button>} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {owners.map((o) => (
-          <div key={o.id} className="p-4 flex items-center gap-3" style={card(c)}>
-            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><UserCircle2 size={19} color={c.primary} /></div>
-            <div><p style={{ fontSize: 13, fontWeight: 700 }}>{o.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{o.phone}</p></div>
-          </div>
-        ))}
-        {owners.length === 0 && <EmptyLine c={c} text="مالکی ثبت نشده" />}
-      </div>
-    </div>
-  );
-}
-function BuildersView({ ctx }) {
-  const { c, builders, setModal } = ctx;
-  return (
-    <div>
-      <SectionTitle c={c} title="سازندگان" action={<button onClick={() => setModal({ kind: "builder-form" })} className="press flex items-center gap-1.5 rounded-lg px-3 py-1.5" style={{ background: c.accentSoft, color: c.accent, fontWeight: 700, fontSize: 12 }}><Plus size={13} /> سازنده جدید</button>} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {builders.map((b) => (
-          <div key={b.id} className="p-4 flex items-center gap-3" style={card(c)}>
-            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: c.accentSoft }}><Hammer size={17} color={c.accent} /></div>
-            <div><p style={{ fontSize: 13, fontWeight: 700 }}>{b.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
-          </div>
-        ))}
-        {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
-      </div>
+    <div className="pt-16 flex flex-col gap-2">
+      {filtered.map((cu) => (
+        <button key={cu.id} onClick={() => setDetail({ type: "customer", id: cu.id })} className="press w-full text-right rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
+          <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 44, height: 44, background: c.primarySoft }}><UserCircle2 size={22} color={c.primary} /></div>
+          <div className="flex-1 min-w-0"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{cu.name}</p><p style={{ fontSize: 11.5, color: c.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.need}</p></div>
+          <ChevronLeft size={16} color={c.muted} />
+        </button>
+      ))}
+      {filtered.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
     </div>
   );
 }
 
-// ---------- Calendar / Calls ----------
-function CalendarView({ ctx }) {
-  const { c, appointments, properties, customers, setModal } = ctx;
+// ---------- Calendar tab ----------
+function CalendarTab({ ctx }) {
+  const { c, appointments } = ctx;
   const sorted = [...appointments].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const grouped = sorted.reduce((acc, a) => { (acc[a.date] ||= []).push(a); return acc; }, {});
   return (
-    <div>
-      <SectionTitle c={c} title="بازدیدهای برنامه‌ریزی‌شده" action={<button onClick={() => setModal({ kind: "appointment-form" })} className="press flex items-center gap-1.5 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12 }}><Plus size={13} /> بازدید جدید</button>} />
+    <div className="pt-16">
       {Object.keys(grouped).length === 0 && <EmptyLine c={c} text="بازدیدی ثبت نشده" />}
       {Object.entries(grouped).map(([date, items]) => (
         <div key={date} className="mb-4">
           <p style={{ fontSize: 12, color: c.muted, marginBottom: 8, fontWeight: 700 }}>{date === todayISO() ? "امروز" : fmtJalali(date)}</p>
-          <div className="flex flex-col gap-2">
-            {items.map((a) => {
-              const p = properties.find((x) => x.id === a.propertyId); const cu = customers.find((x) => x.id === a.customerId);
-              return (
-                <div key={a.id} className="p-3.5 flex items-center gap-3" style={card(c)}>
-                  <div className="rounded-lg flex flex-col items-center justify-center shrink-0" style={{ width: 44, height: 44, background: c.primarySoft }}><span style={{ fontSize: 10, color: c.primary, fontWeight: 700 }}>{a.time}</span></div>
-                  <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.title || "فایل حذف‌شده"}</p><p style={{ fontSize: 11.5, color: c.muted }}>با {cu?.name || "—"} {a.notes ? `· ${a.notes}` : ""}</p></div>
-                </div>
-              );
-            })}
-          </div>
+          <div className="flex flex-col gap-2">{items.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} />)}</div>
         </div>
       ))}
     </div>
   );
 }
 
-function CallsView({ ctx }) {
-  const { c, calls, customers, setCalls, setModal } = ctx;
+// ---------- More tab ----------
+function MoreTab({ ctx }) {
+  const { c, owners, builders, calls, setSheet, setCalls, exportBackup, importBackup } = ctx;
+  const importRef = useRef(null);
   return (
-    <div>
-      <SectionTitle c={c} title="پیگیری تماس‌ها" action={<button onClick={() => setModal({ kind: "call-form" })} className="press flex items-center gap-1.5 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12 }}><Plus size={13} /> تماس جدید</button>} />
-      <div className="flex flex-col gap-2">
+    <div className="pt-3">
+      <SectionHeader c={c} title="پیگیری تماس‌ها" />
+      <div className="flex flex-col gap-2 mb-2">
         {calls.map((cl) => {
           const done = cl.status === "انجام‌شد";
           return (
-            <div key={cl.id} className="p-3.5 flex items-center gap-3" style={card(c)}>
+            <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
               <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))}>
-                <CheckCircle2 size={22} color={done ? c.success : c.accent} fill={done ? c.success : "none"} />
+                <CheckCircle2 size={22} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
               </button>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontSize: 13, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName || "—"}</p>
-                <p style={{ fontSize: 11.5, color: c.muted }}>{cl.notes}</p>
-              </div>
-              <span style={{ fontSize: 10.5, color: done ? c.muted : c.accent, fontWeight: done ? 400 : 700 }}>{fmtJalali(cl.date)}</span>
+              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p><p style={{ fontSize: 11.5, color: c.muted }}>{cl.notes}</p></div>
+              <span style={{ fontSize: 10.5, color: done ? c.muted : c.attn, fontWeight: done ? 400 : 700 }}>{fmtJalali(cl.date)}</span>
             </div>
           );
         })}
         {calls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
       </div>
+      <AddLink c={c} label="ثبت تماس جدید" onClick={() => setSheet("call")} />
+
+      <SectionHeader c={c} title="مالکین" />
+      <div className="flex flex-col gap-2 mb-2">
+        {owners.map((o) => (
+          <div key={o.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
+            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.primarySoft }}><UserCircle2 size={19} color={c.primary} /></div>
+            <div className="flex-1"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{o.phone}</p></div>
+          </div>
+        ))}
+        {owners.length === 0 && <EmptyLine c={c} text="مالکی ثبت نشده" />}
+      </div>
+      <AddLink c={c} label="ثبت مالک جدید" onClick={() => setSheet("owner")} />
+
+      <SectionHeader c={c} title="سازندگان" />
+      <div className="flex flex-col gap-2 mb-2">
+        {builders.map((b) => (
+          <div key={b.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
+            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.attnSoft }}><Hammer size={17} color={c.attn} /></div>
+            <div className="flex-1"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
+          </div>
+        ))}
+        {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
+      </div>
+      <AddLink c={c} label="ثبت سازنده جدید" onClick={() => setSheet("builder")} />
+
+      <SectionHeader c={c} title="پشتیبان‌گیری" />
+      <div className="flex gap-2 mb-8">
+        <button onClick={exportBackup} className="press flex-1 rounded-lg py-3 flex items-center justify-center gap-2" style={glass(c, 22)}>
+          <Download size={15} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>دانلود بکاپ</span>
+        </button>
+        <button onClick={() => importRef.current?.click()} className="press flex-1 rounded-lg py-3 flex items-center justify-center gap-2" style={glass(c, 22)}>
+          <Upload size={15} color={c.attn} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.attn }}>بازیابی بکاپ</span>
+        </button>
+        <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
+      </div>
+    </div>
+  );
+}
+function AddLink({ c, label, onClick }) {
+  return <button onClick={onClick} className="press flex items-center gap-1.5 mb-6" style={{ color: c.primary, fontSize: 12.5, fontWeight: 700 }}><Plus size={14} /> {label}</button>;
+}
+
+// ---------- Detail view (full screen) ----------
+function DetailView({ detail, ctx, onBack }) {
+  if (detail.type === "property") return <PropertyDetail id={detail.id} ctx={ctx} onBack={onBack} />;
+  if (detail.type === "customer") return <CustomerDetail id={detail.id} ctx={ctx} onBack={onBack} />;
+  return null;
+}
+function BackHeader({ c, title, onBack, onDelete }) {
+  return (
+    <div className="flex items-center justify-between pt-2 pb-4">
+      <button onClick={onBack} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><ArrowRight size={16} color={c.ink} /></button>
+      <h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2>
+      {onDelete ? <button onClick={onDelete} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Trash2 size={15} color={c.danger} /></button> : <div style={{ width: 36 }} />}
     </div>
   );
 }
 
-// ---------- Media gallery & lightbox ----------
 function MediaGallery({ c, media, onAdd, onRemove, onView, uploading }) {
   const inputRef = useRef(null);
   return (
     <div className="flex gap-2.5 overflow-x-auto pb-1">
-      <button onClick={() => inputRef.current?.click()} className="press shrink-0 rounded-xl flex flex-col items-center justify-center gap-1" style={{ width: 80, height: 80, ...card(c) }}>
-        {uploading ? <Loader2 size={17} color={c.primary} className="animate-spin" /> : <ImagePlus size={17} color={c.primary} />}
-        <span style={{ fontSize: 9.5, color: c.primary, fontWeight: 700 }}>افزودن</span>
+      <button onClick={() => inputRef.current?.click()} className="press shrink-0 rounded-lg flex flex-col items-center justify-center gap-1" style={{ width: 84, height: 84, ...glass(c, 20) }}>
+        {uploading ? <Loader2 size={18} color={c.primary} className="animate-spin" /> : <ImagePlus size={18} color={c.primary} />}
+        <span style={{ fontSize: 10, color: c.primary, fontWeight: 700 }}>افزودن</span>
       </button>
       <input ref={inputRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files?.length) onAdd(e.target.files); e.target.value = ""; }} />
       {media.map((m) => (
-        <div key={m.id} className="relative shrink-0 rounded-xl overflow-hidden" style={{ width: 80, height: 80, border: `1px solid ${c.border}` }}>
+        <div key={m.id} className="relative shrink-0 rounded-lg overflow-hidden" style={{ width: 84, height: 84 }}>
           <button onClick={() => onView(m)} className="w-full h-full">
             {m.type === "image" ? <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
-              <div className="relative w-full h-full">
-                <video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={16} color="#fff" fill="#fff" /></div>
-              </div>
+              <div className="relative w-full h-full"><video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} /><div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={18} color="#fff" fill="#fff" /></div></div>
             )}
           </button>
           <button onClick={() => onRemove(m.id)} className="press absolute top-1 left-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }}><X size={11} color="#fff" /></button>
@@ -723,204 +734,16 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading }) {
 }
 function Lightbox({ item, onClose }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.9)" }} onClick={onClose}>
+    <div className="absolute inset-0 z-50 flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.9)" }} onClick={onClose}>
       <button onClick={onClose} className="absolute top-5 left-5 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
-      {item.type === "image" ? <img src={item.url} alt="" style={{ maxWidth: "92%", maxHeight: "85%", borderRadius: 10, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} /> : <video src={item.url} controls autoPlay style={{ maxWidth: "92%", maxHeight: "85%", borderRadius: 10 }} onClick={(e) => e.stopPropagation()} />}
+      {item.type === "image" ? <img src={item.url} alt="" style={{ maxWidth: "92%", maxHeight: "80%", borderRadius: 18, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} /> : <video src={item.url} controls autoPlay style={{ maxWidth: "92%", maxHeight: "80%", borderRadius: 18 }} onClick={(e) => e.stopPropagation()} />}
     </div>
   );
 }
+function InfoChip({ c, icon: Icon, label }) { return <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.surface2 }}><Icon size={12} color={c.muted} /><span style={{ fontSize: 11, color: c.ink }}>{label}</span></div>; }
 
-// ---------- Modal shell ----------
-function Modal({ c, title, onClose, children, wide }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-5" style={{ background: "rgba(15,20,35,0.5)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full flora-pop overflow-y-auto" style={{ ...card(c), maxWidth: wide ? 620 : 460, maxHeight: "88vh", borderRadius: "18px 18px 0 0" }}>
-        <div className="flex items-center justify-between px-5 py-4 sticky top-0 z-10" style={{ background: c.surface, borderBottom: `1px solid ${c.border}` }}>
-          <h3 style={{ fontSize: 15, fontWeight: 800 }}>{title}</h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surfaceAlt }}><X size={14} color={c.ink} /></button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Field({ c, label, children }) { return <div className="mb-3.5"><label style={{ fontSize: 12, color: c.muted, marginBottom: 6, display: "block", fontWeight: 600 }}>{label}</label>{children}</div>; }
-function inputStyle(c) { return { width: "100%", background: c.surfaceAlt, border: `1px solid ${c.border}`, borderRadius: 10, padding: "11px 13px", fontSize: 13.5, color: c.ink, outline: "none", fontFamily: "inherit" }; }
-function Select({ c, value, onChange, options, placeholder }) {
-  return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>;
-}
-function SubmitBtn({ c, label, onClick, disabled }) {
-  return <button onClick={onClick} disabled={disabled} className="press w-full rounded-lg py-3 mt-1" style={{ background: disabled ? c.surfaceAlt : c.primary, color: disabled ? c.muted : "#fff", fontWeight: 700, fontSize: 13.5 }}>{label}</button>;
-}
-
-// ---------- Jalali date picker ----------
-function JalaliDatePicker({ c, value, onChange }) {
-  const [open, setOpen] = useState(false);
-  const selJ = isoToJalali(value);
-  const [viewY, setViewY] = useState(selJ[0]);
-  const [viewM, setViewM] = useState(selJ[1]);
-  const monthLen = jalaliMonthLength(viewY, viewM);
-  const firstDow = jalaliFirstWeekday(viewY, viewM);
-  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: monthLen }, (_, i) => i + 1)];
-  const nav = (dir) => { let m = viewM + dir, y = viewY; if (m > 12) { m = 1; y++; } else if (m < 1) { m = 12; y--; } setViewM(m); setViewY(y); };
-  const pick = (day) => { onChange(jalaliToIso(viewY, viewM, day)); setOpen(false); };
-  return (
-    <div>
-      <button type="button" onClick={() => setOpen((o) => !o)} className="press w-full flex items-center gap-2" style={{ ...inputStyle(c), justifyContent: "flex-start" }}>
-        <CalendarDays size={15} color={c.primary} /><span>{fmtJalali(value)}</span>
-      </button>
-      {open && (
-        <div className="mt-2 rounded-xl p-3 flora-up" style={card(c)}>
-          <div className="flex items-center justify-between mb-2">
-            <button onClick={() => nav(-1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surfaceAlt }}><ChevronRight size={14} color={c.ink} /></button>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>{MONTHS_FA[viewM - 1]} {faDigits(viewY)}</span>
-            <button onClick={() => nav(1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surfaceAlt }}><ChevronLeft size={14} color={c.ink} /></button>
-          </div>
-          <div className="grid grid-cols-7 gap-1 mb-1">{WEEK_FA.map((w, i) => <div key={i} style={{ fontSize: 10.5, color: c.muted, textAlign: "center", fontWeight: 700 }}>{w}</div>)}</div>
-          <div className="grid grid-cols-7 gap-1">
-            {cells.map((day, i) => {
-              const isSel = day && viewY === selJ[0] && viewM === selJ[1] && day === selJ[2];
-              return day ? <button key={i} onClick={() => pick(day)} className="press rounded-lg flex items-center justify-center" style={{ height: 30, fontSize: 12, fontWeight: isSel ? 800 : 500, color: isSel ? "#fff" : c.ink, background: isSel ? c.primary : "transparent" }}>{faDigits(day)}</button> : <div key={i} />;
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------- Modal router ----------
-function ModalRouter({ modal, ctx, onClose }) {
-  const { kind, id } = modal;
-  if (kind === "quickadd") return <QuickAddModal ctx={ctx} onClose={onClose} />;
-  if (kind === "property-detail") return <PropertyDetailModal id={id} ctx={ctx} onClose={onClose} />;
-  if (kind === "customer-detail") return <CustomerDetailModal id={id} ctx={ctx} onClose={onClose} />;
-  if (kind === "property-form") return <PropertyForm ctx={ctx} onClose={onClose} />;
-  if (kind === "customer-form") return <CustomerForm ctx={ctx} onClose={onClose} />;
-  if (kind === "owner-form") return <OwnerForm ctx={ctx} onClose={onClose} />;
-  if (kind === "builder-form") return <BuilderForm ctx={ctx} onClose={onClose} />;
-  if (kind === "appointment-form") return <AppointmentForm ctx={ctx} onClose={onClose} />;
-  if (kind === "call-form") return <CallForm ctx={ctx} onClose={onClose} />;
-  if (kind === "ai-settings") return <AiSettingsModal ctx={ctx} onClose={onClose} />;
-  if (kind === "map-picker") return <MapPickerModal onPick={modal.onPick} onClose={onClose} />;
-  return null;
-}
-
-function QuickAddModal({ ctx, onClose }) {
-  const { c, setModal } = ctx;
-  const options = [
-    { id: "property-form", label: "فایل ملک جدید", icon: Building2 },
-    { id: "customer-form", label: "مشتری جدید", icon: Users },
-    { id: "owner-form", label: "مالک جدید", icon: UserCircle2 },
-    { id: "builder-form", label: "سازنده جدید", icon: Hammer },
-    { id: "appointment-form", label: "قرار بازدید جدید", icon: CalendarDays },
-    { id: "call-form", label: "پیگیری تماس جدید", icon: PhoneCall },
-  ];
-  return (
-    <Modal c={c} title="افزودن سریع" onClose={onClose}>
-      <div className="flex flex-col gap-2">
-        {options.map((o) => (
-          <button key={o.id} onClick={() => setModal({ kind: o.id })} className="press w-full flex items-center gap-3 rounded-lg p-3" style={{ background: c.surfaceAlt, border: `1px solid ${c.border}` }}>
-            <div className="rounded-lg flex items-center justify-center" style={{ width: 34, height: 34, background: c.primarySoft }}><o.icon size={16} color={c.primary} /></div>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{o.label}</span>
-          </button>
-        ))}
-      </div>
-    </Modal>
-  );
-}
-
-function AiSettingsModal({ ctx, onClose }) {
-  const { c, geminiKey, setGeminiKey, notify } = ctx;
-  const [key, setKey] = useState(geminiKey || "");
-  return (
-    <Modal c={c} title="تنظیمات هوش مصنوعی (Gemini)" onClose={onClose}>
-      <Field c={c} label="کلید API جمنای (Gemini API Key)">
-        <input style={inputStyle(c)} dir="ltr" value={key} onChange={(e) => setKey(e.target.value)} placeholder="AIza..." />
-      </Field>
-      <p style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
-        این کلید فقط روی همین گوشی و در همین مرورگر ذخیره می‌شود و برای تولید آگهی با هوش مصنوعی Gemini استفاده می‌شود. برای ساخت کلید رایگان به aistudio.google.com برو و یک API Key بساز.
-      </p>
-      <SubmitBtn c={c} label="ذخیره" disabled={!key.trim()} onClick={() => { setGeminiKey(key.trim()); notify("کلید Gemini ذخیره شد"); onClose(); }} />
-    </Modal>
-  );
-}
-
-// Loads Leaflet from cdnjs at runtime (no bundler dependency needed) and lets the user pick
-// a point on a map centered on Sarein to set a property's address instead of using device GPS.
-const SAREIN_CENTER = [38.1465, 48.0043];
-function loadLeaflet() {
-  return new Promise((resolve) => {
-    if (window.L) return resolve(window.L);
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
-    document.head.appendChild(link);
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
-    script.onload = () => resolve(window.L);
-    document.body.appendChild(script);
-  });
-}
-function MapPickerModal({ onPick, onClose }) {
-  const mapRef = useRef(null);
-  const mapObjRef = useRef(null);
-  const [address, setAddress] = useState("");
-  const [loadingAddr, setLoadingAddr] = useState(false);
-
-  const reverseGeocode = async (lat, lng) => {
-    setLoadingAddr(true);
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=fa`);
-      const data = await res.json();
-      setAddress(data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-    } catch { setAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`); }
-    setLoadingAddr(false);
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    loadLeaflet().then((L) => {
-      if (cancelled || !mapRef.current || mapObjRef.current) return;
-      const map = L.map(mapRef.current).setView(SAREIN_CENTER, 14);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
-      const marker = L.marker(SAREIN_CENTER, { draggable: true }).addTo(map);
-      marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
-      map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
-      mapObjRef.current = map;
-      reverseGeocode(SAREIN_CENTER[0], SAREIN_CENTER[1]);
-    });
-    return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
-  }, []);
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" style={{ background: "rgba(15,20,35,0.6)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full flora-pop" style={{ maxWidth: 480, background: "#fff", borderRadius: "18px 18px 0 0", overflow: "hidden" }}>
-        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #E3E7EF" }}>
-          <h3 style={{ fontSize: 14.5, fontWeight: 800, fontFamily: "'Vazirmatn', sans-serif" }}>انتخاب آدرس از نقشه سرعین</h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#F0F2F7" }}><X size={14} /></button>
-        </div>
-        <div ref={mapRef} style={{ width: "100%", height: 320, background: "#eee" }} />
-        <div className="p-4" style={{ fontFamily: "'Vazirmatn', sans-serif" }} dir="rtl">
-          <p style={{ fontSize: 11.5, color: "#6B7386", marginBottom: 4 }}>روی نقشه لمس کن یا نشانگر را جابه‌جا کن تا آدرس آن نقطه پیدا شود</p>
-          <p style={{ fontSize: 13, fontWeight: 600, minHeight: 20 }}>{loadingAddr ? "در حال یافتن آدرس..." : address}</p>
-          <button onClick={() => { onPick(address); onClose(); }} disabled={!address || loadingAddr} className="press w-full mt-3 rounded-lg py-3"
-            style={{ background: !address || loadingAddr ? "#F0F2F7" : "#0B84FF", color: !address || loadingAddr ? "#6B7386" : "#fff", fontWeight: 700, fontSize: 13.5 }}>
-            تایید این آدرس
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InfoChip({ c, icon: Icon, label }) {
-  return <div className="flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: c.surfaceAlt, border: `1px solid ${c.border}` }}><Icon size={12} color={c.muted} /><span style={{ fontSize: 11, color: c.ink }}>{label}</span></div>;
-}
-
-function PropertyDetailModal({ id, ctx, onClose }) {
-  const { c, properties, setProperties, owners, builders, appointments, customers, setLightbox, notify, geminiKey, setModal } = ctx;
+function PropertyDetail({ id, ctx, onBack }) {
+  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, geminiKey, setSheet } = ctx;
   const p = properties.find((x) => x.id === id);
   const owner = owners.find((o) => o.id === p?.ownerId);
   const builder = builders.find((b) => b.id === p?.builderId);
@@ -934,19 +757,17 @@ function PropertyDetailModal({ id, ctx, onClose }) {
   const propAppts = appointments.filter((a) => a.propertyId === id);
 
   const generateAd = async () => {
-    if (!geminiKey) { notify("اول از «تنظیمات هوش مصنوعی» یک کلید Gemini وارد کن"); setModal({ kind: "ai-settings" }); return; }
+    if (!geminiKey) { notify("اول یک کلید Gemini در تنظیمات هوش مصنوعی وارد کن"); setSheet("ai-settings"); return; }
     setAiLoading(true);
     try {
       const prompt = `یک آگهی ملکی حرفه‌ای، جذاب و کوتاه (حداکثر ۵ خط) به زبان فارسی برای این فایل ملکی بنویس:
-عنوان: ${p.title}\nنوع: ${p.type}\nنوع معامله: ${p.deal}\nمتراژ: ${p.area} متر\nتعداد اتاق: ${p.rooms}\nوضعیت لوازم: ${p.furnished || "نامشخص"}\nآدرس: ${p.address}\nقیمت کل: ${fmtToman(p.price)}\nفقط متن آگهی را برگردان.`;
+عنوان: ${p.title}\nنوع: ${p.type}\nنوع معامله: ${p.deal}\nمتراژ: ${p.area} متر\nطبقه: ${p.floor || "-"}\nتعداد اتاق: ${p.rooms}\nوضعیت لوازم: ${p.furnished || "-"}\nآدرس: ${p.address}\nقیمت کل: ${fmtToman(p.price)}\nفقط متن آگهی را برگردان.`;
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       });
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      if (!text) throw new Error(data?.error?.message || "empty response");
+      if (!text) throw new Error("empty");
       setAdText(text.trim());
       setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: text.trim() } : x));
     } catch (e) { notify("خطا در تولید آگهی — کلید Gemini را بررسی کن"); }
@@ -954,99 +775,239 @@ function PropertyDetailModal({ id, ctx, onClose }) {
   };
 
   return (
-    <Modal c={c} title="جزئیات فایل" onClose={onClose} wide>
-      <MediaGallery c={c} media={p.media || []} uploading={uploading} onAdd={addMedia} onRemove={removeMedia} onView={setLightbox} />
-      <div className="mt-4 flex items-center justify-between">
-        <Badge c={c} color={c.primary} bg={c.primarySoft}>{p.deal}</Badge>
-        <StageBadge c={c} stage={p.stage} />
-      </div>
-      <h3 style={{ fontSize: 17, fontWeight: 800, marginTop: 10 }}>{p.title}</h3>
-      <p style={{ fontSize: 20, fontWeight: 800, color: c.primary, marginTop: 4 }}>{fmtToman(p.price)}</p>
-      <p style={{ fontSize: 11.5, color: c.muted, marginTop: 2 }}>{fmtToman(p.pricePerMeter)} در هر متر · {faDigits(p.area)} متر</p>
-      <div className="flex gap-2 mt-3 flex-wrap">
-        <InfoChip c={c} icon={Ruler} label={`${faDigits(p.area)} متر`} />
-        <InfoChip c={c} icon={typeIcon(p.type)} label={p.type} />
-        <InfoChip c={c} icon={Home} label={`${faDigits(p.rooms)} خواب`} />
-        {p.furnished && <InfoChip c={c} icon={BadgeCheck} label={p.furnished} />}
-      </div>
-      <div className="flex items-center gap-1.5 mt-3" style={{ color: c.muted, fontSize: 12.5 }}><MapPin size={13} /> {p.address}</div>
-      {owner && <div className="flex items-center gap-1.5 mt-2" style={{ color: c.muted, fontSize: 12.5 }}><UserCircle2 size={13} /> مالک: {owner.name} · <span dir="ltr">{owner.phone}</span></div>}
-      {builder && <div className="flex items-center gap-1.5 mt-2" style={{ color: c.muted, fontSize: 12.5 }}><Hammer size={13} /> سازنده: {builder.name} · <span dir="ltr">{builder.phone}</span></div>}
+    <div className="pt-2">
+      <BackHeader c={c} title="جزئیات فایل" onBack={onBack} onDelete={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("فایل حذف شد"); }} />
+      <SectionHeader c={c} title="عکس و فیلم" />
+      <div className="mb-4"><MediaGallery c={c} media={p.media || []} uploading={uploading} onAdd={addMedia} onRemove={removeMedia} onView={setLightbox} /></div>
 
-      <div className="flex gap-2 mt-4">
-        {STAGES.map((s) => (
-          <button key={s} onClick={() => setProperties((prev) => prev.map((x) => x.id === id ? { ...x, stage: s } : x))} className="press flex-1 rounded-lg py-2.5 flex items-center justify-center gap-1.5"
-            style={{ background: p.stage === s ? c.primary : c.surfaceAlt, color: p.stage === s ? "#fff" : c.muted, fontWeight: 700, fontSize: 11.5 }}>
-            {s === "فروخته شد" && <BadgeCheck size={13} />} {s}
-          </button>
-        ))}
+      <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
+        <div className="flex items-center justify-between mb-1">
+          <span style={{ fontSize: 11, background: c.primarySoft, color: c.primary, padding: "3px 10px", borderRadius: 999, fontWeight: 700 }}>{p.deal}</span>
+          <StageBadge c={c} stage={p.stage} />
+        </div>
+        <h3 style={{ fontSize: 17, fontWeight: 800, marginTop: 8, textDecoration: p.stage === "فروخته شد" ? "line-through" : "none" }}>{p.title}</h3>
+        <p style={{ fontSize: 20, fontWeight: 800, color: c.primary, marginTop: 4 }}>{fmtToman(p.price)}</p>
+        <p style={{ fontSize: 11.5, color: c.muted, marginTop: 2 }}>{fmtToman(p.pricePerMeter)} در هر متر · {faDigits(p.area)} متر</p>
+        <div className="flex gap-2 mt-3 flex-wrap">
+          <InfoChip c={c} icon={Ruler} label={`${faDigits(p.area)} متر`} />
+          <InfoChip c={c} icon={typeIcon(p.type)} label={p.type} />
+          <InfoChip c={c} icon={Home} label={`${faDigits(p.rooms)} خواب`} />
+          {p.floor != null && <InfoChip c={c} icon={Building} label={`طبقه ${faDigits(p.floor)}`} />}
+          {p.furnished && <InfoChip c={c} icon={BadgeCheck} label={p.furnished} />}
+        </div>
+        <div className="flex items-center gap-1.5 mt-3" style={{ color: c.muted, fontSize: 12.5 }}><MapPin size={13} /> {p.address}</div>
+        {owner && <div className="flex items-center gap-1.5 mt-2" style={{ color: c.muted, fontSize: 12.5 }}><UserCircle2 size={13} /> مالک: {owner.name} · <span dir="ltr">{owner.phone}</span></div>}
+        {builder && <div className="flex items-center gap-1.5 mt-2" style={{ color: c.muted, fontSize: 12.5 }}><Hammer size={13} /> سازنده: {builder.name} · <span dir="ltr">{builder.phone}</span></div>}
+
+        <div className="flex gap-2 mt-4">
+          {STAGES.map((s) => (
+            <button key={s} onClick={() => setProperties((prev) => prev.map((x) => x.id === id ? { ...x, stage: s } : x))} className="press flex-1 rounded-xl py-2.5" style={{ background: p.stage === s ? c.primary : c.surface2, color: p.stage === s ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>{s}</button>
+          ))}
+        </div>
       </div>
 
-      <div className="rounded-xl p-4 mt-4" style={{ background: c.surfaceAlt, border: `1px solid ${c.border}` }}>
+      <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
         <div className="flex items-center justify-between mb-2.5">
           <p style={{ fontSize: 13, fontWeight: 700 }}>آگهی</p>
           <button onClick={generateAd} disabled={aiLoading} className="press flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontSize: 11.5, fontWeight: 700 }}>
-            {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال تولید..." : "تولید با AI"}
+            {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال تولید..." : "تولید با Gemini"}
           </button>
         </div>
         <p style={{ fontSize: 12.5, lineHeight: 1.9, color: adText ? c.ink : c.muted }}>{adText || "هنوز آگهی‌ای تولید نشده."}</p>
       </div>
 
-      <SectionTitle c={c} title="بازدیدهای این فایل" />
-      <div className="flex flex-col gap-2">
-        {propAppts.map((a) => { const cu = customers.find((x) => x.id === a.customerId); return (
-          <div key={a.id} className="p-3 flex items-center gap-3" style={{ background: c.surfaceAlt, borderRadius: 10, border: `1px solid ${c.border}` }}>
-            <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.primarySoft }}><span style={{ fontSize: 9.5, color: c.primary, fontWeight: 700 }}>{a.time}</span></div>
-            <p style={{ fontSize: 12, color: c.ink }}>با {cu?.name || "—"} · {fmtJalali(a.date)}</p>
-          </div>
-        ); })}
+      <SectionHeader c={c} title="بازدیدهای این فایل" />
+      <div className="flex flex-col gap-2 mb-6">
+        {propAppts.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} />)}
         {propAppts.length === 0 && <EmptyLine c={c} text="بازدیدی ثبت نشده" />}
       </div>
-
-      <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onClose(); notify("فایل حذف شد"); }} className="press w-full mt-5 rounded-lg py-2.5 flex items-center justify-center gap-2" style={{ background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 12.5 }}>
-        <Trash2 size={14} /> حذف فایل
-      </button>
-    </Modal>
+    </div>
   );
 }
 
-function CustomerDetailModal({ id, ctx, onClose }) {
-  const { c, customers, calls, appointments, properties, setCustomers, notify } = ctx;
+function CustomerDetail({ id, ctx, onBack }) {
+  const { c, customers, calls, appointments } = ctx;
   const cu = customers.find((x) => x.id === id);
   if (!cu) return null;
-  const custCalls = calls.filter((cl) => cl.customerId === id);
-  const custAppts = appointments.filter((a) => a.customerId === id);
+  const custCalls = calls.filter((cl) => cl.customerId === id || cl.customerName === cu.name);
+  const custAppts = appointments.filter((a) => a.customerId === id || a.customerName === cu.name);
   return (
-    <Modal c={c} title="جزئیات مشتری" onClose={onClose}>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><UserCircle2 size={24} color={c.primary} /></div>
-        <div><p style={{ fontSize: 15, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12, color: c.muted }} dir="ltr">{cu.phone}</p></div>
+    <div className="pt-2">
+      <BackHeader c={c} title="جزئیات مشتری" onBack={onBack} onDelete={() => { ctx.setCustomers((prev) => prev.filter((x) => x.id !== id)); onBack(); ctx.notify("مشتری حذف شد"); }} />
+      <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 24)}>
+        <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
+        <div><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone}</p></div>
       </div>
-      <div className="rounded-xl p-4 mb-4" style={{ background: c.surfaceAlt, border: `1px solid ${c.border}` }}>
-        <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13 }}>{cu.need}</p>
-        <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
+      <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
+        <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need}</p>
+        <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
       </div>
-      <SectionTitle c={c} title="تاریخچه تماس" />
+      <SectionHeader c={c} title="تاریخچه تماس" />
       <div className="flex flex-col gap-2 mb-4">
-        {custCalls.map((cl) => <div key={cl.id} className="p-3 flex items-center justify-between" style={{ background: c.surfaceAlt, borderRadius: 10, border: `1px solid ${c.border}` }}><span style={{ fontSize: 12 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
+        {custCalls.map((cl) => <div key={cl.id} className="rounded-lg p-3 flex items-center justify-between" style={glass(c, 20)}><span style={{ fontSize: 12 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
         {custCalls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
       </div>
-      <SectionTitle c={c} title="بازدیدهای برنامه‌ریزی‌شده" />
-      <div className="flex flex-col gap-2 mb-4">
-        {custAppts.map((a) => { const p = properties.find((x) => x.id === a.propertyId); return <div key={a.id} className="p-3 flex items-center justify-between" style={{ background: c.surfaceAlt, borderRadius: 10, border: `1px solid ${c.border}` }}><span style={{ fontSize: 12 }}>{p?.title}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(a.date)}</span></div>; })}
+      <SectionHeader c={c} title="بازدیدهای برنامه‌ریزی‌شده" />
+      <div className="flex flex-col gap-2 mb-6">
+        {custAppts.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} />)}
         {custAppts.length === 0 && <EmptyLine c={c} text="بازدیدی ثبت نشده" />}
       </div>
-      <button onClick={() => { setCustomers((prev) => prev.filter((x) => x.id !== id)); onClose(); notify("مشتری حذف شد"); }} className="press w-full rounded-lg py-2.5 flex items-center justify-center gap-2" style={{ background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 12.5 }}>
-        <Trash2 size={14} /> حذف مشتری
-      </button>
-    </Modal>
+    </div>
   );
 }
 
-// ---------- Forms ----------
+// ---------- Sheet shell + fields ----------
+function SheetShell({ c, title, onClose, children }) {
+  return (
+    <div className="absolute inset-0 z-30 flex items-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full rounded-t-2xl p-5 flora-sheet max-h-[85%] overflow-y-auto" style={glass(c, 36)}>
+        <div className="w-10 h-1.5 rounded-full mx-auto mb-4" style={{ background: c.surface2 }} />
+        <div className="flex items-center justify-between mb-4"><h3 style={{ fontSize: 15.5, fontWeight: 800 }}>{title}</h3><button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button></div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function QuickAddSheet({ ctx, onClose }) {
+  const { c, setSheet } = ctx;
+  const options = [
+    { id: "property", label: "فایل ملک جدید", icon: Building2 }, { id: "customer", label: "مشتری جدید", icon: Users },
+    { id: "owner", label: "مالک جدید", icon: UserCircle2 }, { id: "builder", label: "سازنده جدید", icon: Hammer },
+    { id: "appointment", label: "قرار بازدید جدید", icon: CalendarDays }, { id: "call", label: "پیگیری تماس جدید", icon: PhoneCall },
+  ];
+  return (
+    <SheetShell c={c} title="افزودن سریع" onClose={onClose}>
+      <div className="flex flex-col gap-2">
+        {options.map((o) => (
+          <button key={o.id} onClick={() => setSheet(o.id)} className="press w-full flex items-center gap-3 rounded-xl p-3.5" style={glass(c, 20)}>
+            <div className="rounded-2xl flex items-center justify-center" style={{ width: 38, height: 38, background: c.primarySoft }}><o.icon size={17} color={c.primary} /></div>
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>{o.label}</span>
+          </button>
+        ))}
+      </div>
+    </SheetShell>
+  );
+}
+function Field({ c, label, children }) { return <div className="mb-3"><label style={{ fontSize: 12, color: c.muted, marginBottom: 6, display: "block" }}>{label}</label>{children}</div>; }
+function inputStyle(c) { return { width: "100%", background: c.surface2, border: "none", borderRadius: 16, padding: "12px 14px", fontSize: 14, color: c.ink, outline: "none", fontFamily: "inherit" }; }
+function Select({ c, value, onChange, options, placeholder }) { return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>; }
+function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full rounded-xl py-3.5 mt-2" style={{ background: disabled ? c.surface2 : c.primary, color: disabled ? c.muted : "#fff", fontWeight: 700, fontSize: 14.5 }}>{label}</button>; }
+
+function JalaliDatePicker({ c, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const selJ = isoToJalali(value);
+  const [viewY, setViewY] = useState(selJ[0]);
+  const [viewM, setViewM] = useState(selJ[1]);
+  const monthLen = jalaliMonthLength(viewY, viewM);
+  const firstDow = jalaliFirstWeekday(viewY, viewM);
+  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: monthLen }, (_, i) => i + 1)];
+  const nav = (dir) => { let m = viewM + dir, y = viewY; if (m > 12) { m = 1; y++; } else if (m < 1) { m = 12; y--; } setViewM(m); setViewY(y); };
+  const pick = (day) => { onChange(jalaliToIso(viewY, viewM, day)); setOpen(false); };
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="press w-full flex items-center gap-2" style={{ ...inputStyle(c), justifyContent: "flex-start" }}><CalendarDays size={15} color={c.primary} /><span>{fmtJalali(value)}</span></button>
+      {open && (
+        <div className="mt-2 rounded-xl p-3 flora-up" style={glass(c, 24)}>
+          <div className="flex items-center justify-between mb-2">
+            <button onClick={() => nav(-1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronRight size={14} color={c.ink} /></button>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{MONTHS_FA[viewM - 1]} {faDigits(viewY)}</span>
+            <button onClick={() => nav(1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronLeft size={14} color={c.ink} /></button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 mb-1">{WEEK_FA.map((w, i) => <div key={i} style={{ fontSize: 10.5, color: c.muted, textAlign: "center", fontWeight: 700 }}>{w}</div>)}</div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => { const isSel = day && viewY === selJ[0] && viewM === selJ[1] && day === selJ[2]; return day ? <button key={i} onClick={() => pick(day)} className="press rounded-xl flex items-center justify-center" style={{ height: 30, fontSize: 12, fontWeight: isSel ? 800 : 500, color: isSel ? "#fff" : c.ink, background: isSel ? c.primary : "transparent" }}>{faDigits(day)}</button> : <div key={i} />; })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Map picker (Sarein) — separate overlay, never unmounts the form beneath it ----------
+const SAREIN_CENTER = [38.1465, 48.0043];
+function loadLeaflet() {
+  return new Promise((resolve) => {
+    if (window.L) return resolve(window.L);
+    const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"; document.head.appendChild(link);
+    const script = document.createElement("script"); script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"; script.onload = () => resolve(window.L); document.body.appendChild(script);
+  });
+}
+function MapPickerModal({ c, onPick, onClose }) {
+  const mapRef = useRef(null); const mapObjRef = useRef(null);
+  const [address, setAddress] = useState(""); const [loadingAddr, setLoadingAddr] = useState(false);
+  const reverseGeocode = async (lat, lng) => {
+    setLoadingAddr(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fa`);
+      const data = await res.json();
+      const a = data.address || {};
+      const parts = [
+        a.road || a.pedestrian || a.footway,
+        a.neighbourhood || a.suburb || a.quarter,
+        a.city || a.town || a.village || "سرعین",
+      ].filter(Boolean);
+      setAddress(parts.length ? parts.join("، ") : (data.display_name || "سرعین، آدرس دقیق یافت نشد"));
+    } catch { setAddress("سرعین، آدرس دقیق یافت نشد"); }
+    setLoadingAddr(false);
+  };
+  useEffect(() => {
+    let cancelled = false;
+    loadLeaflet().then((L) => {
+      if (cancelled || !mapRef.current || mapObjRef.current) return;
+      const map = L.map(mapRef.current).setView(SAREIN_CENTER, 14);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
+      const marker = L.marker(SAREIN_CENTER, { draggable: true }).addTo(map);
+      marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
+      map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
+      mapObjRef.current = map; reverseGeocode(SAREIN_CENTER[0], SAREIN_CENTER[1]);
+    });
+    return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
+  }, []);
+  return (
+    <div className="absolute inset-0 z-[70] flex items-end justify-center flora-pop" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ background: "#fff", borderRadius: "24px 24px 0 0", overflow: "hidden" }}>
+        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #E3E7EF" }}>
+          <h3 style={{ fontSize: 14.5, fontWeight: 800, fontFamily: "'Vazirmatn', sans-serif" }}>انتخاب آدرس از نقشه سرعین</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#F0F2F7" }}><X size={14} /></button>
+        </div>
+        <div ref={mapRef} style={{ width: "100%", height: 300, background: "#eee" }} />
+        <div className="p-4" style={{ fontFamily: "'Vazirmatn', sans-serif" }} dir="rtl">
+          <p style={{ fontSize: 11.5, color: "#6B7386", marginBottom: 4 }}>روی نقشه لمس کن یا نشانگر را جابه‌جا کن</p>
+          <p style={{ fontSize: 13, fontWeight: 600, minHeight: 20 }}>{loadingAddr ? "در حال یافتن آدرس..." : address}</p>
+          <button onClick={() => onPick(address)} disabled={!address || loadingAddr} className="press w-full mt-3 rounded-xl py-3" style={{ background: !address || loadingAddr ? "#F0F2F7" : "#0B84FF", color: !address || loadingAddr ? "#6B7386" : "#fff", fontWeight: 700, fontSize: 13.5 }}>تایید این آدرس</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Form sheet router ----------
+function FormSheet({ kind, ctx, onClose }) {
+  if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} />;
+  if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
+  if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} />;
+  if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} />;
+  if (kind === "appointment") return <AppointmentForm ctx={ctx} onClose={onClose} />;
+  if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} />;
+  if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
+  return null;
+}
+
+function AiSettingsSheet({ ctx, onClose }) {
+  const { c, geminiKey, setGeminiKey, notify } = ctx;
+  const [key, setKey] = useState(geminiKey || "");
+  return (
+    <SheetShell c={c} title="تنظیمات هوش مصنوعی (Gemini)" onClose={onClose}>
+      <Field c={c} label="کلید API جمنای (Gemini API Key)"><input style={inputStyle(c)} dir="ltr" value={key} onChange={(e) => setKey(e.target.value)} placeholder="AIza..." /></Field>
+      <p style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>این کلید فقط روی همین گوشی ذخیره می‌شود. کلید رایگان را از aistudio.google.com بساز.</p>
+      <SubmitBtn c={c} label="ذخیره" disabled={!key.trim()} onClick={() => { setGeminiKey(key.trim()); notify("کلید Gemini ذخیره شد"); onClose(); }} />
+    </SheetShell>
+  );
+}
+
 function PropertyForm({ ctx, onClose }) {
-  const { c, owners, setOwners, builders, setProperties, notify, setModal } = ctx;
-  const [f, setF] = useState({ title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", address: "", ownerName: "", ownerPhone: "", builderId: "", furnished: "بدون لوازم" });
+  const { c, owners, setOwners, builders, setProperties, notify, setMapPicker } = ctx;
+  const [f, setF] = useState({ title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "" });
   const [media, setMedia] = useState([]);
   const [uploading, setUploading] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -1055,10 +1016,7 @@ function PropertyForm({ ctx, onClose }) {
   const isPreSale = f.deal === "پیش‌فروش";
 
   const addMedia = async (fileList) => { setUploading(true); const items = await filesToMedia(fileList); setMedia((prev) => [...prev, ...items]); setUploading(false); };
-
-  const openMapPicker = () => {
-    setModal({ kind: "map-picker", onPick: (addr) => setF((prev) => ({ ...prev, address: addr })) });
-  };
+  const openMapPicker = () => setMapPicker({ onPick: (addr) => { setF((prev) => ({ ...prev, address: addr })); setMapPicker(null); } });
 
   const submit = () => {
     let ownerId = "";
@@ -1066,23 +1024,18 @@ function PropertyForm({ ctx, onClose }) {
     if (nm) {
       const existing = owners.find((o) => o.name.trim() === nm && (o.phone || "").trim() === ph);
       if (existing) ownerId = existing.id;
-      else {
-        const newOwner = { id: uid(), name: nm, phone: ph };
-        setOwners((prev) => [newOwner, ...prev]);
-        ownerId = newOwner.id;
-      }
+      else { const newOwner = { id: uid(), name: nm, phone: ph }; setOwners((prev) => [newOwner, ...prev]); ownerId = newOwner.id; }
     }
     setProperties((prev) => [{
       id: uid(), stage: "فعال", desc: "", media,
       title: f.title, type: f.type, deal: f.deal, address: f.address, builderId: f.builderId, furnished: f.furnished,
-      pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), price: total,
-      ownerId,
+      pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId,
     }, ...prev]);
     notify("فایل با موفقیت ثبت شد"); onClose();
   };
 
   return (
-    <Modal c={c} title="ثبت فایل ملک" onClose={onClose} wide>
+    <SheetShell c={c} title="ثبت فایل ملک" onClose={onClose}>
       <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => setMedia((p) => p.filter((m) => m.id !== mid))} onView={() => {}} /></Field>
       <Field c={c} label="عنوان فایل"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder="مثلاً آپارتمان ۹۰ متری تهرانپارس" /></Field>
       <div className="grid grid-cols-2 gap-3">
@@ -1090,22 +1043,21 @@ function PropertyForm({ ctx, onClose }) {
         <Field c={c} label="نوع معامله"><Select c={c} value={f.deal} onChange={set("deal")} placeholder="انتخاب کنید" options={["فروش","پیش‌فروش","اجاره","رهن کامل"].map(v=>({value:v,label:v}))} /></Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field c={c} label="متراژ (متر)"><input style={inputStyle(c)} inputMode="numeric" value={f.area} onChange={set("area")} placeholder="فارسی یا انگلیسی، مثلاً ۱۲۰ یا 120" /></Field>
+        <Field c={c} label="متراژ (متر)"><input style={inputStyle(c)} inputMode="numeric" value={f.area} onChange={set("area")} placeholder="فارسی یا انگلیسی" /></Field>
         <Field c={c} label="قیمت هر متر (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.pricePerMeter} onChange={set("pricePerMeter")} placeholder="فارسی یا انگلیسی" /></Field>
       </div>
-      <div className="rounded-lg px-4 py-3 mb-3.5 flex items-center justify-between" style={{ background: c.primarySoft }}>
+      <div className="rounded-2xl px-4 py-3 mb-3 flex items-center justify-between" style={{ background: c.primarySoft }}>
         <span style={{ fontSize: 12.5, color: c.primary, fontWeight: 700 }}>مبلغ کل (متراژ × قیمت هر متر)</span><span style={{ fontSize: 15, color: c.primary, fontWeight: 800 }}>{fmtToman(total)}</span>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Field c={c} label="تعداد اتاق"><input style={inputStyle(c)} inputMode="numeric" value={f.rooms} onChange={set("rooms")} /></Field>
-        <Field c={c} label="وضعیت لوازم"><Select c={c} value={f.furnished} onChange={set("furnished")} placeholder="انتخاب کنید" options={["با لوازم","بدون لوازم"].map(v=>({value:v,label:v}))} /></Field>
+        <Field c={c} label="طبقه"><Select c={c} value={f.floor} onChange={set("floor")} placeholder="طبقه" options={Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), label: faDigits(i + 1) }))} /></Field>
+        <Field c={c} label="لوازم"><Select c={c} value={f.furnished} onChange={set("furnished")} placeholder="وضعیت" options={["با لوازم","بدون لوازم"].map(v=>({value:v,label:v}))} /></Field>
       </div>
       <Field c={c} label="آدرس">
         <div className="flex gap-2">
           <input style={{ ...inputStyle(c), flex: 1 }} value={f.address} onChange={set("address")} placeholder="آدرس را بنویس یا از نقشه انتخاب کن" />
-          <button type="button" onClick={openMapPicker} className="press shrink-0 rounded-lg flex items-center justify-center gap-1.5 px-3" style={{ background: c.primarySoft }}>
-            <MapPin size={16} color={c.primary} /> <span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>نقشه سرعین</span>
-          </button>
+          <button type="button" onClick={openMapPicker} className="press shrink-0 rounded-2xl flex items-center justify-center gap-1.5 px-3" style={{ background: c.primarySoft }}><MapPin size={16} color={c.primary} /></button>
         </div>
       </Field>
       <div className="grid grid-cols-2 gap-3">
@@ -1114,7 +1066,7 @@ function PropertyForm({ ctx, onClose }) {
       </div>
       {isPreSale && <Field c={c} label="سازنده"><Select c={c} value={f.builderId} onChange={set("builderId")} placeholder="انتخاب سازنده" options={builders.map(b=>({value:b.id,label:b.name}))} /></Field>}
       <SubmitBtn c={c} label="ذخیره فایل" disabled={!valid} onClick={submit} />
-    </Modal>
+    </SheetShell>
   );
 }
 
@@ -1124,68 +1076,68 @@ function CustomerForm({ ctx, onClose }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.name && f.phone;
   return (
-    <Modal c={c} title="ثبت مشتری" onClose={onClose}>
+    <SheetShell c={c} title="ثبت مشتری" onClose={onClose}>
       <Field c={c} label="نام و نام‌خانوادگی"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
-      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" inputMode="numeric" value={f.phone} onChange={set("phone")} /></Field>
+      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
       <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={set("need")} placeholder="مثلاً خرید آپارتمان ۲ خواب" /></Field>
       <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.budget} onChange={set("budget")} /></Field>
       <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget) }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
-    </Modal>
+    </SheetShell>
   );
 }
-
 function OwnerForm({ ctx, onClose }) {
   const { c, setOwners, notify } = ctx;
   const [f, setF] = useState({ name: "", phone: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.name && f.phone;
   return (
-    <Modal c={c} title="ثبت مالک" onClose={onClose}>
+    <SheetShell c={c} title="ثبت مالک" onClose={onClose}>
       <Field c={c} label="نام و نام‌خانوادگی"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
-      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" inputMode="numeric" value={f.phone} onChange={set("phone")} /></Field>
+      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
       <SubmitBtn c={c} label="ذخیره مالک" disabled={!valid} onClick={() => { setOwners((prev) => [{ id: uid(), ...f }, ...prev]); notify("مالک با موفقیت ثبت شد"); onClose(); }} />
-    </Modal>
+    </SheetShell>
   );
 }
-
 function BuilderForm({ ctx, onClose }) {
   const { c, setBuilders, notify } = ctx;
   const [f, setF] = useState({ name: "", phone: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.name && f.phone;
   return (
-    <Modal c={c} title="ثبت سازنده" onClose={onClose}>
+    <SheetShell c={c} title="ثبت سازنده" onClose={onClose}>
       <Field c={c} label="نام شرکت / سازنده"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
-      <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" inputMode="numeric" value={f.phone} onChange={set("phone")} /></Field>
+      <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
       <SubmitBtn c={c} label="ذخیره سازنده" disabled={!valid} onClick={() => { setBuilders((prev) => [{ id: uid(), ...f }, ...prev]); notify("سازنده با موفقیت ثبت شد"); onClose(); }} />
-    </Modal>
+    </SheetShell>
   );
 }
-
 function AppointmentForm({ ctx, onClose }) {
   const { c, properties, customers, setAppointments, notify } = ctx;
-  const [f, setF] = useState({ propertyId: "", customerId: "", date: todayISO(), time: "10:00", notes: "" });
+  const [f, setF] = useState({ propertyId: "", customerName: "", date: todayISO(), time: "10:00", notes: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const valid = f.propertyId && f.customerId && f.date && f.time;
+  const valid = f.propertyId && f.customerName.trim() && f.date && f.time;
   return (
-    <Modal c={c} title="ثبت قرار بازدید" onClose={onClose}>
+    <SheetShell c={c} title="ثبت قرار بازدید" onClose={onClose}>
       <Field c={c} label="فایل ملک"><Select c={c} value={f.propertyId} onChange={set("propertyId")} placeholder="انتخاب فایل" options={properties.map(p=>({value:p.id,label:p.title}))} /></Field>
-      <Field c={c} label="مشتری"><Select c={c} value={f.customerId} onChange={set("customerId")} placeholder="انتخاب مشتری" options={customers.map(cu=>({value:cu.id,label:cu.name}))} /></Field>
+      <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={f.customerName} onChange={set("customerName")} placeholder="نام مشتری را تایپ کن" /></Field>
       <Field c={c} label="تاریخ (شمسی)"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
       <Field c={c} label="ساعت"><input type="time" style={inputStyle(c)} value={f.time} onChange={set("time")} /></Field>
       <Field c={c} label="یادداشت"><input style={inputStyle(c)} value={f.notes} onChange={set("notes")} /></Field>
-      <SubmitBtn c={c} label="ذخیره قرار بازدید" disabled={!valid} onClick={() => { setAppointments((prev) => [{ id: uid(), ...f }, ...prev]); notify("بازدید ثبت شد"); onClose(); }} />
-    </Modal>
+      <SubmitBtn c={c} label="ذخیره قرار بازدید" disabled={!valid} onClick={() => {
+        const match = customers.find((cu) => cu.name.trim() === f.customerName.trim());
+        setAppointments((prev) => [{ id: uid(), propertyId: f.propertyId, customerId: match ? match.id : "", customerName: f.customerName.trim(), date: f.date, time: f.time, notes: f.notes }, ...prev]);
+        notify("بازدید ثبت شد"); onClose();
+      }} />
+    </SheetShell>
   );
 }
-
 function CallForm({ ctx, onClose }) {
   const { c, customers, setCalls, notify } = ctx;
   const [f, setF] = useState({ customerName: "", customerPhone: "", date: todayISO(), status: "در انتظار پاسخ", notes: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.customerName.trim();
   return (
-    <Modal c={c} title="ثبت پیگیری تماس" onClose={onClose}>
+    <SheetShell c={c} title="ثبت پیگیری تماس" onClose={onClose}>
       <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={f.customerName} onChange={set("customerName")} placeholder="نام مشتری را تایپ کن" /></Field>
       <Field c={c} label="شماره تماس (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={f.customerPhone} onChange={set("customerPhone")} /></Field>
       <Field c={c} label="تاریخ (شمسی)"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
@@ -1195,6 +1147,6 @@ function CallForm({ ctx, onClose }) {
         setCalls((prev) => [{ id: uid(), customerId: match ? match.id : "", customerName: f.customerName.trim(), customerPhone: f.customerPhone.trim(), date: f.date, status: f.status, notes: f.notes }, ...prev]);
         notify("تماس ثبت شد"); onClose();
       }} />
-    </Modal>
+    </SheetShell>
   );
 }
