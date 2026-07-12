@@ -643,7 +643,7 @@ function CalendarTab({ ctx }) {
 
 // ---------- More tab ----------
 function MoreTab({ ctx }) {
-  const { c, owners, builders, calls, setSheet, setCalls, exportBackup, importBackup } = ctx;
+  const { c, owners, setOwners, builders, calls, setCalls, setSheet, exportBackup, importBackup, notify } = ctx;
   const importRef = useRef(null);
   return (
     <div className="pt-3">
@@ -652,12 +652,13 @@ function MoreTab({ ctx }) {
         {calls.map((cl) => {
           const done = cl.status === "انجام‌شد";
           return (
-            <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
-              <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))}>
+            <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 22)}>
+              <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))} className="shrink-0">
                 <CheckCircle2 size={22} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
               </button>
-              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p><p style={{ fontSize: 11.5, color: c.muted }}>{cl.notes}</p></div>
-              <span style={{ fontSize: 10.5, color: done ? c.muted : c.attn, fontWeight: done ? 400 : 700 }}>{fmtJalali(cl.date)}</span>
+              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p><p style={{ fontSize: 11, color: c.muted }}>{cl.notes} · {fmtJalali(cl.date)}</p></div>
+              <button onClick={() => setSheet({ kind: "call", editId: cl.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
+              <button onClick={() => { setCalls((prev) => prev.filter((x) => x.id !== cl.id)); notify("تماس حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
             </div>
           );
         })}
@@ -668,9 +669,12 @@ function MoreTab({ ctx }) {
       <SectionHeader c={c} title="مالکین" />
       <div className="flex flex-col gap-2 mb-2">
         {owners.map((o) => (
-          <div key={o.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
+          <div key={o.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 22)}>
             <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.primarySoft }}><UserCircle2 size={19} color={c.primary} /></div>
-            <div className="flex-1"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{o.phone}</p></div>
+            <div className="flex-1 min-w-0"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{o.phone}</p></div>
+            {o.phone && <a href={`tel:${o.phone}`} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
+            <button onClick={() => setSheet({ kind: "owner", editId: o.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
+            <button onClick={() => { setOwners((prev) => prev.filter((x) => x.id !== o.id)); notify("مالک حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
           </div>
         ))}
         {owners.length === 0 && <EmptyLine c={c} text="مالکی ثبت نشده" />}
@@ -680,9 +684,10 @@ function MoreTab({ ctx }) {
       <SectionHeader c={c} title="سازندگان" />
       <div className="flex flex-col gap-2 mb-2">
         {builders.map((b) => (
-          <div key={b.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
+          <div key={b.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 22)}>
             <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.attnSoft }}><Hammer size={17} color={c.attn} /></div>
-            <div className="flex-1"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
+            <div className="flex-1 min-w-0"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
+            {b.phone && <a href={`tel:${b.phone}`} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
           </div>
         ))}
         {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
@@ -1026,10 +1031,10 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   const editId = typeof sheetVal === "object" ? sheetVal.editId : null;
   if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
-  if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} />;
+  if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} />;
   if (kind === "appointment") return <AppointmentForm ctx={ctx} onClose={onClose} />;
-  if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} />;
+  if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
   return null;
 }
@@ -1138,16 +1143,21 @@ function CustomerForm({ ctx, onClose }) {
     </SheetShell>
   );
 }
-function OwnerForm({ ctx, onClose }) {
-  const { c, setOwners, notify } = ctx;
-  const [f, setF] = useState({ name: "", phone: "" });
+function OwnerForm({ ctx, onClose, editId }) {
+  const { c, owners, setOwners, notify } = ctx;
+  const editing = editId ? owners.find((o) => o.id === editId) : null;
+  const [f, setF] = useState(editing ? { name: editing.name, phone: editing.phone } : { name: "", phone: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.name && f.phone;
   return (
-    <SheetShell c={c} title="ثبت مالک" onClose={onClose}>
+    <SheetShell c={c} title={editing ? "ویرایش مالک" : "ثبت مالک"} onClose={onClose}>
       <Field c={c} label="نام و نام‌خانوادگی"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
       <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
-      <SubmitBtn c={c} label="ذخیره مالک" disabled={!valid} onClick={() => { setOwners((prev) => [{ id: uid(), ...f }, ...prev]); notify("مالک با موفقیت ثبت شد"); onClose(); }} />
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره مالک"} disabled={!valid} onClick={() => {
+        if (editing) setOwners((prev) => prev.map((x) => x.id === editId ? { ...x, ...f } : x));
+        else setOwners((prev) => [{ id: uid(), ...f }, ...prev]);
+        notify(editing ? "تغییرات مالک ذخیره شد" : "مالک با موفقیت ثبت شد"); onClose();
+      }} />
     </SheetShell>
   );
 }
@@ -1184,21 +1194,30 @@ function AppointmentForm({ ctx, onClose }) {
     </SheetShell>
   );
 }
-function CallForm({ ctx, onClose }) {
-  const { c, customers, setCalls, notify } = ctx;
-  const [f, setF] = useState({ customerName: "", customerPhone: "", date: todayISO(), status: "در انتظار پاسخ", notes: "" });
+function CallForm({ ctx, onClose, editId }) {
+  const { c, customers, calls, setCalls, notify } = ctx;
+  const editing = editId ? calls.find((cl) => cl.id === editId) : null;
+  const [f, setF] = useState(editing
+    ? { customerName: editing.customerName || "", customerPhone: editing.customerPhone || "", date: editing.date, status: editing.status, notes: editing.notes || "" }
+    : { customerName: "", customerPhone: "", date: todayISO(), status: "در انتظار پاسخ", notes: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.customerName.trim();
   return (
-    <SheetShell c={c} title="ثبت پیگیری تماس" onClose={onClose}>
+    <SheetShell c={c} title={editing ? "ویرایش پیگیری تماس" : "ثبت پیگیری تماس"} onClose={onClose}>
       <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={f.customerName} onChange={set("customerName")} placeholder="نام مشتری را تایپ کن" /></Field>
       <Field c={c} label="شماره تماس (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={f.customerPhone} onChange={set("customerPhone")} /></Field>
       <Field c={c} label="تاریخ (شمسی)"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
       <Field c={c} label="یادداشت تماس"><input style={inputStyle(c)} value={f.notes} onChange={set("notes")} placeholder="موضوع تماس..." /></Field>
-      <SubmitBtn c={c} label="ذخیره تماس" disabled={!valid} onClick={() => {
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره تماس"} disabled={!valid} onClick={() => {
         const match = customers.find((cu) => cu.name.trim() === f.customerName.trim());
-        setCalls((prev) => [{ id: uid(), customerId: match ? match.id : "", customerName: f.customerName.trim(), customerPhone: f.customerPhone.trim(), date: f.date, status: f.status, notes: f.notes }, ...prev]);
-        notify("تماس ثبت شد"); onClose();
+        if (editing) {
+          setCalls((prev) => prev.map((x) => x.id === editId ? { ...x, customerId: match ? match.id : "", customerName: f.customerName.trim(), customerPhone: f.customerPhone.trim(), date: f.date, notes: f.notes } : x));
+          notify("تغییرات تماس ذخیره شد");
+        } else {
+          setCalls((prev) => [{ id: uid(), customerId: match ? match.id : "", customerName: f.customerName.trim(), customerPhone: f.customerPhone.trim(), date: f.date, status: f.status, notes: f.notes }, ...prev]);
+          notify("تماس ثبت شد");
+        }
+        onClose();
       }} />
     </SheetShell>
   );
