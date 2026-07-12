@@ -229,17 +229,27 @@ export default function FloraCRM() {
       return text;
     }
     if (!geminiKey) throw new Error("کلید Gemini وارد نشده");
-    let res, data;
-    try {
-      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      });
-    } catch (netErr) { throw new Error("اتصال به Gemini برقرار نشد — اینترنت یا CORS را بررسی کن"); }
-    data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error?.message || `خطای Gemini (کد ${res.status})`);
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error(data?.promptFeedback?.blockReason ? `مسدود شد: ${data.promptFeedback.blockReason}` : "پاسخ خالی از Gemini");
-    return text;
+    const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+    let lastErr = null;
+    for (const model of models) {
+      let res, data;
+      try {
+        res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        });
+      } catch (netErr) { throw new Error("اتصال به Gemini برقرار نشد — اینترنت یا CORS را بررسی کن"); }
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data?.error?.message || "";
+        lastErr = msg || `خطای Gemini (کد ${res.status})`;
+        if (res.status === 404 || /not found|no longer available|not supported/i.test(msg)) continue; // try next model
+        throw new Error(lastErr);
+      }
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) return text;
+      lastErr = data?.promptFeedback?.blockReason ? `مسدود شد: ${data.promptFeedback.blockReason}` : "پاسخ خالی از Gemini";
+    }
+    throw new Error(lastErr || "هیچ‌کدام از مدل‌های Gemini در دسترس نبود");
   };
 
   const scheduleReminder = (appt, propTitle) => {
