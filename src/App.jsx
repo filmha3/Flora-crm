@@ -167,7 +167,7 @@ export default function FloraCRM() {
   const [showDailyReminder, setShowDailyReminder] = useState(false);
 
   const [toast, setToast] = useState(null);
-  const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
+  const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), Math.min(6000, 2000 + msg.length * 40)); };
 
   useEffect(() => {
     (async () => {
@@ -199,34 +199,46 @@ export default function FloraCRM() {
   const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
   const callAI = async (prompt) => {
     if (aiProvider === "openai") {
-      if (!openaiKey) throw new Error("no-key");
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-        body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }] }),
-      });
-      const data = await res.json();
+      if (!openaiKey) throw new Error("کلید OpenAI وارد نشده");
+      let res, data;
+      try {
+        res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }] }),
+        });
+      } catch (netErr) { throw new Error("اتصال به OpenAI برقرار نشد (احتمالاً مرورگر درخواست مستقیم را مسدود کرده — CORS)"); }
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `خطای OpenAI (کد ${res.status})`);
       const text = data?.choices?.[0]?.message?.content;
-      if (!text) throw new Error(data?.error?.message || "empty");
+      if (!text) throw new Error("پاسخ خالی از OpenAI");
       return text;
     }
     if (aiProvider === "grok") {
-      if (!grokKey) throw new Error("no-key");
-      const res = await fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${grokKey}` },
-        body: JSON.stringify({ model: "grok-2-latest", messages: [{ role: "user", content: prompt }] }),
-      });
-      const data = await res.json();
+      if (!grokKey) throw new Error("کلید Grok وارد نشده");
+      let res, data;
+      try {
+        res = await fetch("https://api.x.ai/v1/chat/completions", {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${grokKey}` },
+          body: JSON.stringify({ model: "grok-2-latest", messages: [{ role: "user", content: prompt }] }),
+        });
+      } catch (netErr) { throw new Error("اتصال به Grok برقرار نشد (احتمالاً مرورگر درخواست مستقیم را مسدود کرده — CORS)"); }
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `خطای Grok (کد ${res.status})`);
       const text = data?.choices?.[0]?.message?.content;
-      if (!text) throw new Error(data?.error?.message || "empty");
+      if (!text) throw new Error("پاسخ خالی از Grok");
       return text;
     }
-    if (!geminiKey) throw new Error("no-key");
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    });
-    const data = await res.json();
+    if (!geminiKey) throw new Error("کلید Gemini وارد نشده");
+    let res, data;
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      });
+    } catch (netErr) { throw new Error("اتصال به Gemini برقرار نشد — اینترنت یا CORS را بررسی کن"); }
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message || `خطای Gemini (کد ${res.status})`);
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error(data?.error?.message || "empty");
+    if (!text) throw new Error(data?.promptFeedback?.blockReason ? `مسدود شد: ${data.promptFeedback.blockReason}` : "پاسخ خالی از Gemini");
     return text;
   };
 
@@ -359,7 +371,7 @@ export default function FloraCRM() {
         )}
 
         {toast && (
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-40 px-4 py-2.5 rounded-2xl text-sm flora-up z-40" style={{ ...glass(c, 20), color: c.ink, fontWeight: 600 }}>{toast}</div>
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-40 px-4 py-2.5 rounded-2xl text-sm flora-up z-40 text-center" style={{ ...glass(c, 20), color: c.ink, fontWeight: 600, maxWidth: 320, lineHeight: 1.7 }}>{toast}</div>
         )}
       </div>
     </div>
@@ -855,7 +867,7 @@ function PropertyDetail({ id, ctx, onBack }) {
       const text = await callAI(prompt);
       setAdText(text.trim());
       setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: text.trim() } : x));
-    } catch (e) { notify("خطا در تولید آگهی — کلید هوش مصنوعی را بررسی کن"); }
+    } catch (e) { notify(`خطا در تولید آگهی: ${e.message || "نامشخص"}`); }
     setAiLoading(false);
   };
 
@@ -1008,7 +1020,10 @@ ${propSummary || "موردی ثبت نشده"}`;
       const parsed = JSON.parse(cleaned);
       setBriefing(parsed);
       dbSet(COPILOT_KEY, { date: todayISO(), data: parsed }).catch(() => {});
-    } catch (e) { notify("خطا در تولید بریفینگ — دوباره امتحان کن یا کلید را بررسی کن"); }
+    } catch (e) {
+      if (e instanceof SyntaxError) notify("پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن");
+      else notify(`خطا: ${e.message || "نامشخص"}`);
+    }
     setLoading(false);
   };
 
@@ -1216,9 +1231,9 @@ function AiSettingsSheet({ ctx, onClose }) {
   const [oKey, setOKey] = useState(openaiKey || "");
   const [xKey, setXKey] = useState(grokKey || "");
   const providers = [
-    { id: "gemini", label: "Gemini (Google)", hint: "کلید رایگان: aistudio.google.com" },
-    { id: "openai", label: "GPT (OpenAI)", hint: "کلید: platform.openai.com" },
-    { id: "grok", label: "Grok (xAI)", hint: "کلید: console.x.ai" },
+    { id: "gemini", label: "Gemini (Google)", hint: "کلید رایگان: aistudio.google.com — چون این اپ بک‌اند ندارد، این پایدارترین گزینه است" },
+    { id: "openai", label: "GPT (OpenAI)", hint: "کلید: platform.openai.com — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
+    { id: "grok", label: "Grok (xAI)", hint: "کلید: console.x.ai — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
   ];
   const currentKey = provider === "openai" ? oKey : provider === "grok" ? xKey : gKey;
   const setCurrentKey = provider === "openai" ? setOKey : provider === "grok" ? setXKey : setGKey;
