@@ -4,11 +4,11 @@ import {
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
   ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
-  LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3,
+  LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -160,6 +160,7 @@ export default function FloraCRM() {
   const [calls, setCalls] = useState(seedCalls);
   const [geminiKey, setGeminiKey] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [showDailyReminder, setShowDailyReminder] = useState(false);
 
   const [toast, setToast] = useState(null);
   const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
@@ -178,6 +179,9 @@ export default function FloraCRM() {
         }
         const settings = await dbGet(SETTINGS_KEY);
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
+        const lastReminder = await dbGet(REMINDER_KEY);
+        const today = todayISO();
+        if (lastReminder !== today) { setShowDailyReminder(true); dbSet(REMINDER_KEY, today).catch(() => {}); }
       } catch (e) { console.error("Flora: load failed", e); }
       setLoaded(true);
     })();
@@ -302,10 +306,15 @@ export default function FloraCRM() {
         {!detail && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} />}
 
         {sheet === "add" && <QuickAddSheet ctx={ctx} onClose={() => setSheet(null)} />}
-        {sheet && sheet !== "add" && <FormSheet kind={sheet} ctx={ctx} onClose={() => setSheet(null)} />}
+        {sheet && sheet !== "add" && <FormSheet sheetVal={sheet} ctx={ctx} onClose={() => setSheet(null)} />}
 
         {mapPicker && <MapPickerModal c={c} onPick={mapPicker.onPick} onClose={() => setMapPicker(null)} />}
         {lightbox && <Lightbox item={lightbox} onClose={() => setLightbox(null)} />}
+        {showDailyReminder && (
+          <DailyReminderPopup c={c} property={properties.find((p) => p.stage !== "فروخته شد")}
+            onGo={() => { setShowDailyReminder(false); goProperties("فعال"); }}
+            onClose={() => setShowDailyReminder(false)} />
+        )}
 
         {toast && (
           <div className="absolute left-1/2 -translate-x-1/2 bottom-40 px-4 py-2.5 rounded-2xl text-sm flora-up z-40" style={{ ...glass(c, 20), color: c.ink, fontWeight: 600 }}>{toast}</div>
@@ -422,8 +431,8 @@ function HomeTab({ ctx }) {
   );
 }
 
-function ActivityApptRow({ a, ctx }) {
-  const { c, properties, setAppointments, scheduleReminder } = ctx;
+function ActivityApptRow({ a, ctx, showDelete }) {
+  const { c, properties, setAppointments, scheduleReminder, notify } = ctx;
   const p = properties.find((x) => x.id === a.propertyId);
   return (
     <div className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
@@ -435,6 +444,9 @@ function ActivityApptRow({ a, ctx }) {
       <input type="time" value={a.time} onChange={(e) => setAppointments((prev) => prev.map((x) => x.id === a.id ? { ...x, time: e.target.value } : x))}
         style={{ background: c.surface2, border: "none", borderRadius: 8, padding: "5px 7px", fontSize: 11, color: c.ink, width: 72 }} />
       <button onClick={() => scheduleReminder(a, p?.title)} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><Bell size={14} color={c.attn} /></button>
+      {showDelete && (
+        <button onClick={() => { setAppointments((prev) => prev.filter((x) => x.id !== a.id)); notify("بازدید حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
+      )}
     </div>
   );
 }
@@ -622,7 +634,7 @@ function CalendarTab({ ctx }) {
       {Object.entries(grouped).map(([date, items]) => (
         <div key={date} className="mb-4">
           <p style={{ fontSize: 12, color: c.muted, marginBottom: 8, fontWeight: 700 }}>{date === todayISO() ? "امروز" : fmtJalali(date)}</p>
-          <div className="flex flex-col gap-2">{items.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} />)}</div>
+          <div className="flex flex-col gap-2">{items.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} showDelete />)}</div>
         </div>
       ))}
     </div>
@@ -700,12 +712,16 @@ function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "customer") return <CustomerDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   return null;
 }
-function BackHeader({ c, title, onBack, onDelete }) {
+function BackHeader({ c, title, onBack, onEdit, onDelete }) {
   return (
     <div className="flex items-center justify-between pt-2 pb-4">
       <button onClick={onBack} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><ArrowRight size={16} color={c.ink} /></button>
       <h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2>
-      {onDelete ? <button onClick={onDelete} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Trash2 size={15} color={c.danger} /></button> : <div style={{ width: 36 }} />}
+      <div className="flex items-center gap-2">
+        {onEdit && <button onClick={onEdit} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Edit3 size={15} color={c.primary} /></button>}
+        {onDelete && <button onClick={onDelete} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Trash2 size={15} color={c.danger} /></button>}
+        {!onEdit && !onDelete && <div style={{ width: 36 }} />}
+      </div>
     </div>
   );
 }
@@ -737,6 +753,23 @@ function Lightbox({ item, onClose }) {
     <div className="absolute inset-0 z-50 flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.9)" }} onClick={onClose}>
       <button onClick={onClose} className="absolute top-5 left-5 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
       {item.type === "image" ? <img src={item.url} alt="" style={{ maxWidth: "92%", maxHeight: "80%", borderRadius: 18, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} /> : <video src={item.url} controls autoPlay style={{ maxWidth: "92%", maxHeight: "80%", borderRadius: 18 }} onClick={(e) => e.stopPropagation()} />}
+    </div>
+  );
+}
+function DailyReminderPopup({ c, property, onGo, onClose }) {
+  return (
+    <div className="absolute inset-0 z-[65] flex items-center justify-center p-6 flora-pop" style={{ background: "rgba(15,20,35,0.55)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full rounded-2xl p-5" style={{ ...glass(c), maxWidth: 320 }}>
+        <div className="w-11 h-11 rounded-full flex items-center justify-center mb-3" style={{ background: c.attnSoft }}><Sparkles size={20} color={c.attn} /></div>
+        <p style={{ fontSize: 14.5, fontWeight: 800, marginBottom: 6 }}>یادآوری روزانه</p>
+        <p style={{ fontSize: 12.5, color: c.muted, lineHeight: 1.9, marginBottom: 16 }}>
+          {property ? `امروز یک سر به «${property.title}» بزن و کارشناسی‌اش کن.` : "امروز یکی از فایل‌هایت را کارشناسی کن تا اطلاعاتش به‌روز بماند."}
+        </p>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="press flex-1 rounded-xl py-2.5" style={{ background: c.surface2, color: c.muted, fontWeight: 700, fontSize: 12.5 }}>بعداً</button>
+          <button onClick={onGo} className="press flex-1 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>مشاهده فایل‌ها</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -776,7 +809,7 @@ function PropertyDetail({ id, ctx, onBack }) {
 
   return (
     <div className="pt-2">
-      <BackHeader c={c} title="جزئیات فایل" onBack={onBack} onDelete={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("فایل حذف شد"); }} />
+      <BackHeader c={c} title="جزئیات فایل" onBack={onBack} onEdit={() => setSheet({ kind: "property", editId: id })} onDelete={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("فایل حذف شد"); }} />
       <SectionHeader c={c} title="عکس و فیلم" />
       <div className="mb-4"><MediaGallery c={c} media={p.media || []} uploading={uploading} onAdd={addMedia} onRemove={removeMedia} onView={setLightbox} /></div>
 
@@ -813,7 +846,10 @@ function PropertyDetail({ id, ctx, onBack }) {
             {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال تولید..." : "تولید با Gemini"}
           </button>
         </div>
-        <p style={{ fontSize: 12.5, lineHeight: 1.9, color: adText ? c.ink : c.muted }}>{adText || "هنوز آگهی‌ای تولید نشده."}</p>
+        <textarea value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="متن آگهی را اینجا بنویس، یا از دکمه‌ی بالا با Gemini بساز..."
+          rows={5} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.9, color: c.ink, outline: "none", fontFamily: "inherit", resize: "vertical" }} />
+        <button onClick={() => { setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: adText } : x)); notify("آگهی ذخیره شد"); }}
+          className="press w-full mt-2 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ذخیره آگهی</button>
       </div>
 
       <SectionHeader c={c} title="بازدیدهای این فایل" />
@@ -836,7 +872,10 @@ function CustomerDetail({ id, ctx, onBack }) {
       <BackHeader c={c} title="جزئیات مشتری" onBack={onBack} onDelete={() => { ctx.setCustomers((prev) => prev.filter((x) => x.id !== id)); onBack(); ctx.notify("مشتری حذف شد"); }} />
       <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 24)}>
         <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
-        <div><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone}</p></div>
+        <div className="flex-1"><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone}</p></div>
+        {cu.phone && (
+          <a href={`tel:${cu.phone}`} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
+        )}
       </div>
       <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
         <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need}</p>
@@ -982,8 +1021,10 @@ function MapPickerModal({ c, onPick, onClose }) {
 }
 
 // ---------- Form sheet router ----------
-function FormSheet({ kind, ctx, onClose }) {
-  if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} />;
+function FormSheet({ sheetVal, ctx, onClose }) {
+  const kind = typeof sheetVal === "string" ? sheetVal : sheetVal.kind;
+  const editId = typeof sheetVal === "object" ? sheetVal.editId : null;
+  if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
   if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} />;
   if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} />;
@@ -1005,10 +1046,16 @@ function AiSettingsSheet({ ctx, onClose }) {
   );
 }
 
-function PropertyForm({ ctx, onClose }) {
-  const { c, owners, setOwners, builders, setProperties, notify, setMapPicker } = ctx;
-  const [f, setF] = useState({ title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "" });
-  const [media, setMedia] = useState([]);
+function PropertyForm({ ctx, onClose, editId }) {
+  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker } = ctx;
+  const editing = editId ? properties.find((x) => x.id === editId) : null;
+  const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
+  const [f, setF] = useState(editing ? {
+    title: editing.title, type: editing.type, deal: editing.deal, pricePerMeter: String(editing.pricePerMeter), area: String(editing.area),
+    rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address,
+    ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "",
+  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "" });
+  const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const total = toNum(f.pricePerMeter) * toNum(f.area);
@@ -1019,23 +1066,29 @@ function PropertyForm({ ctx, onClose }) {
   const openMapPicker = () => setMapPicker({ onPick: (addr) => { setF((prev) => ({ ...prev, address: addr })); setMapPicker(null); } });
 
   const submit = () => {
-    let ownerId = "";
+    let ownerId = editing?.ownerId || "";
     const nm = f.ownerName.trim(), ph = f.ownerPhone.trim();
     if (nm) {
       const existing = owners.find((o) => o.name.trim() === nm && (o.phone || "").trim() === ph);
       if (existing) ownerId = existing.id;
       else { const newOwner = { id: uid(), name: nm, phone: ph }; setOwners((prev) => [newOwner, ...prev]); ownerId = newOwner.id; }
-    }
-    setProperties((prev) => [{
-      id: uid(), stage: "فعال", desc: "", media,
+    } else ownerId = "";
+    const payload = {
       title: f.title, type: f.type, deal: f.deal, address: f.address, builderId: f.builderId, furnished: f.furnished,
-      pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId,
-    }, ...prev]);
-    notify("فایل با موفقیت ثبت شد"); onClose();
+      pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId, media,
+    };
+    if (editing) {
+      setProperties((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
+      notify("تغییرات فایل ذخیره شد");
+    } else {
+      setProperties((prev) => [{ id: uid(), stage: "فعال", desc: "", ...payload }, ...prev]);
+      notify("فایل با موفقیت ثبت شد");
+    }
+    onClose();
   };
 
   return (
-    <SheetShell c={c} title="ثبت فایل ملک" onClose={onClose}>
+    <SheetShell c={c} title={editing ? "ویرایش فایل ملک" : "ثبت فایل ملک"} onClose={onClose}>
       <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => setMedia((p) => p.filter((m) => m.id !== mid))} onView={() => {}} /></Field>
       <Field c={c} label="عنوان فایل"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder="مثلاً آپارتمان ۹۰ متری تهرانپارس" /></Field>
       <div className="grid grid-cols-2 gap-3">
@@ -1065,7 +1118,7 @@ function PropertyForm({ ctx, onClose }) {
         <Field c={c} label="شماره مالک"><input style={inputStyle(c)} dir="ltr" value={f.ownerPhone} onChange={set("ownerPhone")} placeholder="اختیاری" /></Field>
       </div>
       {isPreSale && <Field c={c} label="سازنده"><Select c={c} value={f.builderId} onChange={set("builderId")} placeholder="انتخاب سازنده" options={builders.map(b=>({value:b.id,label:b.name}))} /></Field>}
-      <SubmitBtn c={c} label="ذخیره فایل" disabled={!valid} onClick={submit} />
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره فایل"} disabled={!valid} onClick={submit} />
     </SheetShell>
   );
 }
