@@ -5,10 +5,11 @@ import {
   ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
+  MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -159,6 +160,9 @@ export default function FloraCRM() {
   const [appointments, setAppointments] = useState(seedAppointments);
   const [calls, setCalls] = useState(seedCalls);
   const [geminiKey, setGeminiKey] = useState("");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [grokKey, setGrokKey] = useState("");
+  const [aiProvider, setAiProvider] = useState("gemini");
   const [loaded, setLoaded] = useState(false);
   const [showDailyReminder, setShowDailyReminder] = useState(false);
 
@@ -179,6 +183,9 @@ export default function FloraCRM() {
         }
         const settings = await dbGet(SETTINGS_KEY);
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
+        if (settings?.openaiKey) setOpenaiKey(settings.openaiKey);
+        if (settings?.grokKey) setGrokKey(settings.grokKey);
+        if (settings?.aiProvider) setAiProvider(settings.aiProvider);
         const lastReminder = await dbGet(REMINDER_KEY);
         const today = todayISO();
         if (lastReminder !== today) { setShowDailyReminder(true); dbSet(REMINDER_KEY, today).catch(() => {}); }
@@ -187,7 +194,41 @@ export default function FloraCRM() {
     })();
   }, []);
   useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey }).catch(() => {}); }, [loaded, geminiKey]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider]);
+
+  const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
+  const callAI = async (prompt) => {
+    if (aiProvider === "openai") {
+      if (!openaiKey) throw new Error("no-key");
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text) throw new Error(data?.error?.message || "empty");
+      return text;
+    }
+    if (aiProvider === "grok") {
+      if (!grokKey) throw new Error("no-key");
+      const res = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${grokKey}` },
+        body: JSON.stringify({ model: "grok-2-latest", messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text) throw new Error(data?.error?.message || "empty");
+      return text;
+    }
+    if (!geminiKey) throw new Error("no-key");
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error(data?.error?.message || "empty");
+    return text;
+  };
 
   const scheduleReminder = (appt, propTitle) => {
     if (!("Notification" in window)) { notify("مرورگر از اعلان پشتیبانی نمی‌کند"); return; }
@@ -237,6 +278,7 @@ export default function FloraCRM() {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
+    openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI,
     scheduleReminder, goProperties, exportBackup, importBackup,
   };
 
@@ -407,6 +449,15 @@ function HomeTab({ ctx }) {
 
   return (
     <div className="pt-3">
+      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: c.primary }}>
+        <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={22} color="#fff" /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>دستیار فروش هوش مصنوعی</p>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>پیگیری‌های امروز، فایل پیشنهادی و مشتریان داغ</p>
+        </div>
+        <ChevronLeft size={18} color="#fff" />
+      </button>
+
       <div className="grid grid-cols-2 gap-3">
         {stats.map((s, i) => (
           <button key={i} onClick={s.onClick} className="press text-right rounded-xl p-4" style={glass(c, 24)}>
@@ -715,6 +766,7 @@ function AddLink({ c, label, onClick }) {
 function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "property") return <PropertyDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   if (detail.type === "customer") return <CustomerDetail id={detail.id} ctx={ctx} onBack={onBack} />;
+  if (detail.type === "copilot") return <CopilotView ctx={ctx} onBack={onBack} />;
   return null;
 }
 function BackHeader({ c, title, onBack, onEdit, onDelete }) {
@@ -781,7 +833,7 @@ function DailyReminderPopup({ c, property, onGo, onClose }) {
 function InfoChip({ c, icon: Icon, label }) { return <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.surface2 }}><Icon size={12} color={c.muted} /><span style={{ fontSize: 11, color: c.ink }}>{label}</span></div>; }
 
 function PropertyDetail({ id, ctx, onBack }) {
-  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, geminiKey, setSheet } = ctx;
+  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, hasAiKey, callAI, setSheet } = ctx;
   const p = properties.find((x) => x.id === id);
   const owner = owners.find((o) => o.id === p?.ownerId);
   const builder = builders.find((b) => b.id === p?.builderId);
@@ -795,20 +847,15 @@ function PropertyDetail({ id, ctx, onBack }) {
   const propAppts = appointments.filter((a) => a.propertyId === id);
 
   const generateAd = async () => {
-    if (!geminiKey) { notify("اول یک کلید Gemini در تنظیمات هوش مصنوعی وارد کن"); setSheet("ai-settings"); return; }
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
     setAiLoading(true);
     try {
       const prompt = `یک آگهی ملکی حرفه‌ای، جذاب و کوتاه (حداکثر ۵ خط) به زبان فارسی برای این فایل ملکی بنویس:
 عنوان: ${p.title}\nنوع: ${p.type}\nنوع معامله: ${p.deal}\nمتراژ: ${p.area} متر\nطبقه: ${p.floor || "-"}\nتعداد اتاق: ${p.rooms}\nوضعیت لوازم: ${p.furnished || "-"}\nآدرس: ${p.address}\nقیمت کل: ${fmtToman(p.price)}\nفقط متن آگهی را برگردان.`;
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      });
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      if (!text) throw new Error("empty");
+      const text = await callAI(prompt);
       setAdText(text.trim());
       setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: text.trim() } : x));
-    } catch (e) { notify("خطا در تولید آگهی — کلید Gemini را بررسی کن"); }
+    } catch (e) { notify("خطا در تولید آگهی — کلید هوش مصنوعی را بررسی کن"); }
     setAiLoading(false);
   };
 
@@ -848,7 +895,7 @@ function PropertyDetail({ id, ctx, onBack }) {
         <div className="flex items-center justify-between mb-2.5">
           <p style={{ fontSize: 13, fontWeight: 700 }}>آگهی</p>
           <button onClick={generateAd} disabled={aiLoading} className="press flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontSize: 11.5, fontWeight: 700 }}>
-            {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال تولید..." : "تولید با Gemini"}
+            {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال تولید..." : "تولید با AI"}
           </button>
         </div>
         <textarea value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="متن آگهی را اینجا بنویس، یا از دکمه‌ی بالا با Gemini بساز..."
@@ -896,6 +943,129 @@ function CustomerDetail({ id, ctx, onBack }) {
         {custAppts.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} />)}
         {custAppts.length === 0 && <EmptyLine c={c} text="بازدیدی ثبت نشده" />}
       </div>
+    </div>
+  );
+}
+
+// ---------- AI Sales Copilot ----------
+const phoneOf = (customers, name) => { const m = customers.find((cu) => cu.name.trim() === String(name || "").trim()); return m?.phone || ""; };
+const waLink = (phone, text) => { if (!phone) return null; const digits = phone.replace(/\D/g, "").replace(/^0/, "98"); return `https://wa.me/${digits}${text ? `?text=${encodeURIComponent(text)}` : ""}`; };
+const smsLink = (phone, text) => (phone ? `sms:${phone}${text ? `?body=${encodeURIComponent(text)}` : ""}` : null);
+const daysSince = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+
+function QuickContactRow({ c, name, phone, note }) {
+  return (
+    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
+      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><UserCircle2 size={15} color={c.primary} /></div>
+      <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700 }}>{name}</p>{note && <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{note}</p>}</div>
+      {phone && (
+        <div className="flex items-center gap-1.5 shrink-0">
+          <a href={`tel:${phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>
+          <a href={waLink(phone, note)} target="_blank" rel="noreferrer" className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><MessageSquare size={12} color={c.primary} /></a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CopilotView({ ctx, onBack }) {
+  const { c, customers, calls, properties, hasAiKey, callAI, notify, setSheet } = ctx;
+  const [briefing, setBriefing] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { (async () => {
+    try { const cached = await dbGet(COPILOT_KEY); if (cached?.date === todayISO()) setBriefing(cached.data); } catch (e) {}
+  })(); }, []);
+
+  const overdue = useMemo(() => {
+    return customers.map((cu) => {
+      const lastCall = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const days = lastCall ? daysSince(lastCall.date) : null;
+      return { cu, days };
+    }).filter((x) => x.days === null || x.days >= 5).sort((a, b) => (b.days ?? 999) - (a.days ?? 999));
+  }, [customers, calls]);
+
+  const generateBriefing = async () => {
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
+    setLoading(true);
+    try {
+      const custSummary = customers.slice(0, 30).map((cu) => {
+        const lastCall = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
+        return `- ${cu.name} | نیاز: ${cu.need || "-"} | بودجه: ${cu.budget || 0} تومان | آخرین تماس: ${lastCall ? `${lastCall.date} (${lastCall.status})` : "هرگز"}`;
+      }).join("\n");
+      const propSummary = properties.filter((p) => p.stage !== "فروخته شد").slice(0, 30).map((p) => `- ${p.title} | ${p.deal} | ${p.price} تومان | ${p.area} متر`).join("\n");
+      const prompt = `تو دستیار فروش یک مشاور املاک ایرانی هستی. بر اساس اطلاعات زیر یک بریفینگ روزانه بساز و دقیقاً به‌صورت JSON خام (بدون توضیح، بدون markdown fence، بدون متن اضافه) با این ساختار برگردان:
+{"callList":[{"customer":"نام دقیق مشتری از لیست","reason":"چرا"}],"suggestedProperty":[{"customer":"نام","property":"عنوان فایل از لیست","reason":"چرا"}],"messageDrafts":[{"customer":"نام","message":"متن پیام کوتاه و مودبانه فارسی"}],"hotLeads":[{"customer":"نام","reason":"چرا نزدیک خرید است"}],"atRiskLeads":[{"customer":"نام","reason":"چرا در خطر از دست رفتن است"}]}
+هر آرایه حداکثر ۴ مورد داشته باشد. نام مشتری و عنوان فایل را دقیقاً از لیست‌های زیر انتخاب کن.
+
+مشتریان:
+${custSummary || "موردی ثبت نشده"}
+
+فایل‌های فعال:
+${propSummary || "موردی ثبت نشده"}`;
+      const text = await callAI(prompt);
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      setBriefing(parsed);
+      dbSet(COPILOT_KEY, { date: todayISO(), data: parsed }).catch(() => {});
+    } catch (e) { notify("خطا در تولید بریفینگ — دوباره امتحان کن یا کلید را بررسی کن"); }
+    setLoading(false);
+  };
+
+  const Section = ({ icon: Icon, color, title, items, render }) => items && items.length > 0 && (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 mb-2"><Icon size={15} color={color} /><p style={{ fontSize: 13, fontWeight: 700 }}>{title}</p></div>
+      <div className="flex flex-col gap-2">{items.map((it, i) => render(it, i))}</div>
+    </div>
+  );
+
+  return (
+    <div className="pt-2">
+      <BackHeader c={c} title="دستیار فروش هوش مصنوعی" onBack={onBack} />
+
+      <SectionHeader c={c} title="پیگیری‌های عقب‌افتاده" />
+      <div className="flex flex-col gap-2 mb-2">
+        {overdue.slice(0, 8).map(({ cu, days }) => (
+          <QuickContactRow key={cu.id} c={c} name={cu.name} phone={cu.phone} note={days === null ? "هنوز هیچ تماسی ثبت نشده" : `${faDigits(days)} روز از آخرین تماس گذشته`} />
+        ))}
+        {overdue.length === 0 && <EmptyLine c={c} text="همه‌ی مشتریان اخیراً پیگیری شده‌اند 👌" />}
+      </div>
+
+      <SectionHeader c={c} title="بریفینگ امروز با هوش مصنوعی" />
+      <button onClick={generateBriefing} disabled={loading} className="press w-full rounded-xl py-3 mb-4 flex items-center justify-center gap-2" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
+        {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} {loading ? "در حال تحلیل..." : briefing ? "به‌روزرسانی بریفینگ" : "تولید بریفینگ امروز"}
+      </button>
+
+      {briefing ? (
+        <>
+          <Section icon={PhoneCall} color={c.primary} title="با این افراد تماس بگیر" items={briefing.callList} render={(it, i) => <QuickContactRow key={i} c={c} name={it.customer} phone={phoneOf(customers, it.customer)} note={it.reason} />} />
+          <Section icon={Building2} color={c.primary} title="فایل پیشنهادی" items={briefing.suggestedProperty} render={(it, i) => (
+            <div key={i} className="rounded-lg p-3" style={glass(c, 22)}><p style={{ fontSize: 12.5, fontWeight: 700 }}>{it.customer} ← {it.property}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
+          )} />
+          <Section icon={MessageSquare} color={c.primary} title="پیش‌نویس پیام" items={briefing.messageDrafts} render={(it, i) => {
+            const phone = phoneOf(customers, it.customer);
+            return (
+              <div key={i} className="rounded-lg p-3" style={glass(c, 22)}>
+                <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 3 }}>{it.customer}</p>
+                <p style={{ fontSize: 11.5, color: c.ink, lineHeight: 1.8, marginBottom: 8 }}>{it.message}</p>
+                <div className="flex gap-2">
+                  <a href={waLink(phone, it.message) || "#"} target="_blank" rel="noreferrer" className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><Send size={12} color={c.success} /><span style={{ fontSize: 11, fontWeight: 700, color: c.success }}>واتساپ</span></a>
+                  <a href={smsLink(phone, it.message) || "#"} className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><MessageSquare size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>پیامک</span></a>
+                </div>
+              </div>
+            );
+          }} />
+          <Section icon={TrendingUp} color={c.success} title="مشتریان نزدیک به خرید" items={briefing.hotLeads} render={(it, i) => (
+            <div key={i} className="rounded-lg p-3" style={glass(c, 22)}><p style={{ fontSize: 12.5, fontWeight: 700, color: c.success }}>{it.customer}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
+          )} />
+          <Section icon={AlertTriangle} color={c.danger} title="در خطر از دست رفتن" items={briefing.atRiskLeads} render={(it, i) => (
+            <div key={i} className="rounded-lg p-3" style={glass(c, 22)}><p style={{ fontSize: 12.5, fontWeight: 700, color: c.danger }}>{it.customer}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
+          )} />
+        </>
+      ) : (
+        <EmptyLine c={c} text="هنوز بریفینگی تولید نشده. روی دکمه‌ی بالا بزن." />
+      )}
+      <div style={{ height: 20 }} />
     </div>
   );
 }
@@ -1040,13 +1210,33 @@ function FormSheet({ sheetVal, ctx, onClose }) {
 }
 
 function AiSettingsSheet({ ctx, onClose }) {
-  const { c, geminiKey, setGeminiKey, notify } = ctx;
-  const [key, setKey] = useState(geminiKey || "");
+  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, notify } = ctx;
+  const [provider, setProvider] = useState(aiProvider);
+  const [gKey, setGKey] = useState(geminiKey || "");
+  const [oKey, setOKey] = useState(openaiKey || "");
+  const [xKey, setXKey] = useState(grokKey || "");
+  const providers = [
+    { id: "gemini", label: "Gemini (Google)", hint: "کلید رایگان: aistudio.google.com" },
+    { id: "openai", label: "GPT (OpenAI)", hint: "کلید: platform.openai.com" },
+    { id: "grok", label: "Grok (xAI)", hint: "کلید: console.x.ai" },
+  ];
+  const currentKey = provider === "openai" ? oKey : provider === "grok" ? xKey : gKey;
+  const setCurrentKey = provider === "openai" ? setOKey : provider === "grok" ? setXKey : setGKey;
   return (
-    <SheetShell c={c} title="تنظیمات هوش مصنوعی (Gemini)" onClose={onClose}>
-      <Field c={c} label="کلید API جمنای (Gemini API Key)"><input style={inputStyle(c)} dir="ltr" value={key} onChange={(e) => setKey(e.target.value)} placeholder="AIza..." /></Field>
-      <p style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>این کلید فقط روی همین گوشی ذخیره می‌شود. کلید رایگان را از aistudio.google.com بساز.</p>
-      <SubmitBtn c={c} label="ذخیره" disabled={!key.trim()} onClick={() => { setGeminiKey(key.trim()); notify("کلید Gemini ذخیره شد"); onClose(); }} />
+    <SheetShell c={c} title="تنظیمات هوش مصنوعی" onClose={onClose}>
+      <Field c={c} label="ارائه‌دهنده">
+        <div className="flex gap-2">
+          {providers.map((p) => (
+            <button key={p.id} onClick={() => setProvider(p.id)} className="press flex-1 rounded-lg py-2.5" style={{ background: provider === p.id ? c.primary : c.surface2, color: provider === p.id ? "#fff" : c.muted, fontWeight: 700, fontSize: 11.5 }}>{p.label}</button>
+          ))}
+        </div>
+      </Field>
+      <Field c={c} label="کلید API"><input style={inputStyle(c)} dir="ltr" value={currentKey} onChange={(e) => setCurrentKey(e.target.value)} placeholder="کلید را اینجا وارد کن" /></Field>
+      <p style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>{providers.find((p) => p.id === provider)?.hint} — کلید فقط روی همین گوشی ذخیره می‌شود.</p>
+      <SubmitBtn c={c} label="ذخیره" disabled={!currentKey.trim()} onClick={() => {
+        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim());
+        notify("تنظیمات هوش مصنوعی ذخیره شد"); onClose();
+      }} />
     </SheetShell>
   );
 }
