@@ -5,11 +5,11 @@ import {
   ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
-  MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send,
+  MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -85,6 +85,29 @@ const toEnDigits = (s) => String(s ?? "").replace(/[۰-۹٠-٩]/g, (d) => {
   const a = "٠١٢٣٤٥٦٧٨٩".indexOf(d); return a > -1 ? a : d;
 });
 const toNum = (v) => Number(toEnDigits(v).replace(/[^0-9.]/g, "")) || 0;
+
+// Parses key fields out of ad text the user pasted (Divar disallows automated fetching,
+// so this works on text a human already copied from their own browser — not a scraper).
+function parseDivarText(raw) {
+  const norm = toEnDigits(raw || "");
+  const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+  const title = lines[0] || "";
+  const areaMatch = norm.match(/(\d{2,4})\s*متر/);
+  const roomsMatch = norm.match(/(\d)\s*(خواب|اتاق)/);
+  const floorMatch = norm.match(/طبقه[:\s]*(\d{1,2})/);
+  let deal = "فروش";
+  if (/پیش[\s\u200c]?فروش/.test(raw)) deal = "پیش‌فروش";
+  else if (/رهن/.test(raw) && /اجاره/.test(raw)) deal = "رهن کامل";
+  else if (/اجاره/.test(raw)) deal = "اجاره";
+  const priceMatches = [...norm.matchAll(/([\d,]{6,})\s*تومان/g)].map((m) => Number(m[1].replace(/,/g, "")));
+  const price = priceMatches.length ? Math.max(...priceMatches) : 0;
+  const area = areaMatch ? Number(areaMatch[1]) : 0;
+  const pricePerMeter = price && area ? Math.round(price / area) : 0;
+  const furnished = /با\s*لوازم|فول\s*مبله|مبله/.test(raw) ? "با لوازم" : "بدون لوازم";
+  let type = "آپارتمان";
+  if (/ویلا/.test(raw)) type = "ویلا"; else if (/زمین|کلنگی/.test(raw)) type = "زمین"; else if (/مغازه|تجاری/.test(raw)) type = "مغازه"; else if (/اداری|دفتر\s*کار/.test(raw)) type = "اداری";
+  return { title, type, deal, area: area || "", pricePerMeter: pricePerMeter || "", rooms: roomsMatch ? roomsMatch[1] : "", floor: floorMatch ? floorMatch[1] : "1", furnished };
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const fmtToman = (n) => (n ? Math.round(n).toLocaleString("fa-IR") : "۰") + " تومان";
@@ -334,7 +357,7 @@ export default function FloraCRM() {
 
       {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
       <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh" }}>
-        <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} />
+        <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} />
 
         <div className="flex-1 overflow-y-auto pb-28 px-4 relative">
           <div key={detail ? `d-${detail.id}` : tab} className="flora-up">
@@ -389,7 +412,7 @@ export default function FloraCRM() {
 }
 
 // ---------- Top bar / search / nav ----------
-function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet }) {
+function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail }) {
   const titles = { home: "داشبورد", properties: "فایل‌های ملکی", customers: "مشتریان", calendar: "تقویم بازدید", more: "بیشتر" };
   return (
     <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0 relative z-10">
@@ -404,6 +427,7 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet }) {
             <span style={{ fontSize: 10.5, fontWeight: 700, color: c.attn }}>{faDigits(pendingCalls)}</span>
           </div>
         )}
+        <button onClick={() => setDetail({ type: "ai-chat" })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><MessageCircle size={16} color={c.ink} /></button>
         <button onClick={() => setSheet("ai-settings")} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><Sparkles size={16} color={c.ink} /></button>
         <button onClick={() => setDark(!dark)} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}>{dark ? <Sun size={16} color={c.ink} /> : <Moon size={16} color={c.ink} />}</button>
       </div>
@@ -789,6 +813,7 @@ function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "property") return <PropertyDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   if (detail.type === "customer") return <CustomerDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   if (detail.type === "copilot") return <CopilotView ctx={ctx} onBack={onBack} />;
+  if (detail.type === "ai-chat") return <AiChatView ctx={ctx} onBack={onBack} />;
   return null;
 }
 function BackHeader({ c, title, onBack, onEdit, onDelete }) {
@@ -1095,6 +1120,70 @@ ${propSummary || "موردی ثبت نشده"}`;
   );
 }
 
+// ---------- AI Chat assistant ----------
+function AiChatView({ ctx, onBack }) {
+  const { c, hasAiKey, callAI, notify, setSheet } = ctx;
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [loadedHistory, setLoadedHistory] = useState(false);
+  const scrollRef = useRef(null);
+
+  useEffect(() => { (async () => {
+    try { const saved = await dbGet(CHAT_KEY); if (saved?.messages) setMessages(saved.messages); } catch (e) {}
+    setLoadedHistory(true);
+  })(); }, []);
+  useEffect(() => { if (loadedHistory) dbSet(CHAT_KEY, { messages }).catch(() => {}); }, [loadedHistory, messages]);
+  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, sending]);
+
+  const send = async () => {
+    const q = input.trim();
+    if (!q) return;
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
+    const history = [...messages, { role: "user", text: q }];
+    setMessages(history);
+    setInput("");
+    setSending(true);
+    try {
+      const transcript = history.slice(-12).map((m) => `${m.role === "user" ? "مشاور" : "دستیار"}: ${m.text}`).join("\n");
+      const prompt = `تو یک دستیار متخصص و باتجربه در حوزه‌ی املاک و مستغلات هستی — هم آشنا با بازار مسکن ایران و هم اصول حرفه‌ای مشاوره‌ی املاک در سطح جهانی (قیمت‌گذاری، مذاکره، بازاریابی، حقوقی، سرمایه‌گذاری). به فارسی، دقیق، کاربردی و مختصر پاسخ بده. اگر سوال خارج از حوزه‌ی املاک بود هم به بهترین شکل کمک کن.
+
+گفتگوی تا این لحظه:
+${transcript}
+
+فقط پاسخ دستیار به آخرین پیام را بنویس، بدون تکرار سوال.`;
+      const reply = await callAI(prompt);
+      setMessages((prev) => [...prev, { role: "assistant", text: reply.trim() }]);
+    } catch (e) {
+      setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ خطا: ${e.message || "نامشخص"}` }]);
+    }
+    setSending(false);
+  };
+
+  return (
+    <div className="pt-2 flex flex-col" style={{ height: "calc(100vh - 90px)" }}>
+      <BackHeader c={c} title="چت با دستیار املاک" onBack={onBack} />
+      <div ref={scrollRef} className="flex-1 overflow-y-auto flex flex-col gap-2.5 pb-3">
+        {messages.length === 0 && (
+          <div className="rounded-xl p-4" style={glass(c, 22)}>
+            <p style={{ fontSize: 12.5, color: c.muted, lineHeight: 1.9 }}>هر سوالی درباره‌ی قیمت‌گذاری، مذاکره، بازاریابی فایل، یا هر موضوع دیگری در حوزه‌ی املاک بپرس.</p>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`rounded-xl p-3 ${m.role === "user" ? "self-end" : "self-start"}`} style={{ ...glass(c, 20), maxWidth: "85%", background: m.role === "user" ? c.primary : c.surface }}>
+            <p style={{ fontSize: 12.5, lineHeight: 1.9, color: m.role === "user" ? "#fff" : c.ink, whiteSpace: "pre-wrap" }}>{m.text}</p>
+          </div>
+        ))}
+        {sending && <div className="self-start rounded-xl p-3" style={glass(c, 20)}><Loader2 size={14} className="animate-spin" color={c.primary} /></div>}
+      </div>
+      <div className="flex items-center gap-2 pt-2 shrink-0">
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="سوالت را بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
+        <button onClick={send} disabled={sending || !input.trim()} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primary, opacity: sending || !input.trim() ? 0.5 : 1 }}><Send size={16} color="#fff" /></button>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Sheet shell + fields ----------
 function SheetShell({ c, title, onClose, children }) {
   return (
@@ -1277,6 +1366,11 @@ function PropertyForm({ ctx, onClose, editId }) {
   } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "" });
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
+  const [showDivar, setShowDivar] = useState(false);
+  const [divarLink, setDivarLink] = useState("");
+  const [divarText, setDivarText] = useState("");
+  const [divarImg1, setDivarImg1] = useState("");
+  const [divarImg2, setDivarImg2] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const total = toNum(f.pricePerMeter) * toNum(f.area);
   const valid = f.title && f.pricePerMeter && f.area;
@@ -1284,6 +1378,16 @@ function PropertyForm({ ctx, onClose, editId }) {
 
   const addMedia = async (fileList) => { setUploading(true); const items = await filesToMedia(fileList); setMedia((prev) => [...prev, ...items]); setUploading(false); };
   const openMapPicker = () => setMapPicker({ onPick: (addr) => { setF((prev) => ({ ...prev, address: addr })); setMapPicker(null); } });
+
+  const extractFromDivar = () => {
+    if (!divarText.trim()) { notify("متن آگهی را پیست کن"); return; }
+    const parsed = parseDivarText(divarText);
+    setF((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v)])), address: prev.address }));
+    const imgs = [divarImg1, divarImg2].filter(Boolean).slice(0, 2).map((url) => ({ id: uid(), type: "image", url, external: true }));
+    if (imgs.length) setMedia((prev) => [...prev, ...imgs]);
+    setShowDivar(false);
+    notify("اطلاعات استخراج شد — پایین فرم را برای تایید بررسی کن");
+  };
 
   const submit = () => {
     let ownerId = editing?.ownerId || "";
@@ -1309,6 +1413,29 @@ function PropertyForm({ ctx, onClose, editId }) {
 
   return (
     <SheetShell c={c} title={editing ? "ویرایش فایل ملک" : "ثبت فایل ملک"} onClose={onClose}>
+      {!editing && (
+        <button type="button" onClick={() => setShowDivar((s) => !s)} className="press w-full flex items-center justify-center gap-2 rounded-xl py-3 mb-3.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}>
+          <Link2 size={15} /> ورود از لینک دیوار
+        </button>
+      )}
+      {showDivar && (
+        <div className="rounded-xl p-3.5 mb-4" style={glass(c, 22)}>
+          <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
+            دیوار اجازه‌ی دریافت خودکار اطلاعات را نمی‌دهد، پس این بخش را خودت باید پر کنی: صفحه‌ی آگهی را در دیوار باز کن، همه‌ی متنش را کپی کن و اینجا پیست کن.
+          </p>
+          <Field c={c} label="لینک دیوار (فقط یادداشت)"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
+          <Field c={c} label="متن کامل آگهی">
+            <textarea value={divarText} onChange={(e) => setDivarText(e.target.value)} rows={5} placeholder="متن آگهی را از صفحه‌ی دیوار کپی و اینجا پیست کن..." style={{ ...inputStyle(c), resize: "vertical" }} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field c={c} label="لینک تصویر ۱ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg1} onChange={(e) => setDivarImg1(e.target.value)} placeholder="روی عکس نگه‌دار → کپی لینک تصویر" /></Field>
+            <Field c={c} label="لینک تصویر ۲ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg2} onChange={(e) => setDivarImg2(e.target.value)} placeholder="..." /></Field>
+          </div>
+          <button type="button" onClick={extractFromDivar} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
+            <Wand2 size={15} /> استخراج اطلاعات
+          </button>
+        </div>
+      )}
       <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => setMedia((p) => p.filter((m) => m.id !== mid))} onView={() => {}} /></Field>
       <Field c={c} label="عنوان فایل"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder="مثلاً آپارتمان ۹۰ متری تهرانپارس" /></Field>
       <div className="grid grid-cols-2 gap-3">
