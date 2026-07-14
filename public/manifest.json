@@ -2,8 +2,13 @@
   "name": "Flora CRM",
   "short_name": "Flora",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#EEF0F3",
-  "theme_color": "#0FB5AC",
+  "orientation": "portrait",
+  "background_color": "#070B14",
+  "theme_color": "#3B82F6",
+  "lang": "fa",
+  "dir": "rtl",
+  "categories": ["business", "productivity"],
   "icons": []
 }
