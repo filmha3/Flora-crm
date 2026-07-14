@@ -332,8 +332,12 @@ export default function FloraCRM() {
 
   if (!loaded) {
     return (
-      <div dir="rtl" style={{ background: c.bg, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex items-center justify-center">
-        <Loader2 size={22} className="animate-spin" color={c.primary} />
+      <div dir="rtl" style={{ background: c.bg, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex flex-col items-center justify-center gap-3">
+        <style>{`@keyframes floraFloat { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-6px);} }`}</style>
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: c.primarySoft, animation: "floraFloat 1.8s ease-in-out infinite" }}>
+          <Home size={26} color={c.primary} />
+        </div>
+        <p style={{ fontSize: 12, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
       </div>
     );
   }
@@ -350,6 +354,12 @@ export default function FloraCRM() {
         @keyframes floraSheet { from { transform: translateY(100%);} to { transform: translateY(0);} }
         @keyframes floraPop { from { opacity:0; transform: scale(.95);} to { opacity:1; transform: scale(1);} }
         @keyframes floraPulse { 0%,100% { opacity:1; transform:scale(1);} 50% { opacity:.4; transform:scale(.8);} }
+        @keyframes floraFloat { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-5px);} }
+        @keyframes floraKeyTurn { 0%,100% { transform: rotate(-8deg);} 50% { transform: rotate(8deg);} }
+        @keyframes floraDoorOpen { from { opacity:0; transform: perspective(600px) rotateY(-12deg) scale(.97);} to { opacity:1; transform: perspective(600px) rotateY(0) scale(1);} }
+        .flora-float { animation: floraFloat 2.6s ease-in-out infinite; }
+        .flora-key { animation: floraKeyTurn 1.8s ease-in-out infinite; }
+        .flora-door { animation: floraDoorOpen .4s cubic-bezier(.22,1,.36,1) both; }
         .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) both; }
         .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) both; }
         .flora-pop { animation: floraPop .2s ease both; }
@@ -363,7 +373,7 @@ export default function FloraCRM() {
         <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} />
 
         <div className="flex-1 overflow-y-auto pb-28 px-4 relative">
-          <div key={detail ? `d-${detail.id}` : tab} className="flora-up">
+          <div key={detail ? `d-${detail.id}` : tab} className="flora-door">
             {detail ? (
               <DetailView detail={detail} ctx={ctx} onBack={() => setDetail(null)} />
             ) : tab === "home" ? (
@@ -474,7 +484,14 @@ function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts }) {
   );
 }
 function SectionHeader({ c, title }) { return <div className="flex items-center justify-between mt-6 mb-2.5"><h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2></div>; }
-function EmptyLine({ c, text }) { return <p style={{ color: c.muted, fontSize: 12.5, padding: "10px 2px" }}>{text}</p>; }
+function EmptyLine({ c, text }) {
+  return (
+    <div className="flex flex-col items-center justify-center" style={{ padding: "18px 2px" }}>
+      <Home size={20} color={c.muted} className="flora-float" style={{ opacity: 0.5, marginBottom: 6 }} />
+      <p style={{ color: c.muted, fontSize: 12.5, textAlign: "center" }}>{text}</p>
+    </div>
+  );
+}
 function StageBadge({ c, stage }) {
   if (stage === "فروخته شد") return <span style={{ fontSize: 10, fontWeight: 700, color: c.danger, background: c.dangerSoft, padding: "3px 9px", borderRadius: 999 }}>فروخته شد</span>;
   if (stage === "در حال مذاکره") return <span style={{ fontSize: 10, fontWeight: 700, color: c.attn, background: c.attnSoft, padding: "3px 9px", borderRadius: 999 }}>مذاکره</span>;
@@ -499,7 +516,7 @@ function HomeTab({ ctx }) {
   return (
     <div className="pt-3">
       <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: c.primary }}>
-        <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={22} color="#fff" /></div>
+        <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 flora-float" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={22} color="#fff" /></div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>دستیار فروش هوش مصنوعی</p>
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>پیگیری‌های امروز، فایل پیشنهادی و مشتریان داغ</p>
@@ -634,7 +651,7 @@ function PropertyGridCard({ p, ctx, onClick }) {
         {cover ? (
           cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
-          <div className="w-full h-full flex items-center justify-center"><Icon size={30} color={c.primary} style={{ opacity: 0.45 }} /></div>
+          <div className="w-full h-full flex items-center justify-center"><Icon size={30} color={c.primary} className="flora-float" style={{ opacity: 0.45 }} /></div>
         )}
         <span className="absolute top-2 right-2" style={{ fontSize: 9.5, fontWeight: 700, color: "#fff", background: "rgba(15,20,35,0.72)", padding: "3px 8px", borderRadius: 6 }}>{p.deal}</span>
         {sold && (
@@ -677,7 +694,7 @@ function PipelineBoard({ rows, ctx }) {
                   <div key={p.id} className="rounded-lg overflow-hidden" style={glass(c, 22)}>
                     <button onClick={() => setDetail({ type: "property", id: p.id })} className="press w-full text-right">
                       <div className="w-full" style={{ height: 90, background: c.primarySoft }}>
-                        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} style={{ opacity: 0.5 }} /></div>}
+                        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} /></div>}
                       </div>
                       <div className="p-2.5">
                         <p style={{ fontSize: 12.5, fontWeight: 700 }}>{p.title}</p>
@@ -793,6 +810,15 @@ function MoreTab({ ctx }) {
         {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
       </div>
       <AddLink c={c} label="ثبت سازنده جدید" onClick={() => setSheet("builder")} />
+
+      <SectionHeader c={c} title="پیام‌های آماده" />
+      <button onClick={() => setSheet("messages")} className="press w-full rounded-xl p-4 flex items-center gap-3 mb-8" style={{ ...glass(c, 24), background: c.primarySoft }}>
+        <MessageSquare size={19} color={c.primary} />
+        <div className="text-right flex-1">
+          <p style={{ fontSize: 13.5, fontWeight: 700 }}>متن‌های آماده برای پیامک/واتساپ</p>
+          <p style={{ fontSize: 11, color: c.muted }}>قرار ملاقات، یادآوری، آدرس دفتر و غیره</p>
+        </div>
+      </button>
 
       <SectionHeader c={c} title="پشتیبان‌گیری" />
       <div className="flex gap-2 mb-8">
@@ -964,7 +990,7 @@ function PropertyDetail({ id, ctx, onBack }) {
 }
 
 function CustomerDetail({ id, ctx, onBack }) {
-  const { c, customers, calls, appointments } = ctx;
+  const { c, customers, calls, appointments, setSheet } = ctx;
   const cu = customers.find((x) => x.id === id);
   if (!cu) return null;
   const custCalls = calls.filter((cl) => cl.customerId === id || cl.customerName === cu.name);
@@ -979,6 +1005,9 @@ function CustomerDetail({ id, ctx, onBack }) {
           <a href={`tel:${cu.phone}`} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
         )}
       </div>
+      <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press w-full rounded-xl p-3.5 mb-3 flex items-center gap-2.5" style={{ background: c.primarySoft }}>
+        <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
+      </button>
       <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
         <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need}</p>
         <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
@@ -1390,6 +1419,7 @@ function MapPickerModal({ c, onPick, onClose }) {
 function FormSheet({ sheetVal, ctx, onClose }) {
   const kind = typeof sheetVal === "string" ? sheetVal : sheetVal.kind;
   const editId = typeof sheetVal === "object" ? sheetVal.editId : null;
+  const customerId = typeof sheetVal === "object" ? sheetVal.customerId : null;
   if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
   if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} editId={editId} />;
@@ -1397,6 +1427,7 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   if (kind === "appointment") return <AppointmentForm ctx={ctx} onClose={onClose} />;
   if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
+  if (kind === "messages") return <MessageTemplatesSheet ctx={ctx} onClose={onClose} customerId={customerId} />;
   return null;
 }
 
@@ -1433,6 +1464,95 @@ function AiSettingsSheet({ ctx, onClose }) {
     </SheetShell>
   );
 }
+
+// ---------- Ready-made persuasive message templates ----------
+const AGENCY_SIGNATURE = "قبادی – املاک گنجینه";
+const AGENCY_ADDRESS = "سرعین، میدان دانش، روبه‌روی هتل قصر، سایت املاک گنجینه، جنب رستوران خاتای";
+const MESSAGE_TEMPLATES = [
+  {
+    id: "appointment_set", label: "تنظیم قرار ملاقات", icon: CalendarDays,
+    needsProperty: true, needsTime: false,
+    build: (v) => `سلام ${v.name || "عزیز"} 🌿\nوقت بخیر. برای بازدید از ${v.property || "فایل مورد نظر"} می‌تونیم قرار بذاریم. هر روز و ساعتی که براتون راحت‌تره بگید تا هماهنگ کنم؛ منتظر دیدارتون هستم.\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "appointment_reminder", label: "یادآوری ساعت قرار", icon: Bell,
+    needsProperty: false, needsTime: true,
+    build: (v) => `سلام ${v.name || "عزیز"} 🌿\nیادآوری می‌کنم قرار بازدیدمون امروز ساعت ${v.time || "..."} است. منتظرتون هستم، خوشحال می‌شم سر وقت باشید تا با آرامش همه‌چیز رو با هم ببینیم.\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "followup_choice", label: "پیگیری از فایل‌های بازدیدشده", icon: Building2,
+    needsProperty: false, needsTime: false,
+    build: (v) => `سلام ${v.name || "عزیز"} 🌿\nامیدوارم فایل‌هایی که با هم دیدیم پسندتون اومده باشه.${v.viewed ? ` (${v.viewed})` : ""} اگه سوالی هست یا خواستید مقایسه‌شون کنیم در خدمتم؛ فقط بگید کدوم بیشتر به دلتون نشسته تا کارهای بعدی رو شروع کنیم.\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "send_address", label: "ارسال آدرس دفتر", icon: MapPin,
+    needsProperty: false, needsTime: false,
+    build: (v) => `سلام ${v.name || "عزیز"} 🌿\nآدرس دفتر: ${AGENCY_ADDRESS}.\nمنتظر دیدارتون هستم 🌹\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "deal_not_done", label: "وقتی معامله انجام نشد", icon: MessageSquare,
+    needsProperty: false, needsTime: false,
+    build: (v) => `${v.name ? `${v.name} عزیز 🌿\n` : ""}صادقانه خیلی دوست داشتم باهم همکاری کنیم، ناراحتم که این بار نشد که همکاری لازم رو داشته باشیم. بازم دوست دارم شماره‌تون رو هر لحظه رو گوشیم ببینم 🙏🌹\n${AGENCY_SIGNATURE}`,
+  },
+];
+
+function MessageTemplatesSheet({ ctx, onClose, customerId }) {
+  const { c, customers, appointments, properties, notify } = ctx;
+  const presetCu = customerId ? customers.find((cu) => cu.id === customerId) : null;
+  const [name, setName] = useState(presetCu?.name || "");
+  const [phone, setPhone] = useState(presetCu?.phone || "");
+  const [activeId, setActiveId] = useState(MESSAGE_TEMPLATES[0].id);
+  const [propertyId, setPropertyId] = useState("");
+  const [time, setTime] = useState("");
+  const [text, setText] = useState("");
+
+  const viewedTitles = useMemo(() => {
+    if (!presetCu) return "";
+    const ids = appointments.filter((a) => a.customerId === presetCu.id || a.customerName === presetCu.name).map((a) => a.propertyId);
+    const titles = properties.filter((p) => ids.includes(p.id)).map((p) => p.title);
+    return titles.join(" و ");
+  }, [presetCu, appointments, properties]);
+
+  const active = MESSAGE_TEMPLATES.find((t) => t.id === activeId);
+  useEffect(() => {
+    const propTitle = properties.find((p) => p.id === propertyId)?.title || "";
+    setText(active.build({ name, property: propTitle, time, viewed: viewedTitles }));
+  }, [activeId, name, propertyId, time]);
+
+  return (
+    <SheetShell c={c} title="پیام‌های آماده" onClose={onClose}>
+      <div className="flex gap-2 overflow-x-auto pb-1 mb-3.5">
+        {MESSAGE_TEMPLATES.map((t) => {
+          const isActive = activeId === t.id;
+          return (
+            <button key={t.id} onClick={() => setActiveId(t.id)} className="press shrink-0 flex flex-col items-center gap-1.5 rounded-xl px-3 py-2.5" style={isActive ? { background: c.primary } : glass(c, 20)}>
+              <t.icon size={16} color={isActive ? "#fff" : c.muted} />
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: isActive ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} placeholder="اختیاری" /></Field>
+        <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="اختیاری" /></Field>
+      </div>
+      {active.needsProperty && <Field c={c} label="فایل ملک"><Select c={c} value={propertyId} onChange={(e) => setPropertyId(e.target.value)} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>}
+      {active.needsTime && <Field c={c} label="ساعت قرار"><input type="time" style={inputStyle(c)} value={time} onChange={(e) => setTime(e.target.value)} /></Field>}
+
+      <Field c={c} label="متن پیام (قابل ویرایش)">
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} style={{ ...inputStyle(c), resize: "vertical", lineHeight: 1.9 }} />
+      </Field>
+
+      <div className="flex gap-2">
+        <button onClick={() => { navigator.clipboard?.writeText(text); notify("متن کپی شد"); }} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 12 }}>کپی متن</button>
+        <a href={smsLink(phone, text) || "#"} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><MessageSquare size={13} /> پیامک</a>
+        <a href={waLink(phone, text) || "#"} target="_blank" rel="noreferrer" className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><Send size={13} /> واتساپ</a>
+      </div>
+    </SheetShell>
+  );
+}
+
 
 function PropertyForm({ ctx, onClose, editId }) {
   const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker } = ctx;
@@ -1554,8 +1674,21 @@ function CustomerForm({ ctx, onClose }) {
   const [f, setF] = useState({ name: "", phone: "", need: "", budget: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.name && f.phone;
+  const contactsSupported = typeof navigator !== "undefined" && "contacts" in navigator && "ContactsManager" in window;
+  const pickContact = async () => {
+    if (!contactsSupported) { notify("مرورگر شما از انتخاب مستقیم مخاطب پشتیبانی نمی‌کند — شماره را دستی وارد کن"); return; }
+    try {
+      const [contact] = await navigator.contacts.select(["name", "tel"], { multiple: false });
+      if (contact) setF((prev) => ({ ...prev, name: contact.name?.[0] || prev.name, phone: contact.tel?.[0] || prev.phone }));
+    } catch (e) { /* user cancelled */ }
+  };
   return (
     <SheetShell c={c} title="ثبت مشتری" onClose={onClose}>
+      {contactsSupported && (
+        <button type="button" onClick={pickContact} className="press w-full flex items-center justify-center gap-2 rounded-xl py-3 mb-3.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}>
+          <UserCircle2 size={15} /> انتخاب از مخاطبین گوشی
+        </button>
+      )}
       <Field c={c} label="نام و نام‌خانوادگی"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
       <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
       <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={set("need")} placeholder="مثلاً خرید آپارتمان ۲ خواب" /></Field>
