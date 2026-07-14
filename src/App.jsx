@@ -152,10 +152,11 @@ const glass = (c) => ({
 // ---------- Seed data ----------
 const seedOwners = [{ id: "o1", name: "آقای رحیمی", phone: "09121234567" }, { id: "o2", name: "خانم صادقی", phone: "09351234567" }];
 const seedBuilders = [{ id: "b1", name: "شرکت سازه پارس", phone: "02122223333" }];
+const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
 const seedProperties = [
-  { id: "p1", title: "آپارتمان ۱۲۰ متری سعادت‌آباد", type: "آپارتمان", deal: "فروش", pricePerMeter: 70000000, price: 8400000000, area: 120, rooms: 2, floor: 3, furnished: "با لوازم", address: "سعادت‌آباد، خیابان سرو", ownerId: "o1", builderId: "", stage: "فعال", desc: "", media: [] },
-  { id: "p2", title: "ویلا دوبلکس لواسان", type: "ویلا", deal: "اجاره", pricePerMeter: 150000, price: 45000000, area: 300, rooms: 4, floor: 1, furnished: "بدون لوازم", address: "لواسان، جاده امام‌زاده", ownerId: "o2", builderId: "", stage: "در حال مذاکره", desc: "", media: [] },
-  { id: "p3", title: "پیش‌فروش برج مروارید", type: "آپارتمان", deal: "پیش‌فروش", pricePerMeter: 55000000, price: 4950000000, area: 90, rooms: 2, floor: 7, furnished: "بدون لوازم", address: "پونک، بلوار گلستان", ownerId: "", builderId: "b1", stage: "فعال", desc: "", media: [] },
+  { id: "p1", title: "آپارتمان ۱۲۰ متری سعادت‌آباد", type: "آپارتمان", deal: "فروش", pricePerMeter: 70000000, price: 8400000000, area: 120, rooms: 2, floor: 3, furnished: "با لوازم", address: "سعادت‌آباد، خیابان سرو", ownerId: "o1", builderId: "", stage: "فعال", desc: "", media: [], createdAt: daysAgoISO(3) },
+  { id: "p2", title: "ویلا دوبلکس لواسان", type: "ویلا", deal: "اجاره", pricePerMeter: 150000, price: 45000000, area: 300, rooms: 4, floor: 1, furnished: "بدون لوازم", address: "لواسان، جاده امام‌زاده", ownerId: "o2", builderId: "", stage: "در حال مذاکره", desc: "", media: [], createdAt: daysAgoISO(52) },
+  { id: "p3", title: "پیش‌فروش برج مروارید", type: "آپارتمان", deal: "پیش‌فروش", pricePerMeter: 55000000, price: 4950000000, area: 90, rooms: 2, floor: 7, furnished: "بدون لوازم", address: "پونک، بلوار گلستان", ownerId: "", builderId: "b1", stage: "فعال", desc: "", media: [], createdAt: daysAgoISO(10) },
 ];
 const seedCustomers = [
   { id: "c1", name: "مهدی کریمی", phone: "09190001122", need: "خرید آپارتمان ۲ خواب سعادت‌آباد", budget: 9000000000 },
@@ -186,6 +187,7 @@ export default function FloraCRM() {
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
   const [aiProvider, setAiProvider] = useState("gemini");
+  const [agentName, setAgentName] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [showDailyReminder, setShowDailyReminder] = useState(false);
 
@@ -209,6 +211,7 @@ export default function FloraCRM() {
         if (settings?.openaiKey) setOpenaiKey(settings.openaiKey);
         if (settings?.grokKey) setGrokKey(settings.grokKey);
         if (settings?.aiProvider) setAiProvider(settings.aiProvider);
+        if (settings?.agentName) setAgentName(settings.agentName);
         const lastReminder = await dbGet(REMINDER_KEY);
         const today = todayISO();
         if (lastReminder !== today) { setShowDailyReminder(true); dbSet(REMINDER_KEY, today).catch(() => {}); }
@@ -217,7 +220,7 @@ export default function FloraCRM() {
     })();
   }, []);
   useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName]);
 
   const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
   const callAI = async (prompt) => {
@@ -323,7 +326,7 @@ export default function FloraCRM() {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
-    openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI,
+    openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName,
     scheduleReminder, goProperties, exportBackup, importBackup,
   };
 
@@ -1015,13 +1018,22 @@ function QuickContactRow({ c, name, phone, note }) {
   );
 }
 
+function greetingPhrase() {
+  const h = new Date().getHours();
+  if (h < 12) return "صبح بخیر";
+  if (h < 17) return "ظهر بخیر";
+  if (h < 20) return "عصر بخیر";
+  return "شب بخیر";
+}
+const HEAT_STYLE = { hot: { label: "🔥 داغ", }, warm: { label: "🟡 متوسط" }, cold: { label: "❄️ سرد" } };
+
 function CopilotView({ ctx, onBack }) {
-  const { c, customers, calls, properties, hasAiKey, callAI, notify, setSheet } = ctx;
-  const [briefing, setBriefing] = useState(null);
+  const { c, customers, calls, appointments, properties, hasAiKey, callAI, notify, setSheet, agentName } = ctx;
+  const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => { (async () => {
-    try { const cached = await dbGet(COPILOT_KEY); if (cached?.date === todayISO()) setBriefing(cached.data); } catch (e) {}
+    try { const cached = await dbGet(COPILOT_KEY); if (cached?.date === todayISO()) setPlan(cached.data); } catch (e) {}
   })(); }, []);
 
   const overdue = useMemo(() => {
@@ -1032,28 +1044,43 @@ function CopilotView({ ctx, onBack }) {
     }).filter((x) => x.days === null || x.days >= 5).sort((a, b) => (b.days ?? 999) - (a.days ?? 999));
   }, [customers, calls]);
 
-  const generateBriefing = async () => {
+  const sleeping = useMemo(() => {
+    return properties.filter((p) => p.stage !== "فروخته شد" && p.createdAt && daysSince(p.createdAt) >= 30).sort((a, b) => daysSince(b.createdAt) - daysSince(a.createdAt));
+  }, [properties]);
+
+  const todayTimeline = useMemo(() => {
+    const items = [
+      ...appointments.filter((a) => a.date === todayISO()).map((a) => ({ time: a.time, label: `بازدید: ${properties.find((p) => p.id === a.propertyId)?.title || a.customerName || ""}`, sub: a.customerName })),
+    ];
+    return items.sort((a, b) => a.time.localeCompare(b.time));
+  }, [appointments, properties]);
+
+  const generatePlan = async () => {
     if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
     setLoading(true);
     try {
       const custSummary = customers.slice(0, 30).map((cu) => {
         const lastCall = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
-        return `- ${cu.name} | نیاز: ${cu.need || "-"} | بودجه: ${cu.budget || 0} تومان | آخرین تماس: ${lastCall ? `${lastCall.date} (${lastCall.status})` : "هرگز"}`;
+        return `- ${cu.name} | نیاز: ${cu.need || "-"} | بودجه: ${cu.budget || 0} تومان | آخرین تماس: ${lastCall ? `${lastCall.date} (${lastCall.status}) یادداشت: ${lastCall.notes || "-"}` : "هرگز"}`;
       }).join("\n");
-      const propSummary = properties.filter((p) => p.stage !== "فروخته شد").slice(0, 30).map((p) => `- ${p.title} | ${p.deal} | ${p.price} تومان | ${p.area} متر`).join("\n");
-      const prompt = `تو دستیار فروش یک مشاور املاک ایرانی هستی. بر اساس اطلاعات زیر یک بریفینگ روزانه بساز و دقیقاً به‌صورت JSON خام (بدون توضیح، بدون markdown fence، بدون متن اضافه) با این ساختار برگردان:
-{"callList":[{"customer":"نام دقیق مشتری از لیست","reason":"چرا"}],"suggestedProperty":[{"customer":"نام","property":"عنوان فایل از لیست","reason":"چرا"}],"messageDrafts":[{"customer":"نام","message":"متن پیام کوتاه و مودبانه فارسی"}],"hotLeads":[{"customer":"نام","reason":"چرا نزدیک خرید است"}],"atRiskLeads":[{"customer":"نام","reason":"چرا در خطر از دست رفتن است"}]}
-هر آرایه حداکثر ۴ مورد داشته باشد. نام مشتری و عنوان فایل را دقیقاً از لیست‌های زیر انتخاب کن.
+      const propSummary = properties.filter((p) => p.stage !== "فروخته شد").slice(0, 30).map((p) => `- ${p.title} | ${p.deal} | ${p.price} تومان | ${p.area} متر | ${p.createdAt ? `${daysSince(p.createdAt)} روز از ثبتش گذشته` : "تاریخ ثبت نامشخص"}`).join("\n");
+      const recentNotes = calls.slice(0, 8).map((cl) => `- ${cl.customerName}: ${cl.notes || "-"}`).join("\n");
+      const prompt = `تو دستیار فروش شخصی یک مشاور املاک ایرانی به اسم ${agentName || "مشاور"} هستی. لحنت مثل یک همکار باتجربه و صمیمی است، نه یک ربات رسمی. بر اساس اطلاعات زیر یک برنامه‌ی عملیاتی امروز بساز و دقیقاً به‌صورت JSON خام (بدون توضیح، بدون markdown fence) با این ساختار برگردان:
+{"greeting":"یک جمله‌ی کوتاه صمیمی درباره‌ی وضعیت کلی امروز، خطاب به ${agentName || "مشاور"}","biggestRisk":"مهم‌ترین ریسک امروز در یک جمله، یا خالی اگر چیز خاصی نیست","priorities":[{"rank":1,"customer":"نام دقیق از لیست","action":"چیکار بکنه","reason":"چرا","suggestedTime":"HH:MM","message":"پیام پیشنهادی کوتاه فارسی برای ارسال"}],"sleepingSuggestions":[{"property":"عنوان دقیق از لیست فایل‌ها","suggestion":"چه کاری برای این فایل بکنه"}],"hotLeads":[{"customer":"نام","heat":"hot یا warm","reason":"چرا"}],"atRiskLeads":[{"customer":"نام","reason":"چرا"}],"coachTip":"یک نکته‌ی مربی‌گری کوتاه بر اساس یادداشت‌های تماس اخیر، یا خالی"}
+هر آرایه حداکثر ۴ مورد. اعداد درصد یا احتمال دقیق اختراع نکن. نام مشتری/عنوان فایل را دقیقاً از لیست‌های زیر انتخاب کن.
 
 مشتریان:
 ${custSummary || "موردی ثبت نشده"}
 
 فایل‌های فعال:
-${propSummary || "موردی ثبت نشده"}`;
+${propSummary || "موردی ثبت نشده"}
+
+یادداشت‌های چند تماس اخیر:
+${recentNotes || "موردی ثبت نشده"}`;
       const text = await callAI(prompt);
       const cleaned = text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(cleaned);
-      setBriefing(parsed);
+      setPlan(parsed);
       dbSet(COPILOT_KEY, { date: todayISO(), data: parsed }).catch(() => {});
     } catch (e) {
       if (e instanceof SyntaxError) notify("پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن");
@@ -1071,49 +1098,99 @@ ${propSummary || "موردی ثبت نشده"}`;
 
   return (
     <div className="pt-2">
-      <BackHeader c={c} title="دستیار فروش هوش مصنوعی" onBack={onBack} />
+      <BackHeader c={c} title="برنامه‌ی امروز" onBack={onBack} />
+
+      <div className="rounded-2xl p-4 mb-4" style={{ background: c.primary }}>
+        <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{greetingPhrase()}{agentName ? ` ${agentName}` : ""} 👋</p>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 4, lineHeight: 1.9 }}>
+          {plan?.greeting || `${faDigits(overdue.length)} مشتری نیاز به پیگیری دارند و ${faDigits(sleeping.length)} فایل مدتی است تکون نخورده. برای برنامه‌ی کامل امروز، پایین را بزن.`}
+        </p>
+      </div>
+
+      {plan?.biggestRisk && (
+        <div className="rounded-xl p-3.5 mb-4 flex items-center gap-2.5" style={{ background: c.dangerSoft }}>
+          <AlertTriangle size={16} color={c.danger} className="shrink-0" />
+          <p style={{ fontSize: 12, color: c.danger, fontWeight: 600, lineHeight: 1.8 }}>{plan.biggestRisk}</p>
+        </div>
+      )}
+
+      {todayTimeline.length > 0 && (
+        <>
+          <SectionHeader c={c} title="برنامه‌ی زمانی امروز" />
+          <div className="flex flex-col gap-2 mb-2">
+            {todayTimeline.map((it, i) => (
+              <div key={i} className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
+                <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 44, height: 32, background: c.primarySoft }}><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>{it.time}</span></div>
+                <p style={{ fontSize: 12, fontWeight: 600 }}>{it.label}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <SectionHeader c={c} title="پیگیری‌های عقب‌افتاده" />
       <div className="flex flex-col gap-2 mb-2">
-        {overdue.slice(0, 8).map(({ cu, days }) => (
+        {overdue.slice(0, 6).map(({ cu, days }) => (
           <QuickContactRow key={cu.id} c={c} name={cu.name} phone={cu.phone} note={days === null ? "هنوز هیچ تماسی ثبت نشده" : `${faDigits(days)} روز از آخرین تماس گذشته`} />
         ))}
         {overdue.length === 0 && <EmptyLine c={c} text="همه‌ی مشتریان اخیراً پیگیری شده‌اند 👌" />}
       </div>
 
-      <SectionHeader c={c} title="بریفینگ امروز با هوش مصنوعی" />
-      <button onClick={generateBriefing} disabled={loading} className="press w-full rounded-xl py-3 mb-4 flex items-center justify-center gap-2" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
-        {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} {loading ? "در حال تحلیل..." : briefing ? "به‌روزرسانی بریفینگ" : "تولید بریفینگ امروز"}
+      <button onClick={generatePlan} disabled={loading} className="press w-full rounded-xl py-3 my-4 flex items-center justify-center gap-2" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
+        {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} {loading ? "در حال تحلیل..." : plan ? "به‌روزرسانی برنامه" : "ساخت برنامه‌ی امروز با AI"}
       </button>
 
-      {briefing ? (
+      {plan && (
         <>
-          <Section icon={PhoneCall} color={c.primary} title="با این افراد تماس بگیر" items={briefing.callList} render={(it, i) => <QuickContactRow key={i} c={c} name={it.customer} phone={phoneOf(customers, it.customer)} note={it.reason} />} />
-          <Section icon={Building2} color={c.primary} title="فایل پیشنهادی" items={briefing.suggestedProperty} render={(it, i) => (
-            <div key={i} className="rounded-lg p-3" style={glass(c, 22)}><p style={{ fontSize: 12.5, fontWeight: 700 }}>{it.customer} ← {it.property}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
-          )} />
-          <Section icon={MessageSquare} color={c.primary} title="پیش‌نویس پیام" items={briefing.messageDrafts} render={(it, i) => {
+          <Section icon={TrendingUp} color={c.primary} title="اولویت‌های امروز" items={plan.priorities} render={(it, i) => {
             const phone = phoneOf(customers, it.customer);
             return (
               <div key={i} className="rounded-lg p-3" style={glass(c, 22)}>
-                <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 3 }}>{it.customer}</p>
-                <p style={{ fontSize: 11.5, color: c.ink, lineHeight: 1.8, marginBottom: 8 }}>{it.message}</p>
-                <div className="flex gap-2">
-                  <a href={waLink(phone, it.message) || "#"} target="_blank" rel="noreferrer" className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><Send size={12} color={c.success} /><span style={{ fontSize: 11, fontWeight: 700, color: c.success }}>واتساپ</span></a>
-                  <a href={smsLink(phone, it.message) || "#"} className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><MessageSquare size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>پیامک</span></a>
+                <div className="flex items-center gap-2 mb-1">
+                  <span style={{ width: 20, height: 20, borderRadius: 999, background: c.primary, color: "#fff", fontSize: 10.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{faDigits(it.rank || i + 1)}</span>
+                  <p style={{ fontSize: 12.5, fontWeight: 700 }}>{it.customer}</p>
+                  {it.suggestedTime && <span style={{ fontSize: 10, color: c.muted, marginRight: "auto" }}>⏱ {it.suggestedTime}</span>}
                 </div>
+                <p style={{ fontSize: 11.5, color: c.ink, marginBottom: 2 }}>{it.action}</p>
+                <p style={{ fontSize: 10.5, color: c.muted, marginBottom: 8 }}>{it.reason}</p>
+                {phone && (
+                  <div className="flex gap-2">
+                    <a href={`tel:${phone}`} className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /><span style={{ fontSize: 11, fontWeight: 700, color: c.success }}>تماس</span></a>
+                    <a href={waLink(phone, it.message) || "#"} target="_blank" rel="noreferrer" className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft }}><Send size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>پیام</span></a>
+                  </div>
+                )}
               </div>
             );
           }} />
-          <Section icon={TrendingUp} color={c.success} title="مشتریان نزدیک به خرید" items={briefing.hotLeads} render={(it, i) => (
-            <div key={i} className="rounded-lg p-3" style={glass(c, 22)}><p style={{ fontSize: 12.5, fontWeight: 700, color: c.success }}>{it.customer}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
+
+          <Section icon={Building2} color={c.attn} title="فایل‌های خواب‌رفته" items={sleeping.slice(0, 6)} render={(p, i) => {
+            const sug = plan.sleepingSuggestions?.find((s) => s.property === p.title);
+            return (
+              <div key={p.id} className="rounded-lg p-3" style={glass(c, 22)}>
+                <p style={{ fontSize: 12.5, fontWeight: 700 }}>{p.title}</p>
+                <p style={{ fontSize: 10.5, color: c.attn, fontWeight: 700, marginTop: 2 }}>{faDigits(daysSince(p.createdAt))} روز است فروش/اجاره نرفته</p>
+                {sug && <p style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>{sug.suggestion}</p>}
+              </div>
+            );
+          }} />
+
+          <Section icon={TrendingUp} color={c.success} title="مشتریان داغ" items={plan.hotLeads} render={(it, i) => (
+            <div key={i} className="rounded-lg p-3 flex items-center justify-between" style={glass(c, 22)}>
+              <div><p style={{ fontSize: 12.5, fontWeight: 700 }}>{it.customer}</p><p style={{ fontSize: 10.5, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: c.success, background: c.successSoft, padding: "3px 8px", borderRadius: 999, whiteSpace: "nowrap" }}>{HEAT_STYLE[it.heat]?.label || HEAT_STYLE.warm.label}</span>
+            </div>
           )} />
-          <Section icon={AlertTriangle} color={c.danger} title="در خطر از دست رفتن" items={briefing.atRiskLeads} render={(it, i) => (
+          <Section icon={AlertTriangle} color={c.danger} title="در خطر از دست رفتن" items={plan.atRiskLeads} render={(it, i) => (
             <div key={i} className="rounded-lg p-3" style={glass(c, 22)}><p style={{ fontSize: 12.5, fontWeight: 700, color: c.danger }}>{it.customer}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
           )} />
+
+          {plan.coachTip && (
+            <div className="rounded-xl p-3.5 mb-4" style={{ background: c.primarySoft }}>
+              <div className="flex items-center gap-2 mb-1.5"><Bot size={14} color={c.primary} /><p style={{ fontSize: 12, fontWeight: 700, color: c.primary }}>نکته‌ی مربی فروش</p></div>
+              <p style={{ fontSize: 11.5, color: c.ink, lineHeight: 1.9 }}>{plan.coachTip}</p>
+            </div>
+          )}
         </>
-      ) : (
-        <EmptyLine c={c} text="هنوز بریفینگی تولید نشده. روی دکمه‌ی بالا بزن." />
       )}
       <div style={{ height: 20 }} />
     </div>
@@ -1324,11 +1401,12 @@ function FormSheet({ sheetVal, ctx, onClose }) {
 }
 
 function AiSettingsSheet({ ctx, onClose }) {
-  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, notify } = ctx;
+  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, agentName, setAgentName, notify } = ctx;
   const [provider, setProvider] = useState(aiProvider);
   const [gKey, setGKey] = useState(geminiKey || "");
   const [oKey, setOKey] = useState(openaiKey || "");
   const [xKey, setXKey] = useState(grokKey || "");
+  const [name, setName] = useState(agentName || "");
   const providers = [
     { id: "gemini", label: "Gemini (Google)", hint: "کلید رایگان: aistudio.google.com — چون این اپ بک‌اند ندارد، این پایدارترین گزینه است" },
     { id: "openai", label: "GPT (OpenAI)", hint: "کلید: platform.openai.com — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
@@ -1338,6 +1416,7 @@ function AiSettingsSheet({ ctx, onClose }) {
   const setCurrentKey = provider === "openai" ? setOKey : provider === "grok" ? setXKey : setGKey;
   return (
     <SheetShell c={c} title="تنظیمات هوش مصنوعی" onClose={onClose}>
+      <Field c={c} label="نام تو (برای خطاب دستیار، اختیاری)"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً مجید" /></Field>
       <Field c={c} label="ارائه‌دهنده">
         <div className="flex gap-2">
           {providers.map((p) => (
@@ -1348,7 +1427,7 @@ function AiSettingsSheet({ ctx, onClose }) {
       <Field c={c} label="کلید API"><input style={inputStyle(c)} dir="ltr" value={currentKey} onChange={(e) => setCurrentKey(e.target.value)} placeholder="کلید را اینجا وارد کن" /></Field>
       <p style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>{providers.find((p) => p.id === provider)?.hint} — کلید فقط روی همین گوشی ذخیره می‌شود.</p>
       <SubmitBtn c={c} label="ذخیره" disabled={!currentKey.trim()} onClick={() => {
-        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim());
+        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim()); setAgentName(name.trim());
         notify("تنظیمات هوش مصنوعی ذخیره شد"); onClose();
       }} />
     </SheetShell>
@@ -1405,7 +1484,7 @@ function PropertyForm({ ctx, onClose, editId }) {
       setProperties((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
       notify("تغییرات فایل ذخیره شد");
     } else {
-      setProperties((prev) => [{ id: uid(), stage: "فعال", desc: "", ...payload }, ...prev]);
+      setProperties((prev) => [{ id: uid(), stage: "فعال", desc: "", createdAt: new Date().toISOString(), ...payload }, ...prev]);
       notify("فایل با موفقیت ثبت شد");
     }
     onClose();
