@@ -125,28 +125,35 @@ const STAGE_FILTERS = ["همه", "فعال", "در حال مذاکره", "فرو
 // ---------- Glassmorphism tokens ----------
 const T = {
   dark: {
-    bg: "#0B0F1C", orb1: "#0B0F1C", orb2: "#0B0F1C",
-    surface: "#141A2E", surface2: "#1A2138",
-    border: "#262D45", ink: "#EAEDF6", muted: "#8A93AC",
-    primary: "#3AA0FF", primarySoft: "rgba(58,160,255,0.14)",
-    attn: "#FFB35C", attnSoft: "rgba(255,179,92,0.14)",
-    danger: "#FF6B6F", dangerSoft: "rgba(255,107,111,0.14)",
-    success: "#34D399", successSoft: "rgba(52,211,153,0.14)",
+    bg: "#0A0E1A", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
+    surface: "rgba(255,255,255,0.04)", surface2: "rgba(255,255,255,0.06)",
+    border: "rgba(255,255,255,0.08)", ink: "#F0F2F8", muted: "#8B92A8",
+    primary: "#5B9DFF", primarySoft: "rgba(47,124,246,0.15)",
+    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.15)",
+    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.14)",
+    success: "#22C55E", successSoft: "rgba(34,197,94,0.15)",
+    purple: "#A78BFA", purpleSoft: "rgba(124,111,245,0.15)",
+    shadow: "0 8px 32px rgba(0,0,0,0.3)",
   },
   light: {
-    bg: "#F4F6FB", orb1: "#F4F6FB", orb2: "#F4F6FB",
-    surface: "#FFFFFF", surface2: "#F0F2F7",
-    border: "#E3E7EF", ink: "#1B2436", muted: "#6B7386",
-    primary: "#0B84FF", primarySoft: "#E7F2FF",
-    attn: "#FF9F43", attnSoft: "#FFF1E2",
-    danger: "#E5484D", dangerSoft: "#FDEBEC",
-    success: "#22C55E", successSoft: "#E8F9EF",
+    bg: "#F3F5FA", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
+    surface: "rgba(255,255,255,0.6)", surface2: "rgba(255,255,255,0.45)",
+    border: "rgba(255,255,255,0.7)", ink: "#1B2436", muted: "#6B7386",
+    primary: "#2F7CF6", primarySoft: "rgba(47,124,246,0.12)",
+    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.13)",
+    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.12)",
+    success: "#22C55E", successSoft: "rgba(34,197,94,0.12)",
+    purple: "#7C6FF5", purpleSoft: "rgba(124,111,245,0.12)",
+    shadow: "0 8px 28px rgba(47,124,246,0.1)",
   },
 };
 const glass = (c) => ({
   background: c.surface,
+  backdropFilter: "blur(20px) saturate(180%)",
+  WebkitBackdropFilter: "blur(20px) saturate(180%)",
   border: `1px solid ${c.border}`,
-  boxShadow: "0 1px 3px rgba(16,24,40,0.08)",
+  boxShadow: c.shadow,
+  borderRadius: 22,
 });
 
 // ---------- Seed data ----------
@@ -364,9 +371,15 @@ export default function FloraCRM() {
         .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) both; }
         .flora-pop { animation: floraPop .2s ease both; }
         .flora-pulse { animation: floraPulse 1.6s ease-in-out infinite; }
+        @keyframes floraRipple { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
+        @keyframes floraOrb { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(20px,-16px) scale(1.05);} 66% { transform: translate(-14px,18px) scale(.95);} }
+        .flora-orb { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .4; animation: floraOrb 14s ease-in-out infinite; pointer-events: none; }
         select { -webkit-appearance: none; appearance: none; }
       `}</style>
 
+      <span className="flora-orb" style={{ width: 300, height: 300, background: c.orb1, top: -90, right: -70 }} />
+      <span className="flora-orb" style={{ width: 260, height: 260, background: c.orb2, bottom: -50, left: -50, animationDelay: "-4s" }} />
+      <span className="flora-orb" style={{ width: 220, height: 220, background: c.orb3, top: "42%", left: "48%", animationDelay: "-8s", opacity: .25 }} />
 
       {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
       <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh" }}>
@@ -397,9 +410,10 @@ export default function FloraCRM() {
         )}
 
         {!detail && (
-          <button onClick={() => setSheet("add")} className="press fixed rounded-full flex items-center justify-center"
-            style={{ bottom: 92, left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 58, height: 58, background: c.primary, boxShadow: `0 8px 20px -6px ${c.primary}90` }}>
-            <Plus color="#fff" size={26} strokeWidth={2.4} />
+          <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
+            style={{ bottom: 92, left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 18, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
+            <span style={{ position: "absolute", inset: -8, borderRadius: 22, border: "2px solid rgba(47,124,246,0.35)", animation: "floraRipple 2.2s infinite" }} />
+            <Plus color="#fff" size={24} strokeWidth={2.5} />
           </button>
         )}
 
@@ -503,10 +517,10 @@ function HomeTab({ ctx }) {
   const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties } = ctx;
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
   const stats = [
-    { label: "فایل فعال", value: activeProps, icon: Building2, color: c.primary, onClick: () => goProperties("فعال") },
     { label: "مشتری", value: customers.length, icon: Users, color: c.primary, onClick: () => setTab("customers") },
-    { label: "بازدید امروز", value: appointments.filter((a) => a.date === todayISO()).length, icon: CalendarDays, color: c.attn, onClick: () => setTab("calendar") },
+    { label: "فایل فعال", value: activeProps, icon: Building2, color: c.purple, onClick: () => goProperties("فعال") },
     { label: "تماس در انتظار", value: calls.filter((cl) => cl.status !== "انجام‌شد").length, icon: PhoneCall, color: c.attn, onClick: () => setTab("more") },
+    { label: "بازدید امروز", value: appointments.filter((a) => a.date === todayISO()).length, icon: CalendarDays, color: c.success, onClick: () => setTab("calendar") },
   ];
   const feed = [
     ...appointments.map((a) => ({ type: "appt", date: a.date, ...a })),
@@ -515,7 +529,8 @@ function HomeTab({ ctx }) {
 
   return (
     <div className="pt-3">
-      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: c.primary }}>
+      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,0.35)", position: "relative", overflow: "hidden" }}>
+        <span style={{ position: "absolute", top: "-50%", right: "-30%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)", animation: "floraFloat 4s ease-in-out infinite" }} />
         <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 flora-float" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={22} color="#fff" /></div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>دستیار فروش هوش مصنوعی</p>
@@ -524,11 +539,13 @@ function HomeTab({ ctx }) {
         <ChevronLeft size={18} color="#fff" />
       </button>
 
-      <div className="grid grid-cols-2 gap-3">
+      <PortfolioValueCard c={c} properties={properties} />
+
+      <div className="grid grid-cols-2 gap-3 mt-4">
         {stats.map((s, i) => (
           <button key={i} onClick={s.onClick} className="press text-right rounded-xl p-4" style={glass(c, 24)}>
-            <div className="w-9 h-9 rounded-2xl flex items-center justify-center mb-3" style={{ background: s.color + "22" }}><s.icon size={17} color={s.color} /></div>
-            <p style={{ fontSize: 22, fontWeight: 800 }}>{faDigits(s.value)}</p>
+            <div className="w-11 h-11 rounded-full flex items-center justify-center mb-3.5" style={{ background: s.color + "22" }}><s.icon size={19} color={s.color} /></div>
+            <p style={{ fontSize: 26, fontWeight: 800 }}>{faDigits(s.value)}</p>
             <p style={{ fontSize: 12, color: c.muted }}>{s.label}</p>
           </button>
         ))}
@@ -547,6 +564,40 @@ function HomeTab({ ctx }) {
     </div>
   );
 }
+
+function PortfolioValueCard({ c, properties }) {
+  const active = properties.filter((p) => p.stage !== "فروخته شد");
+  const total = active.reduce((sum, p) => sum + (p.price || 0), 0);
+  const addedThisWeek = properties.filter((p) => p.createdAt && daysSince(p.createdAt) <= 7).length;
+  return (
+    <div className="rounded-2xl p-5" style={glass(c, 24)}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p style={{ fontSize: 12.5, color: c.muted, marginBottom: 4 }}>ارزش کل فایل‌های فعال</p>
+          <h2 style={{ fontSize: 20, fontWeight: 800, direction: "ltr", textAlign: "right" }}>{fmtToman(total)}</h2>
+        </div>
+        <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.successSoft, color: c.success, fontSize: 11.5, fontWeight: 700 }}>
+          <TrendingUp size={13} /> {addedThisWeek > 0 ? `+${faDigits(addedThisWeek)} این هفته` : "به‌روز"}
+        </div>
+      </div>
+      <div style={{ height: 64, marginTop: 12 }}>
+        <svg viewBox="0 0 300 80" preserveAspectRatio="none" width="100%" height="100%">
+          <defs>
+            <linearGradient id="floraChartGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d="M0,60 C40,50 60,30 100,35 C140,40 160,15 200,20 C240,25 270,10 300,15 L300,80 L0,80 Z" fill="url(#floraChartGrad)" style={{ opacity: 0, animation: "floraChartFade 1s ease forwards 1.2s" }} />
+          <path d="M0,60 C40,50 60,30 100,35 C140,40 160,15 200,20 C240,25 270,10 300,15" fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round"
+            style={{ strokeDasharray: 600, strokeDashoffset: 600, animation: "floraChartDraw 1.8s ease forwards .4s" }} />
+        </svg>
+      </div>
+      <style>{`@keyframes floraChartDraw { to { stroke-dashoffset: 0; } } @keyframes floraChartFade { to { opacity: 1; } }`}</style>
+    </div>
+  );
+}
+
 
 function ActivityApptRow({ a, ctx, showDelete }) {
   const { c, properties, setAppointments, scheduleReminder, notify } = ctx;
@@ -1129,7 +1180,7 @@ ${recentNotes || "موردی ثبت نشده"}`;
     <div className="pt-2">
       <BackHeader c={c} title="برنامه‌ی امروز" onBack={onBack} />
 
-      <div className="rounded-2xl p-4 mb-4" style={{ background: c.primary }}>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)" }}>
         <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{greetingPhrase()}{agentName ? ` ${agentName}` : ""} 👋</p>
         <p style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 4, lineHeight: 1.9 }}>
           {plan?.greeting || `${faDigits(overdue.length)} مشتری نیاز به پیگیری دارند و ${faDigits(sleeping.length)} فایل مدتی است تکون نخورده. برای برنامه‌ی کامل امروز، پایین را بزن.`}
@@ -1294,7 +1345,7 @@ ${transcript}
 function SheetShell({ c, title, onClose, children }) {
   return (
     <div className="absolute inset-0 z-30 flex items-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full rounded-t-2xl p-5 flora-sheet max-h-[85%] overflow-y-auto" style={glass(c, 36)}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full p-5 flora-sheet max-h-[85%] overflow-y-auto" style={{ ...glass(c), borderRadius: "26px 26px 0 0" }}>
         <div className="w-10 h-1.5 rounded-full mx-auto mb-4" style={{ background: c.surface2 }} />
         <div className="flex items-center justify-between mb-4"><h3 style={{ fontSize: 15.5, fontWeight: 800 }}>{title}</h3><button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button></div>
         {children}
@@ -1325,7 +1376,7 @@ function QuickAddSheet({ ctx, onClose }) {
 function Field({ c, label, children }) { return <div className="mb-3"><label style={{ fontSize: 12, color: c.muted, marginBottom: 6, display: "block" }}>{label}</label>{children}</div>; }
 function inputStyle(c) { return { width: "100%", background: c.surface2, border: "none", borderRadius: 16, padding: "12px 14px", fontSize: 14, color: c.ink, outline: "none", fontFamily: "inherit" }; }
 function Select({ c, value, onChange, options, placeholder }) { return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>; }
-function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full rounded-xl py-3.5 mt-2" style={{ background: disabled ? c.surface2 : c.primary, color: disabled ? c.muted : "#fff", fontWeight: 700, fontSize: 14.5 }}>{label}</button>; }
+function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full rounded-xl py-3.5 mt-2" style={{ background: disabled ? c.surface2 : "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", color: disabled ? c.muted : "#fff", fontWeight: 700, fontSize: 14.5 }}>{label}</button>; }
 
 function JalaliDatePicker({ c, value, onChange }) {
   const [open, setOpen] = useState(false);
