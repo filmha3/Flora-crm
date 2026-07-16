@@ -179,6 +179,13 @@ const seedDeals = [
 const seedPayments = [
   { id: "pay1", dealId: "d1", payerType: "seller", amount: 84000000, date: daysAgoISO(18).slice(0, 10), method: "transfer", tracking: "", note: "" },
 ];
+const seedExpenses = [
+  { id: "exp1", category: "دیوار", title: "شارژ آگهی دیوار", amount: 2500000, date: daysAgoISO(10).slice(0, 10), note: "" },
+  { id: "exp2", category: "اجاره مغازه", title: "اجاره دفتر", amount: 15000000, date: daysAgoISO(15).slice(0, 10), note: "" },
+];
+const seedOfficeIncomes = [
+  { id: "inc1", title: "حق مشاوره", amount: 5000000, date: daysAgoISO(5).slice(0, 10), note: "" },
+];
 
 export default function FloraCRM() {
   const [dark, setDark] = useState(true);
@@ -200,6 +207,8 @@ export default function FloraCRM() {
   const [calls, setCalls] = useState(seedCalls);
   const [deals, setDeals] = useState(seedDeals);
   const [payments, setPayments] = useState(seedPayments);
+  const [expenses, setExpenses] = useState(seedExpenses);
+  const [officeIncomes, setOfficeIncomes] = useState(seedOfficeIncomes);
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
@@ -224,6 +233,8 @@ export default function FloraCRM() {
           if (saved.calls) setCalls(saved.calls);
           if (saved.deals) setDeals(saved.deals);
           if (saved.payments) setPayments(saved.payments);
+          if (saved.expenses) setExpenses(saved.expenses);
+          if (saved.officeIncomes) setOfficeIncomes(saved.officeIncomes);
         }
         const settings = await dbGet(SETTINGS_KEY);
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
@@ -238,7 +249,7 @@ export default function FloraCRM() {
       setLoaded(true);
     })();
   }, []);
-  useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments]);
+  useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName]);
 
   const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
@@ -310,7 +321,7 @@ export default function FloraCRM() {
   };
 
   const exportBackup = () => {
-    const payload = { version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments };
+    const payload = { version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -331,6 +342,8 @@ export default function FloraCRM() {
         if (data.calls) setCalls(data.calls);
         if (data.deals) setDeals(data.deals);
         if (data.payments) setPayments(data.payments);
+        if (data.expenses) setExpenses(data.expenses);
+        if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
         notify("بکاپ با موفقیت بازیابی شد");
       } catch (e) { notify("فایل بکاپ نامعتبر است"); }
     };
@@ -346,7 +359,7 @@ export default function FloraCRM() {
   const ctx = {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName,
     scheduleReminder, goProperties, exportBackup, importBackup,
@@ -412,13 +425,15 @@ export default function FloraCRM() {
               <CustomersTab ctx={ctx} search={search} />
             ) : tab === "calendar" ? (
               <CalendarTab ctx={ctx} />
+            ) : tab === "finance" ? (
+              <FinanceCenterView ctx={ctx} />
             ) : (
               <MoreTab ctx={ctx} />
             )}
           </div>
         </div>
 
-        {tab !== "home" && !detail && (
+        {tab !== "home" && tab !== "finance" && !detail && (
           <div className="absolute left-0 right-0 px-4" style={{ top: 66 }}>
             <SearchBox c={c} value={search} setValue={setSearch} />
           </div>
@@ -455,7 +470,7 @@ export default function FloraCRM() {
 
 // ---------- Top bar / search / nav ----------
 function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail }) {
-  const titles = { home: "داشبورد", properties: "فایل‌های ملکی", customers: "مشتریان", calendar: "تقویم بازدید", more: "بیشتر" };
+  const titles = { home: "داشبورد", properties: "فایل‌های ملکی", customers: "مشتریان", calendar: "تقویم بازدید", finance: "مرکز مالی", more: "بیشتر" };
   return (
     <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0 relative z-10">
       <div>
@@ -487,24 +502,51 @@ function SearchBox({ c, value, setValue }) {
 }
 function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts }) {
   const items = [
-    { id: "home", label: "خانه", icon: Home },
-    { id: "properties", label: "فایل‌ها", icon: Building2 },
-    { id: "customers", label: "مشتریان", icon: Users },
-    { id: "calendar", label: "تقویم", icon: CalendarDays, dot: todaysAppts > 0 },
     { id: "more", label: "بیشتر", icon: MoreHorizontal, dot: pendingCalls > 0 },
+    { id: "finance", label: "مالی", icon: Wallet },
+    { id: "customers", label: "مشتریان", icon: Users },
+    { id: "properties", label: "فایل‌ها", icon: Building2 },
+    { id: "home", label: "خانه", icon: Home },
   ];
+  const wrapRef = useRef(null);
+  const btnRefs = useRef({});
+  const [pill, setPill] = useState({ left: 0, width: 0, ready: false });
+
+  const measure = () => {
+    const el = btnRefs.current[tab];
+    if (el && wrapRef.current) {
+      setPill({ left: el.offsetLeft, width: el.offsetWidth, ready: true });
+    }
+  };
+  useEffect(() => { measure(); // eslint-disable-next-line
+  }, [tab]);
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // eslint-disable-next-line
+  }, []);
+
   return (
     <div className="fixed px-3 pb-3 pt-2" style={{ bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, zIndex: 20 }}>
-      <div className="flex justify-between items-center rounded-2xl px-2 py-2" style={glass(c)}>
+      <div ref={wrapRef} className="relative flex justify-between items-center rounded-2xl px-2 py-2" style={glass(c)}>
+        <div style={{
+          position: "absolute", top: 6, bottom: 6, left: pill.left + 8, width: Math.max(0, pill.width - 16), borderRadius: 16,
+          background: c.primarySoft, border: `1px solid ${c.primary}55`,
+          transition: pill.ready ? "left .45s cubic-bezier(.34,1.3,.64,1), width .45s cubic-bezier(.34,1.3,.64,1)" : "none",
+          opacity: pill.ready ? 1 : 0, pointerEvents: "none", zIndex: 0,
+        }} />
         {items.map((it) => {
           const active = tab === it.id; const Icon = it.icon;
           return (
-            <button key={it.id} onClick={() => setTab(it.id)} className="press relative flex flex-col items-center gap-1 flex-1 py-1.5 rounded-2xl" style={{ background: active ? c.primarySoft : "transparent" }}>
+            <button key={it.id} ref={(el) => (btnRefs.current[it.id] = el)} onClick={() => setTab(it.id)}
+              className="press relative flex flex-col items-center gap-1 flex-1 py-1.5 rounded-2xl" style={{ zIndex: 1 }}>
               <div className="relative">
-                <Icon size={19} color={active ? c.primary : c.muted} strokeWidth={active ? 2.5 : 2} />
+                <Icon size={19} color={active ? c.primary : c.muted} strokeWidth={active ? 2.5 : 2}
+                  style={{ transition: "transform .45s cubic-bezier(.34,1.56,.64,1)", transform: active ? "translateY(-2px) scale(1.08)" : "none" }} />
                 {it.dot && <span className="flora-pulse" style={{ position: "absolute", top: -3, left: -3, width: 7, height: 7, borderRadius: 99, background: c.attn }} />}
               </div>
-              <span style={{ fontSize: 10, color: active ? c.primary : c.muted, fontWeight: active ? 700 : 500 }}>{it.label}</span>
+              <span style={{ fontSize: 10, color: active ? c.primary : c.muted, fontWeight: active ? 700 : 500, transition: "color .35s ease" }}>{it.label}</span>
             </button>
           );
         })}
@@ -826,15 +868,15 @@ function CalendarTab({ ctx }) {
 
 // ---------- More tab ----------
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, calls, setCalls, setSheet, setDetail, exportBackup, importBackup, notify } = ctx;
+  const { c, owners, setOwners, builders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify } = ctx;
   const importRef = useRef(null);
   return (
     <div className="pt-3">
-      <button onClick={() => setDetail({ type: "finance" })} className="press w-full text-right rounded-2xl p-4 mb-5 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#1e3a8a 0%,#4c1d95 100%)", boxShadow: "0 12px 30px rgba(79,70,229,.3)" }}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><Wallet size={20} color="#fff" /></div>
+      <button onClick={() => setTab("calendar")} className="press w-full text-right rounded-2xl p-4 mb-5 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 30px rgba(47,124,246,.3)" }}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><CalendarDays size={20} color="#fff" /></div>
         <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>مرکز مالی</p>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>معاملات، کمیسیون، پرداخت‌ها و بدهکاران</p>
+          <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>تقویم بازدید</p>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>قرارهای بازدید امروز و آینده</p>
         </div>
         <ChevronLeft size={18} color="#fff" />
       </button>
@@ -1367,7 +1409,11 @@ ${transcript}
 }
 
 // ---------- Finance Center ----------
-const dealCommission = (deal, side) => Math.round((deal.price || 0) * ((side === "seller" ? deal.sellerPct : deal.buyerPct) || 0) / 100);
+const dealCommission = (deal, side) => {
+  const mode = side === "seller" ? deal.sellerMode : deal.buyerMode;
+  if (mode === "fixed") return (side === "seller" ? deal.sellerFixed : deal.buyerFixed) || 0;
+  return Math.round((deal.price || 0) * ((side === "seller" ? deal.sellerPct : deal.buyerPct) || 0) / 100);
+};
 const dealPaid = (deal, payments, side) => payments.filter((p) => p.dealId === deal.id && p.payerType === side).reduce((s, p) => s + (p.amount || 0), 0);
 const dealRemaining = (deal, payments, side) => Math.max(0, dealCommission(deal, side) - dealPaid(deal, payments, side));
 const dealTotalCommission = (deal) => dealCommission(deal, "seller") + dealCommission(deal, "buyer");
@@ -1440,8 +1486,8 @@ function FinanceCenterView({ ctx, onBack }) {
   const advisors = Object.values(advisorMap).sort((a, b) => b.value - a.value);
 
   return (
-    <div className="pt-2">
-      <BackHeader c={c} title="مرکز مالی" onBack={onBack} />
+    <div className={onBack ? "pt-2" : "pt-16"}>
+      {onBack && <BackHeader c={c} title="مرکز مالی" onBack={onBack} />}
       <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
         {FIN_TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
@@ -1841,8 +1887,8 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
   if (kind === "messages") return <MessageTemplatesSheet ctx={ctx} onClose={onClose} customerId={customerId} />;
-  if (kind === "deal") return <DealForm ctx={ctx} onClose={onClose} />;
-  if (kind === "payment") return <PaymentForm ctx={ctx} onClose={onClose} prefillDealId={prefillDealId} />;
+  if (kind === "deal") return <DealForm ctx={ctx} onClose={onClose} editId={editId} />;
+  if (kind === "payment") return <PaymentForm ctx={ctx} onClose={onClose} prefillDealId={prefillDealId} editId={editId} />;
   if (kind === "deal-detail") return <DealDetailSheet ctx={ctx} onClose={onClose} dealId={dealId} />;
   return null;
 }
@@ -2193,9 +2239,16 @@ function CallForm({ ctx, onClose, editId }) {
   );
 }
 
-function DealForm({ ctx, onClose }) {
+function DealForm({ ctx, onClose, editId }) {
   const { c, properties, owners, deals, setDeals, notify } = ctx;
-  const [f, setF] = useState({ propertyId: "", propertyTitle: "", sellerName: "", sellerPhone: "", buyerName: "", buyerPhone: "", price: "", sellerPct: "1", buyerPct: "0.5", advisor: "من", status: "در حال مذاکره" });
+  const editing = editId ? deals.find((d) => d.id === editId) : null;
+  const [f, setF] = useState(editing ? {
+    propertyId: editing.propertyId || "", propertyTitle: editing.propertyTitle, sellerName: editing.sellerName || "", sellerPhone: editing.sellerPhone || "",
+    buyerName: editing.buyerName || "", buyerPhone: editing.buyerPhone || "", price: String(editing.price),
+    sellerMode: editing.sellerMode || "pct", sellerPct: String(editing.sellerPct || 0), sellerFixed: String(editing.sellerFixed || ""),
+    buyerMode: editing.buyerMode || "pct", buyerPct: String(editing.buyerPct || 0), buyerFixed: String(editing.buyerFixed || ""),
+    advisor: editing.advisor || "من", status: editing.status,
+  } : { propertyId: "", propertyTitle: "", sellerName: "", sellerPhone: "", buyerName: "", buyerPhone: "", price: "", sellerMode: "pct", sellerPct: "1", sellerFixed: "", buyerMode: "pct", buyerPct: "0.5", buyerFixed: "", advisor: "من", status: "در حال مذاکره" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const onPickProperty = (e) => {
     const pid = e.target.value;
@@ -2204,10 +2257,31 @@ function DealForm({ ctx, onClose }) {
     setF((prev) => ({ ...prev, propertyId: pid, propertyTitle: p?.title || prev.propertyTitle, price: p ? String(p.price) : prev.price, sellerName: owner?.name || prev.sellerName, sellerPhone: owner?.phone || prev.sellerPhone }));
   };
   const valid = f.propertyTitle.trim() && f.price;
+
+  const CommissionField = ({ side, label }) => {
+    const mode = side === "seller" ? f.sellerMode : f.buyerMode;
+    const modeKey = side === "seller" ? "sellerMode" : "buyerMode";
+    const pctKey = side === "seller" ? "sellerPct" : "buyerPct";
+    const fixedKey = side === "seller" ? "sellerFixed" : "buyerFixed";
+    const previewAmount = mode === "pct" ? Math.round(toNum(f.price) * (Number(toEnDigits(f[pctKey])) || 0) / 100) : toNum(f[fixedKey]);
+    return (
+      <Field c={c} label={label}>
+        <div className="flex gap-2 mb-2">
+          <button type="button" onClick={() => setF({ ...f, [modeKey]: "pct" })} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "pct" ? c.primary : c.surface2, color: mode === "pct" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>درصدی</button>
+          <button type="button" onClick={() => setF({ ...f, [modeKey]: "fixed" })} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "fixed" ? c.primary : c.surface2, color: mode === "fixed" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>مبلغ ثابت (تومان)</button>
+        </div>
+        {mode === "pct"
+          ? <input style={inputStyle(c)} inputMode="decimal" value={f[pctKey]} onChange={set(pctKey)} placeholder="مثلاً ۱" />
+          : <input style={inputStyle(c)} inputMode="numeric" value={f[fixedKey]} onChange={set(fixedKey)} placeholder="مبلغ به تومان" />}
+        <p style={{ fontSize: 11, color: c.primary, fontWeight: 700, marginTop: 6 }}>{fmtToman(previewAmount)}</p>
+      </Field>
+    );
+  };
+
   return (
-    <SheetShell c={c} title="ثبت قرارداد جدید" onClose={onClose}>
-      <Field c={c} label="فایل ملک (اختیاری)"><Select c={c} value={f.propertyId} onChange={onPickProperty} placeholder="انتخاب فایل برای پرکردن خودکار" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
-      <Field c={c} label="عنوان معامله"><input style={inputStyle(c)} value={f.propertyTitle} onChange={set("propertyTitle")} placeholder="مثلاً ویلا تانیا — لواسان" /></Field>
+    <SheetShell c={c} title={editing ? "ویرایش قرارداد" : "ثبت قرارداد جدید"} onClose={onClose}>
+      {!editing && <Field c={c} label="فایل ملک (اختیاری)"><Select c={c} value={f.propertyId} onChange={onPickProperty} placeholder="انتخاب فایل برای پرکردن خودکار" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>}
+      <Field c={c} label="عنوان معامله (می‌توانی مستقیم تایپ کنی)"><input style={inputStyle(c)} value={f.propertyTitle} onChange={set("propertyTitle")} placeholder="مثلاً ویلا تانیا — لواسان" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نام فروشنده"><input style={inputStyle(c)} value={f.sellerName} onChange={set("sellerName")} /></Field>
         <Field c={c} label="شماره فروشنده"><input style={inputStyle(c)} dir="ltr" value={f.sellerPhone} onChange={set("sellerPhone")} /></Field>
@@ -2216,30 +2290,41 @@ function DealForm({ ctx, onClose }) {
         <Field c={c} label="نام خریدار"><input style={inputStyle(c)} value={f.buyerName} onChange={set("buyerName")} /></Field>
         <Field c={c} label="شماره خریدار"><input style={inputStyle(c)} dir="ltr" value={f.buyerPhone} onChange={set("buyerPhone")} /></Field>
       </div>
-      <Field c={c} label="مبلغ معامله (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.price} onChange={set("price")} /></Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field c={c} label="درصد کمیسیون فروشنده"><input style={inputStyle(c)} inputMode="decimal" value={f.sellerPct} onChange={set("sellerPct")} /></Field>
-        <Field c={c} label="درصد کمیسیون خریدار"><input style={inputStyle(c)} inputMode="decimal" value={f.buyerPct} onChange={set("buyerPct")} /></Field>
-      </div>
+      <Field c={c} label="مبلغ معامله (تومان)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.price} onChange={set("price")} />
+        <p style={{ fontSize: 11, color: c.muted, marginTop: 6 }}>{fmtToman(toNum(f.price))}</p>
+      </Field>
+      <CommissionField side="seller" label="کمیسیون فروشنده" />
+      <CommissionField side="buyer" label="کمیسیون خریدار" />
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="مشاور"><input style={inputStyle(c)} value={f.advisor} onChange={set("advisor")} /></Field>
         <Field c={c} label="وضعیت"><Select c={c} value={f.status} onChange={set("status")} placeholder="انتخاب کنید" options={["در حال مذاکره", "در انتظار پرداخت", "تسویه شده"].map((v) => ({ value: v, label: v }))} /></Field>
       </div>
-      <SubmitBtn c={c} label="ذخیره قرارداد" disabled={!valid} onClick={() => {
-        setDeals((prev) => [{ id: uid(), propertyId: f.propertyId, propertyTitle: f.propertyTitle.trim(), sellerName: f.sellerName.trim(), sellerPhone: f.sellerPhone.trim(), buyerName: f.buyerName.trim(), buyerPhone: f.buyerPhone.trim(), price: toNum(f.price), sellerPct: Number(f.sellerPct) || 0, buyerPct: Number(f.buyerPct) || 0, advisor: f.advisor.trim() || "من", status: f.status, createdAt: new Date().toISOString() }, ...prev]);
-        notify("قرارداد ثبت شد"); onClose();
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره قرارداد"} disabled={!valid} onClick={() => {
+        const payload = {
+          propertyId: f.propertyId, propertyTitle: f.propertyTitle.trim(), sellerName: f.sellerName.trim(), sellerPhone: f.sellerPhone.trim(), buyerName: f.buyerName.trim(), buyerPhone: f.buyerPhone.trim(), price: toNum(f.price),
+          sellerMode: f.sellerMode, sellerPct: Number(toEnDigits(f.sellerPct)) || 0, sellerFixed: toNum(f.sellerFixed),
+          buyerMode: f.buyerMode, buyerPct: Number(toEnDigits(f.buyerPct)) || 0, buyerFixed: toNum(f.buyerFixed),
+          advisor: f.advisor.trim() || "من", status: f.status,
+        };
+        if (editing) setDeals((prev) => prev.map((d) => d.id === editId ? { ...d, ...payload } : d));
+        else setDeals((prev) => [{ id: uid(), ...payload, createdAt: new Date().toISOString() }, ...prev]);
+        notify(editing ? "تغییرات قرارداد ذخیره شد" : "قرارداد ثبت شد"); onClose();
       }} />
     </SheetShell>
   );
 }
 
-function PaymentForm({ ctx, onClose, prefillDealId }) {
-  const { c, deals, setPayments, notify } = ctx;
-  const [f, setF] = useState({ dealId: prefillDealId || "", payerType: "seller", amount: "", date: todayISO(), method: "card", tracking: "", note: "" });
+function PaymentForm({ ctx, onClose, prefillDealId, editId }) {
+  const { c, deals, payments, setPayments, notify } = ctx;
+  const editing = editId ? payments.find((p) => p.id === editId) : null;
+  const [f, setF] = useState(editing
+    ? { dealId: editing.dealId, payerType: editing.payerType, amount: String(editing.amount), date: editing.date, method: editing.method, tracking: editing.tracking || "", note: editing.note || "" }
+    : { dealId: prefillDealId || "", payerType: "seller", amount: "", date: todayISO(), method: "card", tracking: "", note: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.dealId && f.amount;
   return (
-    <SheetShell c={c} title="ثبت پرداخت جدید" onClose={onClose}>
+    <SheetShell c={c} title={editing ? "ویرایش پرداخت" : "ثبت پرداخت جدید"} onClose={onClose}>
       <Field c={c} label="انتخاب معامله"><Select c={c} value={f.dealId} onChange={set("dealId")} placeholder="انتخاب قرارداد" options={deals.map((d) => ({ value: d.id, label: d.propertyTitle }))} /></Field>
       <Field c={c} label="پرداخت‌کننده">
         <div className="grid grid-cols-2 gap-2">
@@ -2248,7 +2333,10 @@ function PaymentForm({ ctx, onClose, prefillDealId }) {
         </div>
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field c={c} label="مبلغ پرداختی (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} /></Field>
+        <Field c={c} label="مبلغ پرداختی (تومان)">
+          <input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} />
+          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 5 }}>{fmtToman(toNum(f.amount))}</p>
+        </Field>
         <Field c={c} label="تاریخ (شمسی)"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
       </div>
       <Field c={c} label="روش پرداخت">
@@ -2263,19 +2351,22 @@ function PaymentForm({ ctx, onClose, prefillDealId }) {
       </Field>
       <Field c={c} label="شماره پیگیری (اختیاری)"><input style={inputStyle(c)} value={f.tracking} onChange={set("tracking")} /></Field>
       <Field c={c} label="توضیحات (اختیاری)"><input style={inputStyle(c)} value={f.note} onChange={set("note")} /></Field>
-      <SubmitBtn c={c} label="ثبت پرداخت" disabled={!valid} onClick={() => {
-        setPayments((prev) => [{ id: uid(), dealId: f.dealId, payerType: f.payerType, amount: toNum(f.amount), date: f.date, method: f.method, tracking: f.tracking.trim(), note: f.note.trim() }, ...prev]);
-        notify("پرداخت ثبت شد"); onClose();
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ثبت پرداخت"} disabled={!valid} onClick={() => {
+        const payload = { dealId: f.dealId, payerType: f.payerType, amount: toNum(f.amount), date: f.date, method: f.method, tracking: f.tracking.trim(), note: f.note.trim() };
+        if (editing) setPayments((prev) => prev.map((p) => p.id === editId ? { ...p, ...payload } : p));
+        else setPayments((prev) => [{ id: uid(), ...payload }, ...prev]);
+        notify(editing ? "تغییرات پرداخت ذخیره شد" : "پرداخت ثبت شد"); onClose();
       }} />
     </SheetShell>
   );
 }
 
 function DealDetailSheet({ ctx, onClose, dealId }) {
-  const { c, deals, payments, setSheet, notify } = ctx;
+  const { c, deals, payments, setSheet, setDeals, notify } = ctx;
   const deal = deals.find((d) => d.id === dealId);
   if (!deal) return null;
   const Block = ({ title, icon: Icon, side }) => {
+    const mode = side === "seller" ? deal.sellerMode : deal.buyerMode;
     const commission = dealCommission(deal, side);
     const paid = dealPaid(deal, payments, side);
     const remaining = dealRemaining(deal, payments, side);
@@ -2283,7 +2374,7 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
     return (
       <div className="rounded-xl p-3.5 mb-3" style={{ background: c.surface2 }}>
         <div className="flex items-center gap-2 mb-2.5"><Icon size={15} color={c.primary} /><p style={{ fontSize: 12.5, fontWeight: 700 }}>{title}</p></div>
-        <Row c={c} label="درصد کمیسیون" value={`${faDigits(side === "seller" ? deal.sellerPct : deal.buyerPct)}٪`} />
+        <Row c={c} label={mode === "fixed" ? "نوع کمیسیون" : "درصد کمیسیون"} value={mode === "fixed" ? "مبلغ ثابت" : `${faDigits(side === "seller" ? deal.sellerPct : deal.buyerPct)}٪`} />
         <Row c={c} label="مبلغ کمیسیون" value={fmtToman(commission)} />
         <Row c={c} label="پرداخت شده" value={fmtToman(paid)} color={c.success} />
         <Row c={c} label="مانده بدهی" value={fmtToman(remaining)} color={done ? c.ink : c.attn} />
@@ -2293,13 +2384,19 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
   };
   return (
     <SheetShell c={c} title="جزئیات معامله" onClose={onClose}>
-      <p style={{ fontSize: 14, fontWeight: 800, marginBottom: 3 }}>{deal.propertyTitle}</p>
-      <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 14 }}>{fmtToman(deal.price)} · {deal.advisor}</p>
+      <div className="flex items-start justify-between mb-1">
+        <div><p style={{ fontSize: 14, fontWeight: 800 }}>{deal.propertyTitle}</p><p style={{ fontSize: 11.5, color: c.muted, marginTop: 3 }}>{fmtToman(deal.price)} · {deal.advisor}</p></div>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => setSheet({ kind: "deal", editId: dealId })} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Edit3 size={14} color={c.primary} /></button>
+          <button onClick={() => { setDeals((prev) => prev.filter((d) => d.id !== dealId)); onClose(); notify("قرارداد حذف شد"); }} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
+        </div>
+      </div>
+      <div style={{ height: 10 }} />
       <Block title="کمیسیون فروشنده" icon={UserCircle2} side="seller" />
       <Block title="کمیسیون خریدار" icon={Users} side="buyer" />
       <div className="flex gap-2 mt-2">
         {deal.status !== "تسویه شده" && (
-          <button onClick={() => { ctx.setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, status: "تسویه شده" } : d)); notify("وضعیت به‌روزرسانی شد"); }} className="press flex-1 rounded-xl py-3" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12.5 }}>علامت به‌عنوان تسویه‌شده</button>
+          <button onClick={() => { setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, status: "تسویه شده" } : d)); notify("وضعیت به‌روزرسانی شد"); }} className="press flex-1 rounded-xl py-3" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12.5 }}>علامت به‌عنوان تسویه‌شده</button>
         )}
         <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ثبت پرداخت</button>
       </div>
