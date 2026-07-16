@@ -5,11 +5,12 @@ import {
   ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
-  MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle,
+  MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -171,6 +172,13 @@ const seedCustomers = [
 ];
 const seedAppointments = [{ id: "a1", propertyId: "p1", customerId: "c1", customerName: "مهدی کریمی", date: todayISO(), time: "17:00", notes: "بازدید اول" }];
 const seedCalls = [{ id: "cl1", customerId: "c2", customerName: "سارا محمدی", customerPhone: "09380002233", date: todayISO(), status: "در انتظار پاسخ", notes: "پیگیری قیمت ویلا" }];
+const seedDeals = [
+  { id: "d1", propertyId: "p1", propertyTitle: "آپارتمان ۱۲۰ متری سعادت‌آباد", sellerName: "آقای رحیمی", sellerPhone: "09121234567", buyerName: "مهدی کریمی", buyerPhone: "09190001122", price: 8400000000, sellerPct: 1, buyerPct: 0.5, advisor: "من", status: "تسویه شده", createdAt: daysAgoISO(20) },
+  { id: "d2", propertyId: "p2", propertyTitle: "ویلا دوبلکس لواسان", sellerName: "خانم صادقی", sellerPhone: "09351234567", buyerName: "سارا محمدی", buyerPhone: "09380002233", price: 45000000, sellerPct: 5, buyerPct: 0, advisor: "من", status: "در انتظار پرداخت", createdAt: daysAgoISO(8) },
+];
+const seedPayments = [
+  { id: "pay1", dealId: "d1", payerType: "seller", amount: 84000000, date: daysAgoISO(18).slice(0, 10), method: "transfer", tracking: "", note: "" },
+];
 
 export default function FloraCRM() {
   const [dark, setDark] = useState(true);
@@ -190,6 +198,8 @@ export default function FloraCRM() {
   const [customers, setCustomers] = useState(seedCustomers);
   const [appointments, setAppointments] = useState(seedAppointments);
   const [calls, setCalls] = useState(seedCalls);
+  const [deals, setDeals] = useState(seedDeals);
+  const [payments, setPayments] = useState(seedPayments);
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
@@ -212,6 +222,8 @@ export default function FloraCRM() {
           if (saved.customers) setCustomers(saved.customers);
           if (saved.appointments) setAppointments(saved.appointments);
           if (saved.calls) setCalls(saved.calls);
+          if (saved.deals) setDeals(saved.deals);
+          if (saved.payments) setPayments(saved.payments);
         }
         const settings = await dbGet(SETTINGS_KEY);
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
@@ -226,7 +238,7 @@ export default function FloraCRM() {
       setLoaded(true);
     })();
   }, []);
-  useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls]);
+  useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName]);
 
   const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
@@ -298,7 +310,7 @@ export default function FloraCRM() {
   };
 
   const exportBackup = () => {
-    const payload = { version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls };
+    const payload = { version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -317,6 +329,8 @@ export default function FloraCRM() {
         if (data.customers) setCustomers(data.customers);
         if (data.appointments) setAppointments(data.appointments);
         if (data.calls) setCalls(data.calls);
+        if (data.deals) setDeals(data.deals);
+        if (data.payments) setPayments(data.payments);
         notify("بکاپ با موفقیت بازیابی شد");
       } catch (e) { notify("فایل بکاپ نامعتبر است"); }
     };
@@ -332,6 +346,7 @@ export default function FloraCRM() {
   const ctx = {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
+    deals, setDeals, payments, setPayments,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName,
     scheduleReminder, goProperties, exportBackup, importBackup,
@@ -811,10 +826,19 @@ function CalendarTab({ ctx }) {
 
 // ---------- More tab ----------
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, calls, setCalls, setSheet, exportBackup, importBackup, notify } = ctx;
+  const { c, owners, setOwners, builders, calls, setCalls, setSheet, setDetail, exportBackup, importBackup, notify } = ctx;
   const importRef = useRef(null);
   return (
     <div className="pt-3">
+      <button onClick={() => setDetail({ type: "finance" })} className="press w-full text-right rounded-2xl p-4 mb-5 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#1e3a8a 0%,#4c1d95 100%)", boxShadow: "0 12px 30px rgba(79,70,229,.3)" }}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><Wallet size={20} color="#fff" /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>مرکز مالی</p>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>معاملات، کمیسیون، پرداخت‌ها و بدهکاران</p>
+        </div>
+        <ChevronLeft size={18} color="#fff" />
+      </button>
+
       <SectionHeader c={c} title="پیگیری تماس‌ها" />
       <div className="flex flex-col gap-2 mb-2">
         {calls.map((cl) => {
@@ -894,6 +918,7 @@ function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "customer") return <CustomerDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   if (detail.type === "copilot") return <CopilotView ctx={ctx} onBack={onBack} />;
   if (detail.type === "ai-chat") return <AiChatView ctx={ctx} onBack={onBack} />;
+  if (detail.type === "finance") return <FinanceCenterView ctx={ctx} onBack={onBack} />;
   return null;
 }
 function BackHeader({ c, title, onBack, onEdit, onDelete }) {
@@ -1341,6 +1366,341 @@ ${transcript}
   );
 }
 
+// ---------- Finance Center ----------
+const dealCommission = (deal, side) => Math.round((deal.price || 0) * ((side === "seller" ? deal.sellerPct : deal.buyerPct) || 0) / 100);
+const dealPaid = (deal, payments, side) => payments.filter((p) => p.dealId === deal.id && p.payerType === side).reduce((s, p) => s + (p.amount || 0), 0);
+const dealRemaining = (deal, payments, side) => Math.max(0, dealCommission(deal, side) - dealPaid(deal, payments, side));
+const dealTotalCommission = (deal) => dealCommission(deal, "seller") + dealCommission(deal, "buyer");
+const dealTotalPaid = (deal, payments) => dealPaid(deal, payments, "seller") + dealPaid(deal, payments, "buyer");
+const dealTotalRemaining = (deal, payments) => dealRemaining(deal, payments, "seller") + dealRemaining(deal, payments, "buyer");
+const dealProgress = (deal, payments) => { const t = dealTotalCommission(deal); if (!t) return 100; return Math.min(100, Math.round((dealTotalPaid(deal, payments) / t) * 100)); };
+const PAYMENT_METHODS = [{ id: "card", label: "کارت", icon: CreditCard }, { id: "cash", label: "نقد", icon: Banknote }, { id: "transfer", label: "حواله", icon: Landmark }, { id: "check", label: "چک", icon: FileCheck }];
+const FIN_TABS = [
+  { id: "overview", label: "نمای کلی" }, { id: "transactions", label: "معاملات" }, { id: "payments", label: "پرداخت‌ها" },
+  { id: "debtors", label: "بدهکاران" }, { id: "reports", label: "گزارشات" }, { id: "advisors", label: "مشاوران" }, { id: "ai", label: "هوش مصنوعی" },
+];
+
+function DealStatusBadge({ c, status }) {
+  if (status === "تسویه شده") return <span style={{ fontSize: 10, fontWeight: 700, color: c.success, background: c.successSoft, padding: "4px 10px", borderRadius: 10 }}>تسویه شده</span>;
+  if (status === "در حال مذاکره") return <span style={{ fontSize: 10, fontWeight: 700, color: c.primary, background: c.primarySoft, padding: "4px 10px", borderRadius: 10 }}>در حال مذاکره</span>;
+  return <span style={{ fontSize: 10, fontWeight: 700, color: c.attn, background: c.attnSoft, padding: "4px 10px", borderRadius: 10 }}>در انتظار پرداخت</span>;
+}
+
+function FinanceCenterView({ ctx, onBack }) {
+  const { c, deals, payments, setSheet } = ctx;
+  const [tab, setTab] = useState("overview");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("همه");
+
+  const totalValue = deals.reduce((s, d) => s + (d.price || 0), 0);
+  const totalCommission = deals.reduce((s, d) => s + dealTotalCommission(d), 0);
+  const totalPaidAll = deals.reduce((s, d) => s + dealTotalPaid(d, payments), 0);
+  const totalRemainingAll = deals.reduce((s, d) => s + dealTotalRemaining(d, payments), 0);
+  const todayVal = deals.filter((d) => (d.createdAt || "").slice(0, 10) === todayISO()).reduce((s, d) => s + d.price, 0);
+  const [cjy, cjm] = isoToJalali(todayISO());
+  const monthVal = deals.filter((d) => { const [jy, jm] = isoToJalali((d.createdAt || todayISO()).slice(0, 10)); return jy === cjy && jm === cjm; }).reduce((s, d) => s + d.price, 0);
+  const yearVal = deals.filter((d) => { const [jy] = isoToJalali((d.createdAt || todayISO()).slice(0, 10)); return jy === cjy; }).reduce((s, d) => s + d.price, 0);
+  const avgDeal = deals.length ? Math.round(totalValue / deals.length) : 0;
+
+  const filteredDeals = deals.filter((d) => {
+    if (statusFilter !== "همه" && d.status !== statusFilter) return false;
+    if (search) { const q = search.toLowerCase(); if (![d.propertyTitle, d.sellerName, d.buyerName].some((s) => (s || "").toLowerCase().includes(q))) return false; }
+    return true;
+  }).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+  const debtors = deals.flatMap((d) => {
+    const out = [];
+    const sr = dealRemaining(d, payments, "seller");
+    const br = dealRemaining(d, payments, "buyer");
+    if (sr > 0) out.push({ name: d.sellerName, phone: d.sellerPhone, amount: sr, days: daysSince(d.createdAt || todayISO()), dealTitle: d.propertyTitle });
+    if (br > 0) out.push({ name: d.buyerName, phone: d.buyerPhone, amount: br, days: daysSince(d.createdAt || todayISO()), dealTitle: d.propertyTitle });
+    return out;
+  }).sort((a, b) => b.amount - a.amount);
+
+  const alerts = [
+    ...debtors.filter((x) => x.days >= 10).slice(0, 2).map((x) => ({ type: "red", text: `کمیسیون ${x.name} پرداخت نشده — تماس بگیرید` })),
+    ...debtors.filter((x) => x.days < 10).slice(0, 1).map((x) => ({ type: "yellow", text: `معامله «${x.dealTitle}» نزدیک به موعد پرداخت است` })),
+    ...deals.filter((d) => dealTotalRemaining(d, payments) === 0).slice(-1).map((d) => ({ type: "green", text: `کمیسیون ${d.propertyTitle} به‌طور کامل دریافت شد` })),
+  ];
+
+  const monthlyTotals = Array.from({ length: 6 }, (_, i) => {
+    let m = cjm - 5 + i, y = cjy; if (m <= 0) { m += 12; y -= 1; }
+    const val = deals.filter((d) => { const [jy, jm] = isoToJalali((d.createdAt || todayISO()).slice(0, 10)); return jy === y && jm === m; }).length;
+    return { label: MONTHS_FA[m - 1].slice(0, 3), value: val };
+  });
+  const maxMonthly = Math.max(1, ...monthlyTotals.map((m) => m.value));
+
+  const advisorMap = {};
+  deals.forEach((d) => {
+    const key = d.advisor || "بدون نام";
+    if (!advisorMap[key]) advisorMap[key] = { name: key, count: 0, value: 0, commission: 0, paid: 0 };
+    advisorMap[key].count += 1; advisorMap[key].value += d.price || 0;
+    advisorMap[key].commission += dealTotalCommission(d); advisorMap[key].paid += dealTotalPaid(d, payments);
+  });
+  const advisors = Object.values(advisorMap).sort((a, b) => b.value - a.value);
+
+  return (
+    <div className="pt-2">
+      <BackHeader c={c} title="مرکز مالی" onBack={onBack} />
+      <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
+        {FIN_TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: tab === t.id ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" && (
+        <div>
+          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#1e3a8a,#4c1d95)", position: "relative", overflow: "hidden" }}>
+            <span style={{ position: "absolute", top: "-40%", left: "-20%", width: 180, height: 180, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
+            <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,.18)" }}><Sparkles size={15} color="#fff" /></div><strong style={{ fontSize: 13.5, color: "#fff" }}>خلاصه هوشمند</strong></div>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,.85)", lineHeight: 1.9 }}>مانده‌ی کل کمیسیون‌های وصول‌نشده: <b style={{ color: "#fbbf24" }}>{fmtToman(totalRemainingAll)}</b></p>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,.85)", lineHeight: 1.9 }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است 👌"}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 mb-4">
+            <FinStat c={c} icon={TrendingUp} color={c.success} value={fmtToman(todayVal)} label="فروش امروز" />
+            <FinStat c={c} icon={CalendarDays} color={c.primary} value={fmtToman(monthVal)} label="فروش این ماه" />
+            <FinStat c={c} icon={TrendingUp} color={c.purple} value={fmtToman(yearVal)} label="فروش امسال" />
+            <FinStat c={c} icon={Landmark} color={c.primary} value={fmtToman(totalValue)} label="کل ارزش معاملات" />
+            <FinStat c={c} icon={Wallet} color={c.success} value={fmtToman(totalPaidAll)} label="کمیسیون دریافتی" />
+            <FinStat c={c} icon={AlertTriangle} color={c.attn} value={fmtToman(totalRemainingAll)} label="کمیسیون وصول‌نشده" />
+            <FinStat c={c} icon={FileCheck} color={c.purple} value={faDigits(deals.length)} label="تعداد معاملات" />
+            <FinStat c={c} icon={Award} color={c.primary} value={fmtToman(avgDeal)} label="میانگین هر معامله" />
+          </div>
+
+          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+            <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>تعداد معاملات ۶ ماه اخیر</p>
+            <div className="flex items-end justify-between gap-1.5" style={{ height: 80 }}>
+              {monthlyTotals.map((m, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+                  <div style={{ width: "100%", borderRadius: "6px 6px 0 0", background: "linear-gradient(180deg,#5b9dff,#2f7cf6)", height: `${Math.max(6, (m.value / maxMonthly) * 64)}px`, transition: "height .6s ease" }} />
+                  <span style={{ fontSize: 9, color: c.muted }}>{m.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <SectionHeader c={c} title="هشدارها" />
+          <div className="flex flex-col gap-2 mb-4">
+            {alerts.map((a, i) => (
+              <div key={i} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: a.type === "red" ? c.dangerSoft : a.type === "yellow" ? c.attnSoft : c.successSoft }}>
+                <span style={{ width: 8, height: 8, borderRadius: 99, background: a.type === "red" ? c.danger : a.type === "yellow" ? c.attn : c.success, flexShrink: 0 }} />
+                <span style={{ fontSize: 11.5, color: c.ink }}>{a.text}</span>
+              </div>
+            ))}
+            {alerts.length === 0 && <EmptyLine c={c} text="هشداری وجود ندارد" />}
+          </div>
+        </div>
+      )}
+
+      {tab === "transactions" && (
+        <div>
+          <SearchBox c={c} value={search} setValue={setSearch} />
+          <div className="flex gap-2 overflow-x-auto pb-1 my-3">
+            {["همه", "تسویه شده", "در انتظار پرداخت", "در حال مذاکره"].map((s) => (
+              <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: statusFilter === s ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setSheet("deal")} className="press w-full rounded-xl py-3 mb-3 flex items-center justify-center gap-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}><Plus size={14} /> ثبت قرارداد جدید</button>
+          <div className="flex flex-col gap-3">
+            {filteredDeals.map((d) => (
+              <button key={d.id} onClick={() => setSheet({ kind: "deal-detail", dealId: d.id })} className="press w-full text-right rounded-2xl p-4" style={glass(c, 22)}>
+                <div className="flex justify-between items-start mb-2.5">
+                  <div><p style={{ fontSize: 14, fontWeight: 700 }}>{d.propertyTitle}</p></div>
+                  <DealStatusBadge c={c} status={d.status} />
+                </div>
+                <div className="flex gap-4 mb-2.5">
+                  <div className="flex-1"><p style={{ fontSize: 10, color: c.muted, marginBottom: 2 }}>فروشنده</p><p style={{ fontSize: 12, fontWeight: 600 }}>{d.sellerName || "—"}</p></div>
+                  <div className="flex-1"><p style={{ fontSize: 10, color: c.muted, marginBottom: 2 }}>خریدار</p><p style={{ fontSize: 12, fontWeight: 600 }}>{d.buyerName || "—"}</p></div>
+                </div>
+                <div className="flex justify-between items-center pt-2.5" style={{ borderTop: `1px solid ${c.border}` }}>
+                  <p style={{ fontSize: 13.5, fontWeight: 800, color: c.primary }}>{fmtToman(d.price)}</p>
+                  <p style={{ fontSize: 10.5, color: c.muted }}>{d.advisor}</p>
+                </div>
+                <div style={{ height: 5, borderRadius: 6, background: c.surface2, marginTop: 8, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${dealProgress(d, payments)}%`, borderRadius: 6, background: `linear-gradient(90deg, ${c.success}, #4ade80)` }} />
+                </div>
+              </button>
+            ))}
+            {filteredDeals.length === 0 && <EmptyLine c={c} text="معامله‌ای پیدا نشد" />}
+          </div>
+        </div>
+      )}
+
+      {tab === "payments" && (
+        <div>
+          <SectionHeader c={c} title="تاریخچه پرداخت‌ها" action={<button onClick={() => setSheet("payment")} className="press flex items-center gap-1 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11.5 }}><Plus size={12} /> ثبت پرداخت</button>} />
+          <div className="flex flex-col gap-2">
+            {[...payments].sort((a, b) => b.date.localeCompare(a.date)).map((p) => {
+              const deal = deals.find((d) => d.id === p.dealId);
+              const method = PAYMENT_METHODS.find((m) => m.id === p.method) || PAYMENT_METHODS[0];
+              const payerName = deal ? (p.payerType === "seller" ? deal.sellerName : deal.buyerName) : "—";
+              return (
+                <div key={p.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 20)}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><method.icon size={17} color={c.primary} /></div>
+                  <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700 }}>{payerName}</p><p style={{ fontSize: 10.5, color: c.muted }}>{method.label} · {deal?.propertyTitle}</p></div>
+                  <div className="text-left shrink-0"><p style={{ fontSize: 12.5, fontWeight: 800, color: c.success }}>+{fmtToman(p.amount)}</p><p style={{ fontSize: 10, color: c.muted }}>{fmtJalali(p.date)}</p></div>
+                </div>
+              );
+            })}
+            {payments.length === 0 && <EmptyLine c={c} text="پرداختی ثبت نشده" />}
+          </div>
+        </div>
+      )}
+
+      {tab === "debtors" && (
+        <div>
+          <SectionHeader c={c} title="بدهکاران" />
+          <div className="flex flex-col gap-2.5">
+            {debtors.map((x, i) => (
+              <div key={i} className="rounded-2xl p-4" style={{ ...glass(c, 22), border: `1px solid ${c.dangerSoft}` }}>
+                <div className="flex justify-between items-center mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: c.dangerSoft }}><UserCircle2 size={17} color={c.danger} /></div>
+                    <div><p style={{ fontSize: 13, fontWeight: 700 }}>{x.name}</p><p style={{ fontSize: 10, color: c.danger }}>{faDigits(x.days)} روز تأخیر</p></div>
+                  </div>
+                  <p style={{ fontSize: 14.5, fontWeight: 800, color: c.danger }}>{fmtToman(x.amount)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <a href={x.phone ? `tel:${x.phone}` : "#"} className="press flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, opacity: x.phone ? 1 : 0.5, pointerEvents: x.phone ? "auto" : "none" }}><PhoneCall size={13} color={c.success} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.success }}>تماس</span></a>
+                  <a href={x.phone ? (smsLink(x.phone, `سلام ${x.name} عزیز، پیرو معامله‌ی ${x.dealTitle}، یادآوری کمیسیون باقی‌مانده به مبلغ ${fmtToman(x.amount)}.`) || "#") : "#"} className="press flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, opacity: x.phone ? 1 : 0.5, pointerEvents: x.phone ? "auto" : "none" }}><MessageSquare size={13} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>پیامک</span></a>
+                </div>
+              </div>
+            ))}
+            {debtors.length === 0 && <EmptyLine c={c} text="بدهکاری وجود ندارد 👌" />}
+          </div>
+        </div>
+      )}
+
+      {tab === "reports" && (
+        <div>
+          <div className="grid grid-cols-2 gap-2.5 mb-4">
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{faDigits(deals.length)}</p><p style={{ fontSize: 10.5, color: c.muted }}>تعداد قرارداد</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{fmtToman(totalValue)}</p><p style={{ fontSize: 10.5, color: c.muted }}>مجموع ارزش معاملات</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{fmtToman(totalCommission)}</p><p style={{ fontSize: 10.5, color: c.muted }}>مجموع کمیسیون</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{fmtToman(avgDeal)}</p><p style={{ fontSize: 10.5, color: c.muted }}>میانگین معامله</p></div>
+          </div>
+          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+            <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>کل دریافت‌شده</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.success, marginBottom: 10 }}>{fmtToman(totalPaidAll)}</p>
+            <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>مانده کل</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.attn, marginBottom: 10 }}>{fmtToman(totalRemainingAll)}</p>
+            <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>درصد وصول</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.success }}>{faDigits(totalCommission ? Math.round((totalPaidAll / totalCommission) * 100) : 0)}٪</p>
+          </div>
+        </div>
+      )}
+
+      {tab === "advisors" && (
+        <div>
+          <SectionHeader c={c} title="رتبه‌بندی مشاوران" />
+          <div className="flex flex-col gap-2.5">
+            {advisors.map((a, i) => (
+              <div key={a.name} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 20)}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: i === 0 ? "linear-gradient(135deg,#fbbf24,#f59e0b)" : i === 1 ? "linear-gradient(135deg,#cbd5e1,#94a3b8)" : i === 2 ? "linear-gradient(135deg,#d97706,#92400e)" : c.surface2, color: i < 3 ? "#1a1a2e" : c.muted, fontWeight: 800, fontSize: 13 }}>{faDigits(i + 1)}</div>
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontSize: 13, fontWeight: 700 }}>{a.name}</p>
+                  <p style={{ fontSize: 10, color: c.muted }}>معاملات: {faDigits(a.count)} · ارزش: {fmtToman(a.value)} · وصول: {faDigits(a.commission ? Math.round((a.paid / a.commission) * 100) : 0)}٪</p>
+                </div>
+              </div>
+            ))}
+            {advisors.length === 0 && <EmptyLine c={c} text="معامله‌ای ثبت نشده" />}
+          </div>
+        </div>
+      )}
+
+      {tab === "ai" && <FinanceAiTab ctx={ctx} stats={{ totalValue, totalCommission, totalPaidAll, totalRemainingAll, deals, debtors }} />}
+      <div style={{ height: 20 }} />
+    </div>
+  );
+}
+
+function FinStat({ c, icon: Icon, color, value, label }) {
+  return (
+    <div className="rounded-xl p-3.5" style={glass(c, 20)}>
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2.5" style={{ background: color + "22" }}><Icon size={15} color={color} /></div>
+      <p style={{ fontSize: 13.5, fontWeight: 800 }}>{value}</p>
+      <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{label}</p>
+    </div>
+  );
+}
+
+function FinanceAiTab({ ctx, stats }) {
+  const { c, hasAiKey, callAI, notify, setSheet, agentName } = ctx;
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { (async () => { try { const cached = await dbGet(FINANCE_AI_KEY); if (cached?.date === todayISO()) setReport(cached.data); } catch (e) {} })(); }, []);
+
+  const generate = async () => {
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
+    setLoading(true);
+    try {
+      const debtorsSummary = stats.debtors.slice(0, 8).map((x) => `- ${x.name}: ${x.amount} تومان، ${x.days} روز تأخیر`).join("\n");
+      const prompt = `تو مدیر مالی هوشمند یک دفتر مشاور املاک به اسم ${agentName || "مشاور"} هستی. بر اساس اطلاعات مالی زیر، دقیقاً یک JSON خام (بدون توضیح، بدون markdown) با این ساختار برگردان:
+{"report":["۵ خط خلاصه‌ی وضعیت مالی امروز، هرکدام یک رشته کوتاه فارسی"],"suggestions":[{"text":"یک پیشنهاد یا بینش مالی کوتاه فارسی"}]}
+report حداکثر ۵ آیتم، suggestions حداکثر ۵ آیتم.
+
+کل ارزش معاملات: ${stats.totalValue} تومان
+کل کمیسیون: ${stats.totalCommission} تومان
+دریافت‌شده: ${stats.totalPaidAll} تومان
+مانده: ${stats.totalRemainingAll} تومان
+تعداد معاملات: ${stats.deals.length}
+بدهکاران:
+${debtorsSummary || "بدهکاری وجود ندارد"}`;
+      const text = await callAI(prompt);
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      setReport(parsed);
+      dbSet(FINANCE_AI_KEY, { date: todayISO(), data: parsed }).catch(() => {});
+    } catch (e) {
+      if (e instanceof SyntaxError) notify("پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن");
+      else notify(`خطا: ${e.message || "نامشخص"}`);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0f172a,#1e293b)", border: `1px solid ${c.primarySoft}` }}>
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}><Bot size={16} color="#fff" /></div>
+          <div><strong style={{ fontSize: 13, color: c.ink, display: "block" }}>گزارش صبحگاهی مدیر مالی</strong><span style={{ fontSize: 10, color: c.muted }}>{report ? "به‌روزرسانی شده امروز" : "هنوز تولید نشده"}</span></div>
+        </div>
+        {report?.report ? (
+          <ul style={{ listStyle: "none" }}>
+            {report.report.map((line, i) => (
+              <li key={i} className="flex gap-2 items-start" style={{ fontSize: 12, color: c.muted, marginBottom: 9, lineHeight: 1.8 }}>
+                <span style={{ width: 18, height: 18, borderRadius: 6, background: c.primarySoft, color: c.primary, fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{faDigits(i + 1)}</span>
+                {line}
+              </li>
+            ))}
+          </ul>
+        ) : <p style={{ fontSize: 11.5, color: c.muted }}>روی دکمه‌ی پایین بزن تا گزارش امروز ساخته شود.</p>}
+      </div>
+
+      <button onClick={generate} disabled={loading} className="press w-full rounded-xl py-3 mb-4 flex items-center justify-center gap-2" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
+        {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} {loading ? "در حال تحلیل..." : report ? "به‌روزرسانی گزارش" : "تولید گزارش امروز"}
+      </button>
+
+      {report?.suggestions?.length > 0 && (
+        <>
+          <SectionHeader c={c} title="پیشنهادهای هوشمند" />
+          <div className="flex flex-col gap-2.5">
+            {report.suggestions.map((s, i) => (
+              <div key={i} className="rounded-xl p-3.5 flex gap-2.5" style={glass(c, 20)}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Sparkles size={15} color={c.primary} /></div>
+                <p style={{ fontSize: 12, color: c.ink, lineHeight: 1.8 }}>{s.text}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------- Sheet shell + fields ----------
 function SheetShell({ c, title, onClose, children }) {
   return (
@@ -1471,6 +1831,8 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   const kind = typeof sheetVal === "string" ? sheetVal : sheetVal.kind;
   const editId = typeof sheetVal === "object" ? sheetVal.editId : null;
   const customerId = typeof sheetVal === "object" ? sheetVal.customerId : null;
+  const dealId = typeof sheetVal === "object" ? sheetVal.dealId : null;
+  const prefillDealId = typeof sheetVal === "object" ? sheetVal.prefillDealId : null;
   if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
   if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} editId={editId} />;
@@ -1479,6 +1841,9 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
   if (kind === "messages") return <MessageTemplatesSheet ctx={ctx} onClose={onClose} customerId={customerId} />;
+  if (kind === "deal") return <DealForm ctx={ctx} onClose={onClose} />;
+  if (kind === "payment") return <PaymentForm ctx={ctx} onClose={onClose} prefillDealId={prefillDealId} />;
+  if (kind === "deal-detail") return <DealDetailSheet ctx={ctx} onClose={onClose} dealId={dealId} />;
   return null;
 }
 
@@ -1826,4 +2191,121 @@ function CallForm({ ctx, onClose, editId }) {
       }} />
     </SheetShell>
   );
+}
+
+function DealForm({ ctx, onClose }) {
+  const { c, properties, owners, deals, setDeals, notify } = ctx;
+  const [f, setF] = useState({ propertyId: "", propertyTitle: "", sellerName: "", sellerPhone: "", buyerName: "", buyerPhone: "", price: "", sellerPct: "1", buyerPct: "0.5", advisor: "من", status: "در حال مذاکره" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const onPickProperty = (e) => {
+    const pid = e.target.value;
+    const p = properties.find((x) => x.id === pid);
+    const owner = p ? owners.find((o) => o.id === p.ownerId) : null;
+    setF((prev) => ({ ...prev, propertyId: pid, propertyTitle: p?.title || prev.propertyTitle, price: p ? String(p.price) : prev.price, sellerName: owner?.name || prev.sellerName, sellerPhone: owner?.phone || prev.sellerPhone }));
+  };
+  const valid = f.propertyTitle.trim() && f.price;
+  return (
+    <SheetShell c={c} title="ثبت قرارداد جدید" onClose={onClose}>
+      <Field c={c} label="فایل ملک (اختیاری)"><Select c={c} value={f.propertyId} onChange={onPickProperty} placeholder="انتخاب فایل برای پرکردن خودکار" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
+      <Field c={c} label="عنوان معامله"><input style={inputStyle(c)} value={f.propertyTitle} onChange={set("propertyTitle")} placeholder="مثلاً ویلا تانیا — لواسان" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field c={c} label="نام فروشنده"><input style={inputStyle(c)} value={f.sellerName} onChange={set("sellerName")} /></Field>
+        <Field c={c} label="شماره فروشنده"><input style={inputStyle(c)} dir="ltr" value={f.sellerPhone} onChange={set("sellerPhone")} /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field c={c} label="نام خریدار"><input style={inputStyle(c)} value={f.buyerName} onChange={set("buyerName")} /></Field>
+        <Field c={c} label="شماره خریدار"><input style={inputStyle(c)} dir="ltr" value={f.buyerPhone} onChange={set("buyerPhone")} /></Field>
+      </div>
+      <Field c={c} label="مبلغ معامله (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.price} onChange={set("price")} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field c={c} label="درصد کمیسیون فروشنده"><input style={inputStyle(c)} inputMode="decimal" value={f.sellerPct} onChange={set("sellerPct")} /></Field>
+        <Field c={c} label="درصد کمیسیون خریدار"><input style={inputStyle(c)} inputMode="decimal" value={f.buyerPct} onChange={set("buyerPct")} /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field c={c} label="مشاور"><input style={inputStyle(c)} value={f.advisor} onChange={set("advisor")} /></Field>
+        <Field c={c} label="وضعیت"><Select c={c} value={f.status} onChange={set("status")} placeholder="انتخاب کنید" options={["در حال مذاکره", "در انتظار پرداخت", "تسویه شده"].map((v) => ({ value: v, label: v }))} /></Field>
+      </div>
+      <SubmitBtn c={c} label="ذخیره قرارداد" disabled={!valid} onClick={() => {
+        setDeals((prev) => [{ id: uid(), propertyId: f.propertyId, propertyTitle: f.propertyTitle.trim(), sellerName: f.sellerName.trim(), sellerPhone: f.sellerPhone.trim(), buyerName: f.buyerName.trim(), buyerPhone: f.buyerPhone.trim(), price: toNum(f.price), sellerPct: Number(f.sellerPct) || 0, buyerPct: Number(f.buyerPct) || 0, advisor: f.advisor.trim() || "من", status: f.status, createdAt: new Date().toISOString() }, ...prev]);
+        notify("قرارداد ثبت شد"); onClose();
+      }} />
+    </SheetShell>
+  );
+}
+
+function PaymentForm({ ctx, onClose, prefillDealId }) {
+  const { c, deals, setPayments, notify } = ctx;
+  const [f, setF] = useState({ dealId: prefillDealId || "", payerType: "seller", amount: "", date: todayISO(), method: "card", tracking: "", note: "" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const valid = f.dealId && f.amount;
+  return (
+    <SheetShell c={c} title="ثبت پرداخت جدید" onClose={onClose}>
+      <Field c={c} label="انتخاب معامله"><Select c={c} value={f.dealId} onChange={set("dealId")} placeholder="انتخاب قرارداد" options={deals.map((d) => ({ value: d.id, label: d.propertyTitle }))} /></Field>
+      <Field c={c} label="پرداخت‌کننده">
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setF({ ...f, payerType: "seller" })} className="press rounded-xl py-2.5" style={{ background: f.payerType === "seller" ? c.primary : c.surface2, color: f.payerType === "seller" ? "#fff" : c.muted, fontWeight: 700, fontSize: 12 }}>فروشنده</button>
+          <button type="button" onClick={() => setF({ ...f, payerType: "buyer" })} className="press rounded-xl py-2.5" style={{ background: f.payerType === "buyer" ? c.primary : c.surface2, color: f.payerType === "buyer" ? "#fff" : c.muted, fontWeight: 700, fontSize: 12 }}>خریدار</button>
+        </div>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field c={c} label="مبلغ پرداختی (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} /></Field>
+        <Field c={c} label="تاریخ (شمسی)"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
+      </div>
+      <Field c={c} label="روش پرداخت">
+        <div className="grid grid-cols-4 gap-2">
+          {PAYMENT_METHODS.map((m) => (
+            <button key={m.id} type="button" onClick={() => setF({ ...f, method: m.id })} className="press rounded-xl py-2.5 flex flex-col items-center gap-1" style={{ background: f.method === m.id ? c.primary : c.surface2 }}>
+              <m.icon size={14} color={f.method === m.id ? "#fff" : c.muted} />
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: f.method === m.id ? "#fff" : c.muted }}>{m.label}</span>
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field c={c} label="شماره پیگیری (اختیاری)"><input style={inputStyle(c)} value={f.tracking} onChange={set("tracking")} /></Field>
+      <Field c={c} label="توضیحات (اختیاری)"><input style={inputStyle(c)} value={f.note} onChange={set("note")} /></Field>
+      <SubmitBtn c={c} label="ثبت پرداخت" disabled={!valid} onClick={() => {
+        setPayments((prev) => [{ id: uid(), dealId: f.dealId, payerType: f.payerType, amount: toNum(f.amount), date: f.date, method: f.method, tracking: f.tracking.trim(), note: f.note.trim() }, ...prev]);
+        notify("پرداخت ثبت شد"); onClose();
+      }} />
+    </SheetShell>
+  );
+}
+
+function DealDetailSheet({ ctx, onClose, dealId }) {
+  const { c, deals, payments, setSheet, notify } = ctx;
+  const deal = deals.find((d) => d.id === dealId);
+  if (!deal) return null;
+  const Block = ({ title, icon: Icon, side }) => {
+    const commission = dealCommission(deal, side);
+    const paid = dealPaid(deal, payments, side);
+    const remaining = dealRemaining(deal, payments, side);
+    const done = remaining === 0;
+    return (
+      <div className="rounded-xl p-3.5 mb-3" style={{ background: c.surface2 }}>
+        <div className="flex items-center gap-2 mb-2.5"><Icon size={15} color={c.primary} /><p style={{ fontSize: 12.5, fontWeight: 700 }}>{title}</p></div>
+        <Row c={c} label="درصد کمیسیون" value={`${faDigits(side === "seller" ? deal.sellerPct : deal.buyerPct)}٪`} />
+        <Row c={c} label="مبلغ کمیسیون" value={fmtToman(commission)} />
+        <Row c={c} label="پرداخت شده" value={fmtToman(paid)} color={c.success} />
+        <Row c={c} label="مانده بدهی" value={fmtToman(remaining)} color={done ? c.ink : c.attn} />
+        <Row c={c} label="وضعیت" value={done ? "✅ تسویه کامل" : "⏳ در انتظار تسویه"} color={done ? c.success : c.attn} />
+      </div>
+    );
+  };
+  return (
+    <SheetShell c={c} title="جزئیات معامله" onClose={onClose}>
+      <p style={{ fontSize: 14, fontWeight: 800, marginBottom: 3 }}>{deal.propertyTitle}</p>
+      <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 14 }}>{fmtToman(deal.price)} · {deal.advisor}</p>
+      <Block title="کمیسیون فروشنده" icon={UserCircle2} side="seller" />
+      <Block title="کمیسیون خریدار" icon={Users} side="buyer" />
+      <div className="flex gap-2 mt-2">
+        {deal.status !== "تسویه شده" && (
+          <button onClick={() => { ctx.setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, status: "تسویه شده" } : d)); notify("وضعیت به‌روزرسانی شد"); }} className="press flex-1 rounded-xl py-3" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12.5 }}>علامت به‌عنوان تسویه‌شده</button>
+        )}
+        <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ثبت پرداخت</button>
+      </div>
+    </SheetShell>
+  );
+}
+function Row({ c, label, value, color }) {
+  return <div className="flex justify-between items-center" style={{ padding: "8px 0", borderBottom: `1px solid ${c.border}` }}><span style={{ fontSize: 11.5, color: c.muted }}>{label}</span><span style={{ fontSize: 12, fontWeight: 700, color: color || c.ink }}>{value}</span></div>;
 }
