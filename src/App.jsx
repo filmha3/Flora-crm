@@ -504,7 +504,6 @@ export default function FloraCRM() {
         }
         @keyframes floraCoin { 0%,100% { transform: rotateY(0deg);} 50% { transform: rotateY(180deg);} }
         .flora-coin { animation: floraCoin 3.2s ease-in-out infinite; transform-style: preserve-3d; }
-        @keyframes floraMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         @keyframes floraRise { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
         .flora-rise { animation: floraRise .5s cubic-bezier(.22,1,.36,1) both; }
 
@@ -1918,6 +1917,8 @@ function FinanceCenterView({ ctx, onBack }) {
             { icon: Wallet, color: c.success, value: fmtToman(netProfit), label: "سود خالص دفتر" },
           ]} />
 
+          <div style={{ height: 14 }} />
+
           <MonthlyDealsChart c={c} data={monthlyTotals} max={maxMonthly} />
 
           <SectionHeader c={c} title="هشدارها" />
@@ -2164,18 +2165,59 @@ function FinanceCenterView({ ctx, onBack }) {
   );
 }
 
-// Stats drift leftwards continuously; the list is duplicated so the loop has no visible seam.
-// Touching it pauses the drift so a figure can actually be read.
+// Auto-drifts left, but is also a real scroller so it can be swiped by hand.
+// A CSS animation can't be dragged, so instead this nudges scrollLeft each frame and lets
+// native touch scrolling do the rest. The track is duplicated and wrapped at the halfway
+// point, so the loop is seamless in either direction and after any manual fling.
 function FinMarquee({ c, items }) {
-  const [paused, setPaused] = useState(false);
+  const scrollerRef = useRef(null);
+  const pausedRef = useRef(false);
+  const resumeTimer = useRef(null);
   const doubled = [...items, ...items];
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    let raf;
+    const SPEED = 0.35; // px per frame — slow enough to read while it moves
+
+    const half = () => el.scrollWidth / 2;
+    const wrap = () => {
+      const h = half();
+      if (h <= 0) return;
+      if (el.scrollLeft >= h) el.scrollLeft -= h;
+      else if (el.scrollLeft <= 0) el.scrollLeft += h;
+    };
+    const tick = () => {
+      if (!pausedRef.current && !reduced) {
+        el.scrollLeft += SPEED;
+        wrap();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    el.addEventListener("scroll", wrap, { passive: true });
+    return () => { cancelAnimationFrame(raf); el.removeEventListener("scroll", wrap); };
+  }, [items.length]);
+
+  const hold = () => { pausedRef.current = true; clearTimeout(resumeTimer.current); };
+  // Wait a beat after release so a fling can coast before the drift takes over again.
+  const release = () => { clearTimeout(resumeTimer.current); resumeTimer.current = setTimeout(() => { pausedRef.current = false; }, 1600); };
+
   return (
-    <div className="mb-4" style={{ overflow: "hidden", position: "relative", margin: "0 -16px", padding: "2px 0" }}
-      onTouchStart={() => setPaused(true)} onTouchEnd={() => setPaused(false)}
-      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-      <span style={{ position: "absolute", inset: "0 auto 0 0", width: 28, zIndex: 2, background: `linear-gradient(90deg, ${c.bg}, transparent)`, pointerEvents: "none" }} />
-      <span style={{ position: "absolute", inset: "0 0 0 auto", width: 28, zIndex: 2, background: `linear-gradient(270deg, ${c.bg}, transparent)`, pointerEvents: "none" }} />
-      <div dir="ltr" style={{ display: "flex", gap: 10, width: "max-content", animation: `floraMarquee ${items.length * 4.5}s linear infinite`, animationPlayState: paused ? "paused" : "running" }}>
+    // dir=ltr on the frame is deliberate: under RTL an over-wide track anchors to the RIGHT
+    // and spills left, which broke the loop. LTR anchors it left and spills right.
+    <div dir="ltr" className="mb-5" style={{ position: "relative", margin: "0 -16px" }}>
+      <span style={{ position: "absolute", inset: "0 auto 0 0", width: 26, zIndex: 2, background: `linear-gradient(90deg, ${c.bg}, transparent)`, pointerEvents: "none" }} />
+      <span style={{ position: "absolute", inset: "0 0 0 auto", width: 26, zIndex: 2, background: `linear-gradient(270deg, ${c.bg}, transparent)`, pointerEvents: "none" }} />
+      <div
+        ref={scrollerRef}
+        onTouchStart={hold} onTouchEnd={release} onTouchCancel={release}
+        onMouseEnter={hold} onMouseLeave={release}
+        onWheel={() => { hold(); release(); }}
+        style={{ display: "flex", gap: 10, overflowX: "auto", overflowY: "hidden", padding: "4px 16px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+      >
         {doubled.map((it, i) => (
           <div key={i} dir="rtl" className="rounded-xl p-3" style={{ ...glass(c, 18), width: 150, flexShrink: 0, background: `linear-gradient(160deg, ${it.color}14, ${c.surface} 60%)` }}>
             <div className="flex items-center gap-1.5 mb-2">
