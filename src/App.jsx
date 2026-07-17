@@ -216,6 +216,14 @@ export default function FloraCRM() {
   const [dark, setDark] = useState(true);
   const c = dark ? T.dark : T.light;
 
+  // The rubber-band overscroll shows the page background, not the app's — so paint it too.
+  useEffect(() => {
+    document.documentElement.style.background = c.bg;
+    document.body.style.background = c.bg;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", c.bg);
+  }, [c.bg]);
+
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // bottom-sheet forms
   const [detail, setDetail] = useState(null); // full-screen property/customer detail
@@ -465,7 +473,7 @@ export default function FloraCRM() {
           </div>
         </div>
 
-        {tab !== "home" && tab !== "finance" && !detail && (
+        {tab !== "home" && tab !== "finance" && tab !== "more" && !detail && (
           <div className="absolute left-0 right-0 px-4" style={{ top: 66 }}>
             <SearchBox c={c} value={search} setValue={setSearch} />
           </div>
@@ -484,7 +492,7 @@ export default function FloraCRM() {
         {sheet === "add" && <QuickAddSheet ctx={ctx} onClose={() => setSheet(null)} />}
         {sheet && sheet !== "add" && <FormSheet sheetVal={sheet} ctx={ctx} onClose={() => setSheet(null)} />}
 
-        {mapPicker && <MapPickerModal c={c} onPick={mapPicker.onPick} onClose={() => setMapPicker(null)} />}
+        {mapPicker && <MapPickerModal c={c} onPick={mapPicker.onPick} initial={mapPicker.initial} onClose={() => setMapPicker(null)} />}
         {lightbox && <Lightbox item={lightbox} onClose={() => setLightbox(null)} />}
         {showDailyReminder && (
           <DailyReminderPopup c={c} property={properties.find((p) => p.stage !== "فروخته شد")}
@@ -506,8 +514,12 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail }) {
   return (
     <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0 relative z-10">
       <div>
-        <p style={{ fontSize: 12, color: c.muted }}>خوش آمدی 👋</p>
-        <h1 style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.015em" }}>{titles[tab] || "Flora"}</h1>
+        {tab !== "home" && (
+          <>
+            <p style={{ fontSize: 12, color: c.muted }}>خوش آمدی 👋</p>
+            <h1 style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.015em" }}>{titles[tab] || "Flora"}</h1>
+          </>
+        )}
       </div>
       <div className="flex items-center gap-2">
         {pendingCalls > 0 && (
@@ -534,11 +546,11 @@ function SearchBox({ c, value, setValue }) {
 }
 function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts }) {
   const items = [
-    { id: "more", label: "بیشتر", icon: MoreHorizontal, dot: pendingCalls > 0 },
+    { id: "home", label: "خانه", icon: Home },
     { id: "finance", label: "مالی", icon: Wallet },
     { id: "customers", label: "مشتریان", icon: Users },
     { id: "properties", label: "فایل‌ها", icon: Building2 },
-    { id: "home", label: "خانه", icon: Home },
+    { id: "more", label: "بیشتر", icon: MoreHorizontal, dot: pendingCalls > 0 },
   ];
   const wrapRef = useRef(null);
   const btnRefs = useRef({});
@@ -603,52 +615,107 @@ function StageBadge({ c, stage }) {
 
 // ---------- Dashboard ----------
 function HomeTab({ ctx }) {
-  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties } = ctx;
+  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName } = ctx;
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
+  const todayAppts = appointments.filter((a) => a.date === todayISO());
+  const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
   const stats = [
     { label: "مشتری", value: customers.length, icon: Users, color: c.primary, onClick: () => setTab("customers") },
     { label: "فایل فعال", value: activeProps, icon: Building2, color: c.purple, onClick: () => goProperties("فعال") },
-    { label: "تماس در انتظار", value: calls.filter((cl) => cl.status !== "انجام‌شد").length, icon: PhoneCall, color: c.attn, onClick: () => setTab("more") },
-    { label: "بازدید امروز", value: appointments.filter((a) => a.date === todayISO()).length, icon: CalendarDays, color: c.success, onClick: () => setTab("calendar") },
+    { label: "تماس در انتظار", value: pendingCalls, icon: PhoneCall, color: c.attn, onClick: () => setTab("more") },
+    { label: "بازدید امروز", value: todayAppts.length, icon: CalendarDays, color: c.success, onClick: () => setTab("calendar") },
   ];
   const feed = [
     ...appointments.map((a) => ({ type: "appt", date: a.date, ...a })),
     ...calls.map((cl) => ({ type: "call", date: cl.date, ...cl })),
-  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
 
   return (
-    <div className="pt-3">
-      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,0.35)", position: "relative", overflow: "hidden" }}>
-        <span style={{ position: "absolute", top: "-50%", right: "-30%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)", animation: "floraFloat 4s ease-in-out infinite" }} />
-        <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 flora-float" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={22} color="#fff" /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>دستیار فروش هوش مصنوعی</p>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>پیگیری‌های امروز، فایل پیشنهادی و مشتریان داغ</p>
+    <div className="pt-4">
+      {/* Greeting — quiet, generous, sets the tone before any numbers */}
+      <div className="mb-5 px-0.5">
+        <p style={{ fontSize: 11.5, color: c.muted, letterSpacing: ".02em" }}>{fmtJalali(todayISO())}</p>
+        <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", marginTop: 3 }}>
+          {greetingPhrase()}{agentName ? `، ${agentName}` : ""}
+        </h1>
+        <div className="flex items-center gap-1.5 mt-2">
+          <span style={{ width: 18, height: 2, borderRadius: 2, background: `linear-gradient(90deg,${c.primary},${c.purple})` }} />
+          <p style={{ fontSize: 11.5, color: c.muted }}>املاک گنجینه — سرعین</p>
         </div>
-        <ChevronLeft size={18} color="#fff" />
-      </button>
+      </div>
 
+      {/* Hero: the one number that matters */}
       <PortfolioValueCard c={c} properties={properties} />
 
-      <div className="grid grid-cols-2 gap-3 mt-4">
+      {/* Today's focus — only shows when there's something to act on */}
+      {(todayAppts.length > 0 || pendingCalls > 0) && (
+        <div className="flex gap-2.5 mt-3">
+          {todayAppts.length > 0 && (
+            <button onClick={() => setTab("calendar")} className="press flex-1 text-right rounded-2xl px-4 py-3 flex items-center gap-2.5" style={glass(c, 20)}>
+              <span style={{ width: 6, height: 28, borderRadius: 3, background: c.success, flexShrink: 0 }} />
+              <div className="min-w-0">
+                <p style={{ fontSize: 12.5, fontWeight: 700 }}>{faDigits(todayAppts.length)} بازدید امروز</p>
+                <p style={{ fontSize: 10, color: c.muted }}>اولین: {todayAppts.sort((a, b) => a.time.localeCompare(b.time))[0].time}</p>
+              </div>
+            </button>
+          )}
+          {pendingCalls > 0 && (
+            <button onClick={() => setTab("more")} className="press flex-1 text-right rounded-2xl px-4 py-3 flex items-center gap-2.5" style={glass(c, 20)}>
+              <span style={{ width: 6, height: 28, borderRadius: 3, background: c.attn, flexShrink: 0 }} />
+              <div className="min-w-0">
+                <p style={{ fontSize: 12.5, fontWeight: 700 }}>{faDigits(pendingCalls)} تماس معوق</p>
+                <p style={{ fontSize: 10, color: c.muted }}>نیاز به پیگیری</p>
+              </div>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* AI copilot */}
+      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mt-3 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 14px 34px rgba(79,70,229,0.34)", position: "relative", overflow: "hidden" }}>
+        <span style={{ position: "absolute", top: "-50%", right: "-30%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)", animation: "floraFloat 4s ease-in-out infinite" }} />
+        <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 flora-float" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={21} color="#fff" /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13.5, fontWeight: 800, color: "#fff" }}>برنامه‌ی امروز</p>
+          <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.85)", marginTop: 1 }}>اولویت‌ها، مشتریان داغ و فایل‌های خواب‌رفته</p>
+        </div>
+        <ChevronLeft size={17} color="rgba(255,255,255,0.75)" />
+      </button>
+
+      {/* Stats */}
+      <div className="flex items-center gap-2 mt-6 mb-3 px-0.5">
+        <p style={{ fontSize: 10.5, color: c.muted, fontWeight: 700, letterSpacing: ".08em" }}>یک نگاه</p>
+        <span style={{ flex: 1, height: 1, background: c.border }} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
         {stats.map((s, i) => (
-          <button key={i} onClick={s.onClick} className="press text-right rounded-xl p-4" style={glass(c, 24)}>
-            <div className="w-11 h-11 rounded-full flex items-center justify-center mb-3.5" style={{ background: s.color + "22" }}><s.icon size={19} color={s.color} /></div>
-            <p style={{ fontSize: 26, fontWeight: 800 }}>{faDigits(s.value)}</p>
-            <p style={{ fontSize: 12, color: c.muted }}>{s.label}</p>
+          <button key={i} onClick={s.onClick} className="press text-right rounded-2xl p-4" style={glass(c, 24)}>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ background: s.color + "1f" }}><s.icon size={17} color={s.color} /></div>
+            <p style={{ fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em" }}>{faDigits(s.value)}</p>
+            <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{s.label}</p>
           </button>
         ))}
       </div>
 
-      <SectionHeader c={c} title="فعالیت‌های اخیر" />
+      {/* Activity */}
+      <div className="flex items-center gap-2 mt-6 mb-3 px-0.5">
+        <p style={{ fontSize: 10.5, color: c.muted, fontWeight: 700, letterSpacing: ".08em" }}>فعالیت‌های اخیر</p>
+        <span style={{ flex: 1, height: 1, background: c.border }} />
+      </div>
       <div className="flex flex-col gap-2">
         {feed.map((f, i) => f.type === "appt" ? <ActivityApptRow key={i} a={f} ctx={ctx} /> : <ActivityCallRow key={i} cl={f} c={c} />)}
         {feed.length === 0 && <EmptyLine c={c} text="فعالیتی ثبت نشده" />}
       </div>
 
-      <SectionHeader c={c} title="جدیدترین فایل‌ها" />
+      {/* Latest files */}
+      <div className="flex items-center gap-2 mt-6 mb-3 px-0.5">
+        <p style={{ fontSize: 10.5, color: c.muted, fontWeight: 700, letterSpacing: ".08em" }}>جدیدترین فایل‌ها</p>
+        <span style={{ flex: 1, height: 1, background: c.border }} />
+        <button onClick={() => setTab("properties")} style={{ fontSize: 10.5, color: c.primary, fontWeight: 700 }}>همه ›</button>
+      </div>
       <div className="flex flex-col gap-2 mb-6">
         {properties.slice(0, 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
+        {properties.length === 0 && <EmptyLine c={c} text="فایلی ثبت نشده" />}
       </div>
     </div>
   );
@@ -659,11 +726,11 @@ function PortfolioValueCard({ c, properties }) {
   const total = active.reduce((sum, p) => sum + (p.price || 0), 0);
   const addedThisWeek = properties.filter((p) => p.createdAt && daysSince(p.createdAt) <= 7).length;
   return (
-    <div className="rounded-2xl p-5" style={glass(c, 24)}>
+    <div className="rounded-2xl p-5" style={{ ...glass(c, 24), background: `linear-gradient(160deg, ${c.primarySoft}, ${c.surface} 55%)` }}>
       <div className="flex items-start justify-between">
         <div>
-          <p style={{ fontSize: 12.5, color: c.muted, marginBottom: 4 }}>ارزش کل فایل‌های فعال</p>
-          <h2 style={{ fontSize: 20, fontWeight: 800, direction: "ltr", textAlign: "right" }}>{fmtToman(total)}</h2>
+          <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 5, letterSpacing: ".02em" }}>ارزش کل فایل‌های فعال</p>
+          <h2 style={{ fontSize: 22, fontWeight: 800, direction: "ltr", textAlign: "right", letterSpacing: "-0.02em" }}>{fmtToman(total)}</h2>
         </div>
         <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.successSoft, color: c.success, fontSize: 11.5, fontWeight: 700 }}>
           <TrendingUp size={13} /> {addedThisWeek > 0 ? `+${faDigits(addedThisWeek)} این هفته` : "به‌روز"}
@@ -673,12 +740,12 @@ function PortfolioValueCard({ c, properties }) {
         <svg viewBox="0 0 300 80" preserveAspectRatio="none" width="100%" height="100%">
           <defs>
             <linearGradient id="floraChartGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+              <stop offset="0%" stopColor="#7c6ff5" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#7c6ff5" stopOpacity="0" />
             </linearGradient>
           </defs>
           <path d="M0,60 C40,50 60,30 100,35 C140,40 160,15 200,20 C240,25 270,10 300,15 L300,80 L0,80 Z" fill="url(#floraChartGrad)" style={{ opacity: 0, animation: "floraChartFade 1s ease forwards 1.2s" }} />
-          <path d="M0,60 C40,50 60,30 100,35 C140,40 160,15 200,20 C240,25 270,10 300,15" fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round"
+          <path d="M0,60 C40,50 60,30 100,35 C140,40 160,15 200,20 C240,25 270,10 300,15" fill="none" stroke="#7c6ff5" strokeWidth="3" strokeLinecap="round"
             style={{ strokeDasharray: 600, strokeDashoffset: 600, animation: "floraChartDraw 1.8s ease forwards .4s" }} />
         </svg>
       </div>
@@ -918,7 +985,7 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
 }
 
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers } = ctx;
+  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
 
@@ -1002,6 +1069,8 @@ function MoreTab({ ctx }) {
               <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.attnSoft }}><Hammer size={15} color={c.attn} /></div>
               <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 10.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
               {b.phone && <a href={`tel:${b.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
+              <button onClick={() => setSheet({ kind: "builder", editId: b.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
+              <button onClick={() => { setBuilders((prev) => prev.filter((x) => x.id !== b.id)); notify("سازنده حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
             </div>
           ))}
           {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
@@ -1106,6 +1175,31 @@ function DailyReminderPopup({ c, property, onGo, onClose }) {
 }
 function InfoChip({ c, icon: Icon, label }) { return <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.surface2 }}><Icon size={12} color={c.muted} /><span style={{ fontSize: 11, color: c.ink }}>{label}</span></div>; }
 
+// Read-only map preview shown on a property's detail page once a location has been pinned.
+function PropertyMiniMap({ c, lat, lng, title }) {
+  const ref = useRef(null); const objRef = useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadLeaflet().then((L) => {
+      if (cancelled || !ref.current || objRef.current) return;
+      const map = L.map(ref.current, { zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false }).setView([lat, lng], 16);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "" }).addTo(map);
+      L.marker([lat, lng]).addTo(map);
+      objRef.current = map;
+    });
+    return () => { cancelled = true; if (objRef.current) { objRef.current.remove(); objRef.current = null; } };
+  }, [lat, lng]);
+  return (
+    <div className="rounded-2xl overflow-hidden mb-3" style={glass(c, 22)}>
+      <div ref={ref} style={{ width: "100%", height: 160, background: c.surface2 }} />
+      <a href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`} target="_blank" rel="noreferrer"
+        className="press flex items-center justify-center gap-1.5 py-3" style={{ background: c.primarySoft, color: c.primary, fontSize: 11.5, fontWeight: 700 }}>
+        <MapPin size={13} /> مسیریابی به {title}
+      </a>
+    </div>
+  );
+}
+
 function PropertyDetail({ id, ctx, onBack }) {
   const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, hasAiKey, callAI, setSheet } = ctx;
   const p = properties.find((x) => x.id === id);
@@ -1177,6 +1271,8 @@ function PropertyDetail({ id, ctx, onBack }) {
         <button onClick={() => { setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: adText } : x)); notify("آگهی ذخیره شد"); }}
           className="press w-full mt-2 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ذخیره آگهی</button>
       </div>
+
+      {p.lat && p.lng && <PropertyMiniMap c={c} lat={p.lat} lng={p.lng} title={p.title} />}
 
       <SectionHeader c={c} title="بازدیدهای این فایل" />
       <div className="flex flex-col gap-2 mb-6">
@@ -1519,7 +1615,7 @@ function DealStatusBadge({ c, status }) {
 }
 
 function FinanceCenterView({ ctx, onBack }) {
-  const { c, deals, payments, setSheet } = ctx;
+  const { c, deals, payments, setPayments, setSheet } = ctx;
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("همه");
@@ -1699,10 +1795,12 @@ function FinanceCenterView({ ctx, onBack }) {
               const method = PAYMENT_METHODS.find((m) => m.id === p.method) || PAYMENT_METHODS[0];
               const payerName = deal ? (p.payerType === "seller" ? deal.sellerName : deal.buyerName) : "—";
               return (
-                <div key={p.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 20)}>
+                <div key={p.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 20)}>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><method.icon size={17} color={c.primary} /></div>
-                  <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700 }}>{payerName}</p><p style={{ fontSize: 10.5, color: c.muted }}>{method.label} · {deal?.propertyTitle}</p></div>
-                  <div className="text-left shrink-0"><p style={{ fontSize: 12.5, fontWeight: 800, color: c.success }}>+{fmtToman(p.amount)}</p><p style={{ fontSize: 10, color: c.muted }}>{fmtJalali(p.date)}</p></div>
+                  <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{payerName}</p><p style={{ fontSize: 10.5, color: c.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{method.label} · {deal?.propertyTitle}</p></div>
+                  <div className="text-left shrink-0"><p style={{ fontSize: 12, fontWeight: 800, color: c.success }}>+{fmtToman(p.amount)}</p><p style={{ fontSize: 10, color: c.muted }}>{fmtJalali(p.date)}</p></div>
+                  <button onClick={() => setSheet({ kind: "payment", editId: p.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
+                  <button onClick={() => { setPayments((prev) => prev.filter((x) => x.id !== p.id)); notify("پرداخت حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
                 </div>
               );
             })}
@@ -2030,10 +2128,12 @@ function loadLeaflet() {
     const script = document.createElement("script"); script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"; script.onload = () => resolve(window.L); document.body.appendChild(script);
   });
 }
-function MapPickerModal({ c, onPick, onClose }) {
+function MapPickerModal({ c, onPick, onClose, initial }) {
   const mapRef = useRef(null); const mapObjRef = useRef(null);
   const [address, setAddress] = useState(""); const [loadingAddr, setLoadingAddr] = useState(false);
+  const [coords, setCoords] = useState(initial && initial.lat ? [initial.lat, initial.lng] : SAREIN_CENTER);
   const reverseGeocode = async (lat, lng) => {
+    setCoords([lat, lng]);
     setLoadingAddr(true);
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fa`);
@@ -2052,12 +2152,13 @@ function MapPickerModal({ c, onPick, onClose }) {
     let cancelled = false;
     loadLeaflet().then((L) => {
       if (cancelled || !mapRef.current || mapObjRef.current) return;
-      const map = L.map(mapRef.current).setView(SAREIN_CENTER, 14);
+      const start = initial && initial.lat ? [initial.lat, initial.lng] : SAREIN_CENTER;
+      const map = L.map(mapRef.current).setView(start, initial && initial.lat ? 16 : 14);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
-      const marker = L.marker(SAREIN_CENTER, { draggable: true }).addTo(map);
+      const marker = L.marker(start, { draggable: true }).addTo(map);
       marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
       map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
-      mapObjRef.current = map; reverseGeocode(SAREIN_CENTER[0], SAREIN_CENTER[1]);
+      mapObjRef.current = map; reverseGeocode(start[0], start[1]);
     });
     return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
   }, []);
@@ -2072,7 +2173,7 @@ function MapPickerModal({ c, onPick, onClose }) {
         <div className="p-4" style={{ fontFamily: "'Vazirmatn', sans-serif" }} dir="rtl">
           <p style={{ fontSize: 11.5, color: "#6B7386", marginBottom: 4 }}>روی نقشه لمس کن یا نشانگر را جابه‌جا کن</p>
           <p style={{ fontSize: 13, fontWeight: 600, minHeight: 20 }}>{loadingAddr ? "در حال یافتن آدرس..." : address}</p>
-          <button onClick={() => onPick(address)} disabled={!address || loadingAddr} className="press w-full mt-3 rounded-xl py-3" style={{ background: !address || loadingAddr ? "#F0F2F7" : "#0B84FF", color: !address || loadingAddr ? "#6B7386" : "#fff", fontWeight: 700, fontSize: 13.5 }}>تایید این آدرس</button>
+          <button onClick={() => onPick({ address, lat: coords[0], lng: coords[1] })} disabled={!address || loadingAddr} className="press w-full mt-3 rounded-xl py-3" style={{ background: !address || loadingAddr ? "#F0F2F7" : "#0B84FF", color: !address || loadingAddr ? "#6B7386" : "#fff", fontWeight: 700, fontSize: 13.5 }}>تایید این آدرس</button>
         </div>
       </div>
     </div>
@@ -2089,7 +2190,7 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
   if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} editId={editId} />;
-  if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} />;
+  if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "appointment") return <AppointmentForm ctx={ctx} onClose={onClose} />;
   if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
@@ -2257,8 +2358,8 @@ function PropertyForm({ ctx, onClose, editId }) {
   const [f, setF] = useState(editing ? {
     title: editing.title, type: editing.type, deal: editing.deal, pricePerMeter: String(editing.pricePerMeter), area: String(editing.area),
     rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address,
-    ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "",
-  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "" });
+    ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "", lat: editing.lat, lng: editing.lng,
+  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null });
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
   const [showDivar, setShowDivar] = useState(false);
@@ -2272,7 +2373,10 @@ function PropertyForm({ ctx, onClose, editId }) {
   const isPreSale = f.deal === "پیش‌فروش";
 
   const addMedia = async (fileList) => { setUploading(true); const items = await filesToMedia(fileList); setMedia((prev) => [...prev, ...items]); setUploading(false); };
-  const openMapPicker = () => setMapPicker({ onPick: (addr) => { setF((prev) => ({ ...prev, address: addr })); setMapPicker(null); } });
+  const openMapPicker = () => setMapPicker({
+    initial: { lat: f.lat, lng: f.lng },
+    onPick: ({ address, lat, lng }) => { setF((prev) => ({ ...prev, address, lat, lng })); setMapPicker(null); },
+  });
 
   const extractFromDivar = () => {
     if (!divarText.trim()) { notify("متن آگهی را پیست کن"); return; }
@@ -2294,7 +2398,7 @@ function PropertyForm({ ctx, onClose, editId }) {
     } else ownerId = "";
     const payload = {
       title: f.title, type: f.type, deal: f.deal, address: f.address, builderId: f.builderId, furnished: f.furnished,
-      pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId, media,
+      pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId, media, lat: f.lat ?? null, lng: f.lng ?? null,
     };
     if (editing) {
       setProperties((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
@@ -2352,8 +2456,15 @@ function PropertyForm({ ctx, onClose, editId }) {
       <Field c={c} label="آدرس">
         <div className="flex gap-2">
           <input style={{ ...inputStyle(c), flex: 1 }} value={f.address} onChange={set("address")} placeholder="آدرس را بنویس یا از نقشه انتخاب کن" />
-          <button type="button" onClick={openMapPicker} className="press shrink-0 rounded-2xl flex items-center justify-center gap-1.5 px-3" style={{ background: c.primarySoft }}><MapPin size={16} color={c.primary} /></button>
+          <button type="button" onClick={openMapPicker} className="press shrink-0 rounded-2xl flex items-center justify-center gap-1.5 px-3" style={{ background: f.lat ? c.successSoft : c.primarySoft }}><MapPin size={16} color={f.lat ? c.success : c.primary} /></button>
         </div>
+        {f.lat ? (
+          <p className="flex items-center gap-1.5" style={{ fontSize: 10.5, color: c.success, fontWeight: 700, marginTop: 6 }}>
+            <BadgeCheck size={12} /> موقعیت روی نقشه ثبت شد
+          </p>
+        ) : (
+          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 6 }}>برای ثبت موقعیت دقیق روی نقشه، دکمه‌ی کنار را بزن</p>
+        )}
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نام مالک"><input style={inputStyle(c)} value={f.ownerName} onChange={set("ownerName")} placeholder="اختیاری" /></Field>
@@ -2411,16 +2522,21 @@ function OwnerForm({ ctx, onClose, editId }) {
     </SheetShell>
   );
 }
-function BuilderForm({ ctx, onClose }) {
-  const { c, setBuilders, notify } = ctx;
-  const [f, setF] = useState({ name: "", phone: "" });
+function BuilderForm({ ctx, onClose, editId }) {
+  const { c, builders, setBuilders, notify } = ctx;
+  const editing = editId ? builders.find((b) => b.id === editId) : null;
+  const [f, setF] = useState(editing ? { name: editing.name, phone: editing.phone } : { name: "", phone: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.name && f.phone;
   return (
-    <SheetShell c={c} title="ثبت سازنده" onClose={onClose}>
+    <SheetShell c={c} title={editing ? "ویرایش سازنده" : "ثبت سازنده"} onClose={onClose}>
       <Field c={c} label="نام شرکت / سازنده"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
       <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
-      <SubmitBtn c={c} label="ذخیره سازنده" disabled={!valid} onClick={() => { setBuilders((prev) => [{ id: uid(), ...f }, ...prev]); notify("سازنده با موفقیت ثبت شد"); onClose(); }} />
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره سازنده"} disabled={!valid} onClick={() => {
+        if (editing) setBuilders((prev) => prev.map((x) => x.id === editId ? { ...x, ...f } : x));
+        else setBuilders((prev) => [{ id: uid(), ...f }, ...prev]);
+        notify(editing ? "تغییرات سازنده ذخیره شد" : "سازنده با موفقیت ثبت شد"); onClose();
+      }} />
     </SheetShell>
   );
 }
