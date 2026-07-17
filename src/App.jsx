@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -113,11 +113,36 @@ function parseDivarText(raw) {
 const uid = () => Math.random().toString(36).slice(2, 10);
 const fmtToman = (n) => (n ? Math.round(n).toLocaleString("fa-IR") : "۰") + " تومان";
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map((file) => new Promise((resolve) => {
+// Phone photos are 3-8MB each. Storing them raw made IndexedDB huge and every save slow,
+// so images are downscaled to <=1280px and re-encoded as JPEG before they're ever saved.
+const MAX_IMAGE_DIM = 1280, IMAGE_QUALITY = 0.72;
+const compressImage = (file) => new Promise((resolve) => {
   const reader = new FileReader();
-  reader.onload = () => resolve({ id: uid(), type: file.type.startsWith("video") ? "video" : "image", url: reader.result, name: file.name });
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(width, height));
+      width = Math.round(width * scale); height = Math.round(height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      try { resolve(canvas.toDataURL("image/jpeg", IMAGE_QUALITY)); }
+      catch { resolve(reader.result); }
+    };
+    img.onerror = () => resolve(reader.result);
+    img.src = reader.result;
+  };
   reader.readAsDataURL(file);
-})));
+});
+const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (file) => {
+  const isVideo = file.type.startsWith("video");
+  if (isVideo) {
+    const url = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); });
+    return { id: uid(), type: "video", url, name: file.name };
+  }
+  return { id: uid(), type: "image", url: await compressImage(file), name: file.name };
+}));
 
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
 const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش", "اجاره", "رهن کامل"];
@@ -180,11 +205,11 @@ const seedPayments = [
   { id: "pay1", dealId: "d1", payerType: "seller", amount: 84000000, date: daysAgoISO(18).slice(0, 10), method: "transfer", tracking: "", note: "" },
 ];
 const seedExpenses = [
-  { id: "exp1", category: "دیوار", title: "شارژ آگهی دیوار", amount: 2500000, date: daysAgoISO(10).slice(0, 10), note: "" },
+  { id: "exp1", category: "تبلیغات دیوار", title: "شارژ آگهی دیوار", amount: 2500000, date: daysAgoISO(10).slice(0, 10), note: "" },
   { id: "exp2", category: "اجاره مغازه", title: "اجاره دفتر", amount: 15000000, date: daysAgoISO(15).slice(0, 10), note: "" },
 ];
 const seedOfficeIncomes = [
-  { id: "inc1", title: "حق مشاوره", amount: 5000000, date: daysAgoISO(5).slice(0, 10), note: "" },
+  { id: "inc1", category: "حق مشاوره", title: "حق مشاوره قرارداد اجاره", amount: 5000000, date: daysAgoISO(5).slice(0, 10), note: "" },
 ];
 
 export default function FloraCRM() {
@@ -249,7 +274,14 @@ export default function FloraCRM() {
       setLoaded(true);
     })();
   }, []);
-  useEffect(() => { if (loaded) dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes }).catch(() => {}); }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
+  // Debounced: writing the whole dataset on every keystroke was the main source of lag.
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName]);
 
   const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
@@ -867,89 +899,137 @@ function CalendarTab({ ctx }) {
 }
 
 // ---------- More tab ----------
-function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify } = ctx;
-  const importRef = useRef(null);
+function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="pt-3">
-      <button onClick={() => setTab("calendar")} className="press w-full text-right rounded-2xl p-4 mb-5 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 30px rgba(47,124,246,.3)" }}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><CalendarDays size={20} color="#fff" /></div>
+    <div className="rounded-2xl overflow-hidden mb-3" style={glass(c, 22)}>
+      <button onClick={() => setOpen((o) => !o)} className="press w-full text-right p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint + "22" }}><Icon size={18} color={tint} /></div>
         <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>تقویم بازدید</p>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>قرارهای بازدید امروز و آینده</p>
+          <p style={{ fontSize: 13.5, fontWeight: 700 }}>{title}</p>
+          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{subtitle}</p>
         </div>
-        <ChevronLeft size={18} color="#fff" />
+        {count != null && <span className="shrink-0" style={{ fontSize: 11, fontWeight: 800, color: tint, background: tint + "1f", padding: "3px 9px", borderRadius: 999 }}>{faDigits(count)}</span>}
+        <ChevronDown size={16} color={c.muted} style={{ transition: "transform .3s cubic-bezier(.34,1.3,.64,1)", transform: open ? "rotate(180deg)" : "none", flexShrink: 0 }} />
       </button>
-
-      <SectionHeader c={c} title="پیگیری تماس‌ها" />
-      <div className="flex flex-col gap-2 mb-2">
-        {calls.map((cl) => {
-          const done = cl.status === "انجام‌شد";
-          return (
-            <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 22)}>
-              <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))} className="shrink-0">
-                <CheckCircle2 size={22} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
-              </button>
-              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p><p style={{ fontSize: 11, color: c.muted }}>{cl.notes} · {fmtJalali(cl.date)}</p></div>
-              <button onClick={() => setSheet({ kind: "call", editId: cl.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
-              <button onClick={() => { setCalls((prev) => prev.filter((x) => x.id !== cl.id)); notify("تماس حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
-            </div>
-          );
-        })}
-        {calls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
-      </div>
-      <AddLink c={c} label="ثبت تماس جدید" onClick={() => setSheet("call")} />
-
-      <SectionHeader c={c} title="مالکین" />
-      <div className="flex flex-col gap-2 mb-2">
-        {owners.map((o) => (
-          <div key={o.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 22)}>
-            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.primarySoft }}><UserCircle2 size={19} color={c.primary} /></div>
-            <div className="flex-1 min-w-0"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{o.phone}</p></div>
-            {o.phone && <a href={`tel:${o.phone}`} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
-            <button onClick={() => setSheet({ kind: "owner", editId: o.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
-            <button onClick={() => { setOwners((prev) => prev.filter((x) => x.id !== o.id)); notify("مالک حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
-          </div>
-        ))}
-        {owners.length === 0 && <EmptyLine c={c} text="مالکی ثبت نشده" />}
-      </div>
-      <AddLink c={c} label="ثبت مالک جدید" onClick={() => setSheet("owner")} />
-
-      <SectionHeader c={c} title="سازندگان" />
-      <div className="flex flex-col gap-2 mb-2">
-        {builders.map((b) => (
-          <div key={b.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 22)}>
-            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.attnSoft }}><Hammer size={17} color={c.attn} /></div>
-            <div className="flex-1 min-w-0"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 11.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
-            {b.phone && <a href={`tel:${b.phone}`} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
-          </div>
-        ))}
-        {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
-      </div>
-      <AddLink c={c} label="ثبت سازنده جدید" onClick={() => setSheet("builder")} />
-
-      <SectionHeader c={c} title="پیام‌های آماده" />
-      <button onClick={() => setSheet("messages")} className="press w-full rounded-xl p-4 flex items-center gap-3 mb-8" style={{ ...glass(c, 24), background: c.primarySoft }}>
-        <MessageSquare size={19} color={c.primary} />
-        <div className="text-right flex-1">
-          <p style={{ fontSize: 13.5, fontWeight: 700 }}>متن‌های آماده برای پیامک/واتساپ</p>
-          <p style={{ fontSize: 11, color: c.muted }}>قرار ملاقات، یادآوری، آدرس دفتر و غیره</p>
-        </div>
-      </button>
-
-      <SectionHeader c={c} title="پشتیبان‌گیری" />
-      <div className="flex gap-2 mb-8">
-        <button onClick={exportBackup} className="press flex-1 rounded-lg py-3 flex items-center justify-center gap-2" style={glass(c, 22)}>
-          <Download size={15} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>دانلود بکاپ</span>
-        </button>
-        <button onClick={() => importRef.current?.click()} className="press flex-1 rounded-lg py-3 flex items-center justify-center gap-2" style={glass(c, 22)}>
-          <Upload size={15} color={c.attn} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.attn }}>بازیابی بکاپ</span>
-        </button>
-        <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
-      </div>
+      {open && <div className="px-4 pb-4 flora-up">{children}</div>}
     </div>
   );
 }
+
+function MoreTab({ ctx }) {
+  const { c, owners, setOwners, builders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers } = ctx;
+  const importRef = useRef(null);
+  const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
+
+  return (
+    <div className="pt-3">
+      {/* Hero: quick pulse of the whole business */}
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
+        <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
+        <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.8)" }}>املاک گنجینه — سرعین</p>
+        <p style={{ fontSize: 15.5, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
+        <div className="flex gap-2 mt-3.5">
+          {[{ n: properties.length, l: "فایل" }, { n: customers.length, l: "مشتری" }, { n: owners.length, l: "مالک" }].map((s, i) => (
+            <div key={i} className="flex-1 rounded-xl py-2 text-center" style={{ background: "rgba(255,255,255,.14)" }}>
+              <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{faDigits(s.n)}</p>
+              <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.8)" }}>{s.l}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Two hero shortcuts */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <button onClick={() => setTab("calendar")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.primarySoft }}><CalendarDays size={18} color={c.primary} /></div>
+          <p style={{ fontSize: 12.5, fontWeight: 700 }}>تقویم بازدید</p>
+          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>قرارهای امروز و آینده</p>
+        </button>
+        <button onClick={() => setSheet("messages")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><MessageSquare size={18} color={c.purple} /></div>
+          <p style={{ fontSize: 12.5, fontWeight: 700 }}>پیام‌های آماده</p>
+          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>متن‌های جذب مشتری</p>
+        </button>
+      </div>
+
+      {/* Collapsible: call follow-ups */}
+      <CollapsibleCard c={c} icon={PhoneCall} tint={c.attn} title="پیگیری تماس‌ها" subtitle={pending > 0 ? `${faDigits(pending)} تماس در انتظار` : "همه پیگیری شده"} count={calls.length}>
+        <div className="flex flex-col gap-2">
+          {calls.map((cl) => {
+            const done = cl.status === "انجام‌شد";
+            return (
+              <div key={cl.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
+                <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))} className="shrink-0">
+                  <CheckCircle2 size={20} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontSize: 12.5, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p>
+                  <p style={{ fontSize: 10, color: c.muted }}>{cl.notes} · {fmtJalali(cl.date)}</p>
+                </div>
+                <button onClick={() => setSheet({ kind: "call", editId: cl.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
+                <button onClick={() => { setCalls((prev) => prev.filter((x) => x.id !== cl.id)); notify("تماس حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
+              </div>
+            );
+          })}
+          {calls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
+          <AddLink c={c} label="ثبت تماس جدید" onClick={() => setSheet("call")} />
+        </div>
+      </CollapsibleCard>
+
+      {/* Collapsible: owners */}
+      <CollapsibleCard c={c} icon={UserCircle2} tint={c.primary} title="مالکین" subtitle="لیست مالکین و تماس سریع" count={owners.length}>
+        <div className="flex flex-col gap-2">
+          {owners.map((o) => (
+            <div key={o.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
+              <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.primarySoft }}><UserCircle2 size={17} color={c.primary} /></div>
+              <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 10.5, color: c.muted }} dir="ltr">{o.phone}</p></div>
+              {o.phone && <a href={`tel:${o.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
+              <button onClick={() => setSheet({ kind: "owner", editId: o.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
+              <button onClick={() => { setOwners((prev) => prev.filter((x) => x.id !== o.id)); notify("مالک حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
+            </div>
+          ))}
+          {owners.length === 0 && <EmptyLine c={c} text="مالکی ثبت نشده" />}
+          <AddLink c={c} label="ثبت مالک جدید" onClick={() => setSheet("owner")} />
+        </div>
+      </CollapsibleCard>
+
+      {/* Collapsible: builders */}
+      <CollapsibleCard c={c} icon={Hammer} tint={c.attn} title="سازندگان" subtitle="شرکت‌ها و سازنده‌های همکار" count={builders.length}>
+        <div className="flex flex-col gap-2">
+          {builders.map((b) => (
+            <div key={b.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
+              <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.attnSoft }}><Hammer size={15} color={c.attn} /></div>
+              <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 10.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
+              {b.phone && <a href={`tel:${b.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
+            </div>
+          ))}
+          {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
+          <AddLink c={c} label="ثبت سازنده جدید" onClick={() => setSheet("builder")} />
+        </div>
+      </CollapsibleCard>
+
+      {/* Collapsible: settings & backup */}
+      <CollapsibleCard c={c} icon={Wallet} tint={c.purple} title="پشتیبان‌گیری و تنظیمات" subtitle="بکاپ داده‌ها و هوش مصنوعی">
+        <div className="flex gap-2 mb-2">
+          <button onClick={exportBackup} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft }}>
+            <Download size={14} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>دانلود بکاپ</span>
+          </button>
+          <button onClick={() => importRef.current?.click()} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.attnSoft }}>
+            <Upload size={14} color={c.attn} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.attn }}>بازیابی بکاپ</span>
+          </button>
+          <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
+        </div>
+        <button onClick={() => setSheet("ai-settings")} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.purpleSoft }}>
+          <Sparkles size={14} color={c.purple} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.purple }}>تنظیمات هوش مصنوعی</span>
+        </button>
+      </CollapsibleCard>
+
+      <div style={{ height: 12 }} />
+    </div>
+  );
+}
+
 function AddLink({ c, label, onClick }) {
   return <button onClick={onClick} className="press flex items-center gap-1.5 mb-6" style={{ color: c.primary, fontSize: 12.5, fontWeight: 700 }}><Plus size={14} /> {label}</button>;
 }
@@ -1421,9 +1501,15 @@ const dealTotalPaid = (deal, payments) => dealPaid(deal, payments, "seller") + d
 const dealTotalRemaining = (deal, payments) => dealRemaining(deal, payments, "seller") + dealRemaining(deal, payments, "buyer");
 const dealProgress = (deal, payments) => { const t = dealTotalCommission(deal); if (!t) return 100; return Math.min(100, Math.round((dealTotalPaid(deal, payments) / t) * 100)); };
 const PAYMENT_METHODS = [{ id: "card", label: "کارت", icon: CreditCard }, { id: "cash", label: "نقد", icon: Banknote }, { id: "transfer", label: "حواله", icon: Landmark }, { id: "check", label: "چک", icon: FileCheck }];
+const EXPENSE_CATEGORIES = ["تبلیغات دیوار", "تبلیغات اینستاگرام", "تبلیغات گوگل", "اجاره مغازه", "حقوق کارکنان", "قبوض و اینترنت", "مالیات", "تجهیزات", "پذیرایی", "سایر"];
+const INCOME_CATEGORIES = ["حق مشاوره", "درآمد تبلیغات", "خدمات حقوقی", "قرارداد اجاره", "سایر"];
+const EXPENSE_COLORS = ["#5b9dff", "#a78bfa", "#f59e0b", "#ec4899", "#22c55e", "#64748b", "#ef4444", "#06b6d4", "#f472b6", "#94a3b8"];
 const FIN_TABS = [
-  { id: "overview", label: "نمای کلی" }, { id: "transactions", label: "معاملات" }, { id: "payments", label: "پرداخت‌ها" },
-  { id: "debtors", label: "بدهکاران" }, { id: "reports", label: "گزارشات" }, { id: "advisors", label: "مشاوران" }, { id: "ai", label: "هوش مصنوعی" },
+  { id: "overview", label: "نمای کلی" },
+  { id: "transactions", label: "معاملات" },
+  { id: "office", label: "درآمد و هزینه" },
+  { id: "debtors", label: "بدهکاران" },
+  { id: "reports", label: "گزارشات" },
 ];
 
 function DealStatusBadge({ c, status }) {
@@ -1485,6 +1571,31 @@ function FinanceCenterView({ ctx, onBack }) {
   });
   const advisors = Object.values(advisorMap).sort((a, b) => b.value - a.value);
 
+  const { expenses, setExpenses, officeIncomes, setOfficeIncomes, notify } = ctx;
+  const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalOfficeIncome = officeIncomes.reduce((s, i) => s + (i.amount || 0), 0);
+  const netProfit = totalOfficeIncome - totalExpenses;
+  const margin = totalOfficeIncome ? Math.round((netProfit / totalOfficeIncome) * 100) : 0;
+
+  const officeTxns = [
+    ...officeIncomes.map((i) => ({ ...i, kind: "in", label: i.title })),
+    ...expenses.map((e) => ({ ...e, kind: "out", label: e.title, sub: e.category })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  const expenseByCategory = EXPENSE_CATEGORIES.map((cat, i) => ({
+    name: cat, color: EXPENSE_COLORS[i % EXPENSE_COLORS.length],
+    value: expenses.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0),
+  })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
+  const expenseCatTotal = Math.max(1, expenseByCategory.reduce((s, x) => s + x.value, 0));
+
+  const monthlyIncomeExpense = Array.from({ length: 6 }, (_, i) => {
+    let m = cjm - 5 + i, y = cjy; if (m <= 0) { m += 12; y -= 1; }
+    const income = officeIncomes.filter((x) => { const [jy, jm] = isoToJalali(x.date); return jy === y && jm === m; }).reduce((s, x) => s + x.amount, 0);
+    const expense = expenses.filter((x) => { const [jy, jm] = isoToJalali(x.date); return jy === y && jm === m; }).reduce((s, x) => s + x.amount, 0);
+    return { label: MONTHS_FA[m - 1].slice(0, 3), income, expense };
+  });
+  const maxIncExp = Math.max(1, ...monthlyIncomeExpense.map((m) => Math.max(m.income, m.expense)));
+
   return (
     <div className={onBack ? "pt-2" : "pt-16"}>
       {onBack && <BackHeader c={c} title="مرکز مالی" onBack={onBack} />}
@@ -1514,6 +1625,8 @@ function FinanceCenterView({ ctx, onBack }) {
             <FinStat c={c} icon={AlertTriangle} color={c.attn} value={fmtToman(totalRemainingAll)} label="کمیسیون وصول‌نشده" />
             <FinStat c={c} icon={FileCheck} color={c.purple} value={faDigits(deals.length)} label="تعداد معاملات" />
             <FinStat c={c} icon={Award} color={c.primary} value={fmtToman(avgDeal)} label="میانگین هر معامله" />
+            <FinStat c={c} icon={TrendingDown} color={c.danger} value={fmtToman(totalExpenses)} label="کل هزینه‌های دفتر" />
+            <FinStat c={c} icon={Wallet} color={c.success} value={fmtToman(netProfit)} label="سود خالص دفتر" />
           </div>
 
           <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
@@ -1577,8 +1690,8 @@ function FinanceCenterView({ ctx, onBack }) {
         </div>
       )}
 
-      {tab === "payments" && (
-        <div>
+      {tab === "transactions" && (
+        <div className="mt-4">
           <SectionHeader c={c} title="تاریخچه پرداخت‌ها" action={<button onClick={() => setSheet("payment")} className="press flex items-center gap-1 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11.5 }}><Plus size={12} /> ثبت پرداخت</button>} />
           <div className="flex flex-col gap-2">
             {[...payments].sort((a, b) => b.date.localeCompare(a.date)).map((p) => {
@@ -1594,6 +1707,49 @@ function FinanceCenterView({ ctx, onBack }) {
               );
             })}
             {payments.length === 0 && <EmptyLine c={c} text="پرداختی ثبت نشده" />}
+          </div>
+        </div>
+      )}
+
+      {tab === "office" && (
+        <div>
+          <div className="grid grid-cols-2 gap-2.5 mb-3">
+            <FinStat c={c} icon={TrendingUp} color={c.success} value={fmtToman(totalOfficeIncome)} label="کل درآمد دفتر" />
+            <FinStat c={c} icon={TrendingDown} color={c.danger} value={fmtToman(totalExpenses)} label="کل هزینه‌های دفتر" />
+          </div>
+          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+            <div className="flex items-center justify-between">
+              <span style={{ fontSize: 12.5, color: c.muted, fontWeight: 700 }}>سود خالص دفتر</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: netProfit >= 0 ? c.success : c.danger }}>{fmtToman(Math.abs(netProfit))}{netProfit < 0 ? " (زیان)" : ""}</span>
+            </div>
+          </div>
+
+          <div className="flex gap-2 mb-4">
+            <button onClick={() => setSheet("income")} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12 }}><Plus size={14} /> ثبت درآمد</button>
+            <button onClick={() => setSheet("expense")} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 12 }}><Plus size={14} /> ثبت هزینه</button>
+          </div>
+
+          <SectionHeader c={c} title="گردش مالی دفتر" />
+          <div className="flex flex-col gap-2">
+            {officeTxns.map((t) => (
+              <div key={t.kind + t.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 20)}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: t.kind === "in" ? c.successSoft : c.dangerSoft }}>
+                  {t.kind === "in" ? <TrendingUp size={16} color={c.success} /> : <TrendingDown size={16} color={c.danger} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</p>
+                  <p style={{ fontSize: 10.5, color: c.muted }}>{t.category || (t.kind === "in" ? "درآمد" : "هزینه")} · {fmtJalali(t.date)}</p>
+                </div>
+                <p className="shrink-0" style={{ fontSize: 12.5, fontWeight: 800, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{fmtToman(t.amount)}</p>
+                <button onClick={() => setSheet({ kind: t.kind === "in" ? "income" : "expense", editId: t.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
+                <button onClick={() => {
+                  if (t.kind === "in") setOfficeIncomes((prev) => prev.filter((x) => x.id !== t.id));
+                  else setExpenses((prev) => prev.filter((x) => x.id !== t.id));
+                  notify("حذف شد");
+                }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
+              </div>
+            ))}
+            {officeTxns.length === 0 && <EmptyLine c={c} text="هنوز درآمد یا هزینه‌ای ثبت نشده" />}
           </div>
         </div>
       )}
@@ -1635,10 +1791,61 @@ function FinanceCenterView({ ctx, onBack }) {
             <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>مانده کل</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.attn, marginBottom: 10 }}>{fmtToman(totalRemainingAll)}</p>
             <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>درصد وصول</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.success }}>{faDigits(totalCommission ? Math.round((totalPaidAll / totalCommission) * 100) : 0)}٪</p>
           </div>
+
+          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+            <div className="flex items-center justify-between mb-3">
+              <p style={{ fontSize: 13, fontWeight: 700 }}>درآمد و هزینه ۶ ماه اخیر</p>
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1" style={{ fontSize: 9.5, color: c.muted }}><span style={{ width: 8, height: 8, borderRadius: 3, background: c.success }} /> درآمد</span>
+                <span className="flex items-center gap-1" style={{ fontSize: 9.5, color: c.muted }}><span style={{ width: 8, height: 8, borderRadius: 3, background: c.danger }} /> هزینه</span>
+              </div>
+            </div>
+            <div className="flex items-end justify-between gap-2" style={{ height: 96 }}>
+              {monthlyIncomeExpense.map((m, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+                  <div className="w-full flex items-end justify-center gap-1" style={{ height: 76 }}>
+                    <div style={{ width: "42%", borderRadius: "5px 5px 0 0", background: `linear-gradient(180deg,#4ade80,${c.success})`, height: `${Math.max(3, (m.income / maxIncExp) * 72)}px`, transition: "height .7s cubic-bezier(.34,1.3,.64,1)" }} />
+                    <div style={{ width: "42%", borderRadius: "5px 5px 0 0", background: `linear-gradient(180deg,#fca5a5,${c.danger})`, height: `${Math.max(3, (m.expense / maxIncExp) * 72)}px`, transition: "height .7s cubic-bezier(.34,1.3,.64,1)" }} />
+                  </div>
+                  <span style={{ fontSize: 9, color: c.muted }}>{m.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+            <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>سود و زیان دفتر</p>
+            <Row c={c} label="درآمد دفتر" value={fmtToman(totalOfficeIncome)} color={c.success} />
+            <Row c={c} label="هزینه‌های دفتر" value={fmtToman(totalExpenses)} color={c.danger} />
+            <Row c={c} label={netProfit >= 0 ? "سود خالص" : "زیان خالص"} value={fmtToman(Math.abs(netProfit))} color={netProfit >= 0 ? c.success : c.danger} />
+            <Row c={c} label="حاشیه سود" value={`${faDigits(margin)}٪`} color={margin >= 0 ? c.success : c.danger} />
+          </div>
+
+          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+            <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>هزینه‌ها به تفکیک دسته</p>
+            {expenseByCategory.length === 0 ? <EmptyLine c={c} text="هزینه‌ای ثبت نشده" /> : (
+              <div className="flex flex-col gap-2.5">
+                {expenseByCategory.map((x) => {
+                  const pct = Math.round((x.value / expenseCatTotal) * 100);
+                  return (
+                    <div key={x.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="flex items-center gap-1.5" style={{ fontSize: 11, color: c.ink }}><span style={{ width: 8, height: 8, borderRadius: 3, background: x.color }} /> {x.name}</span>
+                        <span style={{ fontSize: 10.5, color: c.muted }}>{fmtToman(x.value)} · {faDigits(pct)}٪</span>
+                      </div>
+                      <div style={{ height: 7, borderRadius: 6, background: c.surface2, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pct}%`, borderRadius: 6, background: x.color, transition: "width .7s cubic-bezier(.34,1.3,.64,1)" }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {tab === "advisors" && (
+      {tab === "reports" && (
         <div>
           <SectionHeader c={c} title="رتبه‌بندی مشاوران" />
           <div className="flex flex-col gap-2.5">
@@ -1656,7 +1863,7 @@ function FinanceCenterView({ ctx, onBack }) {
         </div>
       )}
 
-      {tab === "ai" && <FinanceAiTab ctx={ctx} stats={{ totalValue, totalCommission, totalPaidAll, totalRemainingAll, deals, debtors }} />}
+      {tab === "overview" && <FinanceAiTab ctx={ctx} stats={{ totalValue, totalCommission, totalPaidAll, totalRemainingAll, deals, debtors }} />}
       <div style={{ height: 20 }} />
     </div>
   );
@@ -1890,6 +2097,8 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   if (kind === "deal") return <DealForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "payment") return <PaymentForm ctx={ctx} onClose={onClose} prefillDealId={prefillDealId} editId={editId} />;
   if (kind === "deal-detail") return <DealDetailSheet ctx={ctx} onClose={onClose} dealId={dealId} />;
+  if (kind === "income") return <OfficeEntryForm ctx={ctx} onClose={onClose} editId={editId} mode="income" />;
+  if (kind === "expense") return <OfficeEntryForm ctx={ctx} onClose={onClose} editId={editId} mode="expense" />;
   return null;
 }
 
@@ -1955,6 +2164,31 @@ const MESSAGE_TEMPLATES = [
     id: "deal_not_done", label: "وقتی معامله انجام نشد", icon: MessageSquare,
     needsProperty: false, needsTime: false,
     build: (v) => `${v.name ? `${v.name} عزیز 🌿\n` : ""}صادقانه خیلی دوست داشتم باهم همکاری کنیم، ناراحتم که این بار نشد که همکاری لازم رو داشته باشیم. بازم دوست دارم شماره‌تون رو هر لحظه رو گوشیم ببینم 🙏🌹\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "invite_office", label: "دعوت گرم به دفتر", icon: Home,
+    needsProperty: false, needsTime: false,
+    build: (v) => `این چه حرفیه ${v.name || "دوست"} عزیز، شما تاج سرید و قدمتون روی چشم. بنده همه‌جوره در خدمتتون هستم.\nتشریف بیارید دفتر، دور هم یه چای بخوریم و گپ بزنیم، بعدش بریم چند تا فایل واقعاً تک و شکار رو ببینیم که وقت ارزشمندتون هم گرفته نشه. خیالتون راحت باشه، سیر تا پیاز کار رو راهنماییتون می‌کنم.\nان‌شاءالله شما هم بشید یکی از همشهری‌های خوب و همسایه‌های درجه‌یک خودمون. 🌹\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "exclusive_files", label: "فایل‌های ویژه و محرمانه", icon: BadgeCheck,
+    needsProperty: false, needsTime: false,
+    build: (v) => `جناب ${v.name || "دوست"} عزیز، این فایل‌هایی که خدمتتون فرستادم، صرفاً برای آشنایی با حدود قیمت و متراژ بود.\nراستش ۲ فایل کاملاً منحصربه‌فرد و شخصی‌سازی‌شده دیگه دارم که به دلیل اصرار مالک، اجازه‌ی ارسال عکس و اطلاعاتشون رو در فضای مجازی ندارم. شرایط این موارد هم به‌شدت جذابه.\nاگه یه سر تشریف بیارید دفتر، از نزدیک کامل خدمتتون توضیح می‌دم. 🌹\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "welcome_sarein", label: "خوش‌آمد به سرعین", icon: MapPin,
+    needsProperty: false, needsTime: false,
+    build: (v) => `${v.name || "دوست"} عزیز، خوش اومدید به سرعین 🌿\nهر وقت گذرتون به سرعین افتاد، بدون هیچ تعارفی یه زنگ به من بزنید؛ چه برای ملک، چه برای یه راهنمایی ساده یا حتی یه چای گرم در دفتر. من اینجا خدمتگزار شما هستم و دوست دارم اولین کسی باشم که بهش فکر می‌کنید. 🙏🌹\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "thanks_visit", label: "تشکر بعد از بازدید", icon: BadgeCheck,
+    needsProperty: false, needsTime: false,
+    build: (v) => `${v.name || "دوست"} عزیز، از اینکه وقت ارزشمندتون رو گذاشتید و تشریف آوردید، واقعاً ممنونم 🌹\nهر سوال یا تردیدی درباره‌ی فایل‌هایی که دیدیم داشتید، بی‌رودربایستی بگید. من اینجام که خیالتون از هر جهت راحت بشه، نه فقط تا یه معامله جوش بخوره.${v.viewed ? `\n(فایل‌های بازدیدشده: ${v.viewed})` : ""}\n${AGENCY_SIGNATURE}`,
+  },
+  {
+    id: "special_opportunity", label: "فرصت ویژه و فوری", icon: TrendingUp,
+    needsProperty: true, needsTime: false,
+    build: (v) => `${v.name || "دوست"} عزیز، سلام 🌿\nیه مورد پیدا شد که اول از همه یاد شما افتادم: ${v.property || "یک فایل ویژه"}.\nشرایطش واقعاً استثناییه و صادقانه بگم، این‌جور موارد معمولاً خیلی زود جمع می‌شن. اگه دوست داشتید، هماهنگ کنم یه بازدید بذاریم؟ 🙏\n${AGENCY_SIGNATURE}`,
   },
 ];
 
@@ -2239,6 +2473,28 @@ function CallForm({ ctx, onClose, editId }) {
   );
 }
 
+// Defined at module scope on purpose: nesting this inside DealForm made React treat it as a new
+// component type on every keystroke, remounting the input and dropping focus after one character.
+function CommissionField({ c, f, setF, side, label }) {
+  const mode = side === "seller" ? f.sellerMode : f.buyerMode;
+  const modeKey = side === "seller" ? "sellerMode" : "buyerMode";
+  const pctKey = side === "seller" ? "sellerPct" : "buyerPct";
+  const fixedKey = side === "seller" ? "sellerFixed" : "buyerFixed";
+  const previewAmount = mode === "pct" ? Math.round(toNum(f.price) * (Number(toEnDigits(f[pctKey])) || 0) / 100) : toNum(f[fixedKey]);
+  return (
+    <Field c={c} label={label}>
+      <div className="flex gap-2 mb-2">
+        <button type="button" onClick={() => setF((p) => ({ ...p, [modeKey]: "pct" }))} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "pct" ? c.primary : c.surface2, color: mode === "pct" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>درصدی</button>
+        <button type="button" onClick={() => setF((p) => ({ ...p, [modeKey]: "fixed" }))} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "fixed" ? c.primary : c.surface2, color: mode === "fixed" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>مبلغ ثابت (تومان)</button>
+      </div>
+      {mode === "pct"
+        ? <input style={inputStyle(c)} inputMode="decimal" value={f[pctKey]} onChange={(e) => setF((p) => ({ ...p, [pctKey]: e.target.value }))} placeholder="مثلاً ۱" />
+        : <input style={inputStyle(c)} inputMode="numeric" value={f[fixedKey]} onChange={(e) => setF((p) => ({ ...p, [fixedKey]: e.target.value }))} placeholder="مبلغ به تومان" />}
+      <p style={{ fontSize: 11, color: c.primary, fontWeight: 700, marginTop: 6 }}>{fmtToman(previewAmount)}</p>
+    </Field>
+  );
+}
+
 function DealForm({ ctx, onClose, editId }) {
   const { c, properties, owners, deals, setDeals, notify } = ctx;
   const editing = editId ? deals.find((d) => d.id === editId) : null;
@@ -2258,26 +2514,6 @@ function DealForm({ ctx, onClose, editId }) {
   };
   const valid = f.propertyTitle.trim() && f.price;
 
-  const CommissionField = ({ side, label }) => {
-    const mode = side === "seller" ? f.sellerMode : f.buyerMode;
-    const modeKey = side === "seller" ? "sellerMode" : "buyerMode";
-    const pctKey = side === "seller" ? "sellerPct" : "buyerPct";
-    const fixedKey = side === "seller" ? "sellerFixed" : "buyerFixed";
-    const previewAmount = mode === "pct" ? Math.round(toNum(f.price) * (Number(toEnDigits(f[pctKey])) || 0) / 100) : toNum(f[fixedKey]);
-    return (
-      <Field c={c} label={label}>
-        <div className="flex gap-2 mb-2">
-          <button type="button" onClick={() => setF({ ...f, [modeKey]: "pct" })} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "pct" ? c.primary : c.surface2, color: mode === "pct" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>درصدی</button>
-          <button type="button" onClick={() => setF({ ...f, [modeKey]: "fixed" })} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "fixed" ? c.primary : c.surface2, color: mode === "fixed" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>مبلغ ثابت (تومان)</button>
-        </div>
-        {mode === "pct"
-          ? <input style={inputStyle(c)} inputMode="decimal" value={f[pctKey]} onChange={set(pctKey)} placeholder="مثلاً ۱" />
-          : <input style={inputStyle(c)} inputMode="numeric" value={f[fixedKey]} onChange={set(fixedKey)} placeholder="مبلغ به تومان" />}
-        <p style={{ fontSize: 11, color: c.primary, fontWeight: 700, marginTop: 6 }}>{fmtToman(previewAmount)}</p>
-      </Field>
-    );
-  };
-
   return (
     <SheetShell c={c} title={editing ? "ویرایش قرارداد" : "ثبت قرارداد جدید"} onClose={onClose}>
       {!editing && <Field c={c} label="فایل ملک (اختیاری)"><Select c={c} value={f.propertyId} onChange={onPickProperty} placeholder="انتخاب فایل برای پرکردن خودکار" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>}
@@ -2294,8 +2530,8 @@ function DealForm({ ctx, onClose, editId }) {
         <input style={inputStyle(c)} inputMode="numeric" value={f.price} onChange={set("price")} />
         <p style={{ fontSize: 11, color: c.muted, marginTop: 6 }}>{fmtToman(toNum(f.price))}</p>
       </Field>
-      <CommissionField side="seller" label="کمیسیون فروشنده" />
-      <CommissionField side="buyer" label="کمیسیون خریدار" />
+      <CommissionField c={c} f={f} setF={setF} side="seller" label="کمیسیون فروشنده" />
+      <CommissionField c={c} f={f} setF={setF} side="buyer" label="کمیسیون خریدار" />
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="مشاور"><input style={inputStyle(c)} value={f.advisor} onChange={set("advisor")} /></Field>
         <Field c={c} label="وضعیت"><Select c={c} value={f.status} onChange={set("status")} placeholder="انتخاب کنید" options={["در حال مذاکره", "در انتظار پرداخت", "تسویه شده"].map((v) => ({ value: v, label: v }))} /></Field>
@@ -2405,4 +2641,51 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
 }
 function Row({ c, label, value, color }) {
   return <div className="flex justify-between items-center" style={{ padding: "8px 0", borderBottom: `1px solid ${c.border}` }}><span style={{ fontSize: 11.5, color: c.muted }}>{label}</span><span style={{ fontSize: 12, fontWeight: 700, color: color || c.ink }}>{value}</span></div>;
+}
+
+// One form handles both office income and office expense — same shape, different list/colors.
+function OfficeEntryForm({ ctx, onClose, editId, mode }) {
+  const { c, expenses, setExpenses, officeIncomes, setOfficeIncomes, notify } = ctx;
+  const isIncome = mode === "income";
+  const list = isIncome ? officeIncomes : expenses;
+  const setList = isIncome ? setOfficeIncomes : setExpenses;
+  const categories = isIncome ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const accent = isIncome ? c.success : c.danger;
+  const editing = editId ? list.find((x) => x.id === editId) : null;
+  const [f, setF] = useState(editing
+    ? { category: editing.category || categories[0], title: editing.title || "", amount: String(editing.amount), date: editing.date, note: editing.note || "" }
+    : { category: categories[0], title: "", amount: "", date: todayISO(), note: "" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const valid = f.title.trim() && f.amount;
+  const title = editing ? (isIncome ? "ویرایش درآمد" : "ویرایش هزینه") : (isIncome ? "ثبت درآمد دفتر" : "ثبت هزینه دفتر");
+
+  return (
+    <SheetShell c={c} title={title} onClose={onClose}>
+      <Field c={c} label="دسته‌بندی">
+        <div className="flex flex-wrap gap-2">
+          {categories.map((cat) => {
+            const active = f.category === cat;
+            return (
+              <button key={cat} type="button" onClick={() => setF({ ...f, category: cat })} className="press rounded-lg px-3 py-2"
+                style={{ background: active ? accent : c.surface2, color: active ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>{cat}</button>
+            );
+          })}
+        </div>
+      </Field>
+      <Field c={c} label="عنوان"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder={isIncome ? "مثلاً حق مشاوره قرارداد" : "مثلاً شارژ آگهی دیوار"} /></Field>
+      <Field c={c} label="مبلغ (تومان)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} placeholder="فارسی یا انگلیسی" />
+        <p style={{ fontSize: 11, color: accent, fontWeight: 700, marginTop: 6 }}>{fmtToman(toNum(f.amount))}</p>
+      </Field>
+      <Field c={c} label="تاریخ (شمسی)"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
+      <Field c={c} label="توضیحات (اختیاری)"><input style={inputStyle(c)} value={f.note} onChange={set("note")} /></Field>
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره"} disabled={!valid} onClick={() => {
+        const payload = { category: f.category, title: f.title.trim(), amount: toNum(f.amount), date: f.date, note: f.note.trim() };
+        if (editing) setList((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
+        else setList((prev) => [{ id: uid(), ...payload }, ...prev]);
+        notify(editing ? "تغییرات ذخیره شد" : (isIncome ? "درآمد ثبت شد" : "هزینه ثبت شد"));
+        onClose();
+      }} />
+    </SheetShell>
+  );
 }
