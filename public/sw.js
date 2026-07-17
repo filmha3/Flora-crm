@@ -1,4 +1,4 @@
-const CACHE_NAME = "flora-crm-v1";
+const CACHE_NAME = "flora-crm-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
