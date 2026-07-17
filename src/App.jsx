@@ -173,6 +173,35 @@ const T = {
     shadow: "0 8px 28px rgba(47,124,246,0.1)",
   },
 };
+// Counts up to the value instead of popping in, which makes figures feel alive.
+function useCountUp(target, duration = 900) {
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    if (!target) { setVal(0); return; }
+    let raf, start;
+    const step = (t) => {
+      if (!start) start = t;
+      const p = Math.min(1, (t - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setVal(Math.round(target * eased));
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return val;
+}
+
+function CountUpToman({ value, className, style }) {
+  const v = useCountUp(value);
+  return <span className={className} style={style}>{fmtToman(v)}</span>;
+}
+
+function CountUpNum({ value, style }) {
+  const v = useCountUp(value, 700);
+  return <span style={style}>{faDigits(v)}</span>;
+}
+
 const glass = (c) => ({
   background: c.surface,
   backdropFilter: "blur(20px) saturate(180%)",
@@ -423,8 +452,12 @@ export default function FloraCRM() {
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { display: none; }
-        .press { transition: transform .16s cubic-bezier(.34,1.56,.64,1); }
-        .press:active { transform: scale(0.96); }
+        .press { transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease, opacity .18s ease; }
+        .press:active { transform: scale(0.955); opacity: .92; }
+        /* Honour the OS setting — motion should never be forced on someone */
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+        }
         @keyframes floraUp { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
         @keyframes floraSheet { from { transform: translateY(100%);} to { transform: translateY(0);} }
         @keyframes floraPop { from { opacity:0; transform: scale(.95);} to { opacity:1; transform: scale(1);} }
@@ -442,6 +475,32 @@ export default function FloraCRM() {
         @keyframes floraRipple { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
         @keyframes floraOrb { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(20px,-16px) scale(1.05);} 66% { transform: translate(-14px,18px) scale(.95);} }
         .flora-orb { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .4; animation: floraOrb 14s ease-in-out infinite; pointer-events: none; }
+
+        /* Lists reveal one after another instead of snapping in all at once */
+        @keyframes floraStagger { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform: translateY(0) scale(1);} }
+        .flora-stagger > * { animation: floraStagger .42s cubic-bezier(.22,1,.36,1) both; }
+        .flora-stagger > *:nth-child(1) { animation-delay: .02s }
+        .flora-stagger > *:nth-child(2) { animation-delay: .07s }
+        .flora-stagger > *:nth-child(3) { animation-delay: .12s }
+        .flora-stagger > *:nth-child(4) { animation-delay: .17s }
+        .flora-stagger > *:nth-child(5) { animation-delay: .22s }
+        .flora-stagger > *:nth-child(6) { animation-delay: .27s }
+        .flora-stagger > *:nth-child(n+7) { animation-delay: .3s }
+
+        /* Money values catch a slow sweep of light */
+        @keyframes floraShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .flora-money {
+          background: linear-gradient(100deg, currentColor 40%, rgba(255,255,255,.85) 50%, currentColor 60%);
+          background-size: 200% 100%;
+          -webkit-background-clip: text; background-clip: text;
+          -webkit-text-fill-color: transparent;
+          animation: floraShimmer 4.5s linear infinite;
+        }
+        @keyframes floraCoin { 0%,100% { transform: rotateY(0deg);} 50% { transform: rotateY(180deg);} }
+        .flora-coin { animation: floraCoin 3.2s ease-in-out infinite; transform-style: preserve-3d; }
+        @keyframes floraRise { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
+        .flora-rise { animation: floraRise .5s cubic-bezier(.22,1,.36,1) both; }
+
         select { -webkit-appearance: none; appearance: none; }
       `}</style>
 
@@ -450,7 +509,7 @@ export default function FloraCRM() {
       <span className="flora-orb" style={{ width: 220, height: 220, background: c.orb3, top: "42%", left: "48%", animationDelay: "-8s", opacity: .25 }} />
 
       {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
-      <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh" }}>
+      <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} />
 
         <div className="flex-1 overflow-y-auto pb-28 px-4 relative">
@@ -474,14 +533,14 @@ export default function FloraCRM() {
         </div>
 
         {tab !== "home" && tab !== "finance" && tab !== "more" && !detail && (
-          <div className="absolute left-0 right-0 px-4" style={{ top: 66 }}>
+          <div className="absolute left-0 right-0 px-4" style={{ top: "calc(66px + env(safe-area-inset-top, 0px))" }}>
             <SearchBox c={c} value={search} setValue={setSearch} />
           </div>
         )}
 
         {!detail && (
           <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
-            style={{ bottom: 92, left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 18, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
+            style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 18, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
             <span style={{ position: "absolute", inset: -8, borderRadius: 22, border: "2px solid rgba(47,124,246,0.35)", animation: "floraRipple 2.2s infinite" }} />
             <Plus color="#fff" size={24} strokeWidth={2.5} />
           </button>
@@ -572,7 +631,7 @@ function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts }) {
   }, []);
 
   return (
-    <div className="fixed px-3 pb-3 pt-2" style={{ bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, zIndex: 20 }}>
+    <div className="fixed px-3 pt-2" style={{ bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, zIndex: 20, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
       <div ref={wrapRef} className="relative flex justify-between items-center rounded-2xl px-2 py-2" style={glass(c)}>
         <div style={{
           position: "absolute", top: 6, bottom: 6, left: pill.left + 8, width: Math.max(0, pill.width - 16), borderRadius: 16,
@@ -687,7 +746,7 @@ function HomeTab({ ctx }) {
         <p style={{ fontSize: 10.5, color: c.muted, fontWeight: 700, letterSpacing: ".08em" }}>یک نگاه</p>
         <span style={{ flex: 1, height: 1, background: c.border }} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 flora-stagger">
         {stats.map((s, i) => (
           <button key={i} onClick={s.onClick} className="press text-right rounded-2xl p-4" style={glass(c, 24)}>
             <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ background: s.color + "1f" }}><s.icon size={17} color={s.color} /></div>
@@ -730,7 +789,7 @@ function PortfolioValueCard({ c, properties }) {
       <div className="flex items-start justify-between">
         <div>
           <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 5, letterSpacing: ".02em" }}>ارزش کل فایل‌های فعال</p>
-          <h2 style={{ fontSize: 22, fontWeight: 800, direction: "ltr", textAlign: "right", letterSpacing: "-0.02em" }}>{fmtToman(total)}</h2>
+          <CountUpToman value={total} className="flora-money" style={{ fontSize: 22, fontWeight: 800, direction: "ltr", textAlign: "right", letterSpacing: "-0.02em", color: c.ink, display: "inline-block" }} />
         </div>
         <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.successSoft, color: c.success, fontSize: 11.5, fontWeight: 700 }}>
           <TrendingUp size={13} /> {addedThisWeek > 0 ? `+${faDigits(addedThisWeek)} این هفته` : "به‌روز"}
@@ -1705,14 +1764,38 @@ function FinanceCenterView({ ctx, onBack }) {
 
       {tab === "overview" && (
         <div>
-          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#1e3a8a,#4c1d95)", position: "relative", overflow: "hidden" }}>
-            <span style={{ position: "absolute", top: "-40%", left: "-20%", width: 180, height: 180, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
-            <div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,.18)" }}><Sparkles size={15} color="#fff" /></div><strong style={{ fontSize: 13.5, color: "#fff" }}>خلاصه هوشمند</strong></div>
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,.85)", lineHeight: 1.9 }}>مانده‌ی کل کمیسیون‌های وصول‌نشده: <b style={{ color: "#fbbf24" }}>{fmtToman(totalRemainingAll)}</b></p>
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,.85)", lineHeight: 1.9 }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است 👌"}</p>
+          {/* Banknote-styled hero: guilloche lines, gold seal, engraved figures */}
+          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0f2f5e 0%,#1e3a8a 45%,#4c1d95 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)", boxShadow: "0 14px 34px rgba(30,58,138,.4)" }}>
+            {/* Engraved guilloche lines, like the back of a banknote */}
+            <svg width="100%" height="100%" viewBox="0 0 320 160" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, opacity: 0.14, pointerEvents: "none" }}>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <path key={i} d={`M-20,${30 + i * 22} C60,${5 + i * 22} 120,${60 + i * 22} 200,${28 + i * 22} C260,${8 + i * 22} 300,${45 + i * 22} 340,${25 + i * 22}`} fill="none" stroke="#fbbf24" strokeWidth="0.8" />
+              ))}
+            </svg>
+            <span style={{ position: "absolute", top: "-40%", left: "-20%", width: 180, height: 180, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
+
+            <div className="flex items-center justify-between mb-3" style={{ position: "relative" }}>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,.18)" }}><Sparkles size={15} color="#fff" /></div>
+                <strong style={{ fontSize: 13.5, color: "#fff" }}>خلاصه هوشمند</strong>
+              </div>
+              {/* Gold seal, the way a note carries its denomination stamp */}
+              <div className="flora-coin w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#fde68a,#f59e0b)", boxShadow: "0 3px 10px rgba(245,158,11,.5), inset 0 0 0 1.5px rgba(255,255,255,.35)" }}>
+                <span style={{ fontSize: 13, fontWeight: 900, color: "#7c2d12" }}>﷼</span>
+              </div>
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>مانده‌ی کل کمیسیون‌های وصول‌نشده</p>
+              <CountUpToman value={totalRemainingAll} className="flora-money" style={{ fontSize: 21, fontWeight: 800, color: "#fbbf24", display: "inline-block", marginTop: 3, direction: "ltr" }} />
+              <div className="flex items-center gap-1.5 mt-2.5">
+                <span style={{ width: 6, height: 6, borderRadius: 99, background: debtors.length > 0 ? "#f87171" : "#4ade80" }} className={debtors.length > 0 ? "flora-pulse" : ""} />
+                <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.85)" }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است 👌"}</p>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 mb-4">
+          <div className="grid grid-cols-2 gap-2.5 mb-4 flora-stagger">
             <FinStat c={c} icon={TrendingUp} color={c.success} value={fmtToman(todayVal)} label="فروش امروز" />
             <FinStat c={c} icon={CalendarDays} color={c.primary} value={fmtToman(monthVal)} label="فروش این ماه" />
             <FinStat c={c} icon={TrendingUp} color={c.purple} value={fmtToman(yearVal)} label="فروش امسال" />
@@ -1761,7 +1844,7 @@ function FinanceCenterView({ ctx, onBack }) {
             ))}
           </div>
           <button onClick={() => setSheet("deal")} className="press w-full rounded-xl py-3 mb-3 flex items-center justify-center gap-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}><Plus size={14} /> ثبت قرارداد جدید</button>
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 flora-stagger">
             {filteredDeals.map((d) => (
               <button key={d.id} onClick={() => setSheet({ kind: "deal-detail", dealId: d.id })} className="press w-full text-right rounded-2xl p-4" style={glass(c, 22)}>
                 <div className="flex justify-between items-start mb-2.5">
@@ -1773,7 +1856,10 @@ function FinanceCenterView({ ctx, onBack }) {
                   <div className="flex-1"><p style={{ fontSize: 10, color: c.muted, marginBottom: 2 }}>خریدار</p><p style={{ fontSize: 12, fontWeight: 600 }}>{d.buyerName || "—"}</p></div>
                 </div>
                 <div className="flex justify-between items-center pt-2.5" style={{ borderTop: `1px solid ${c.border}` }}>
-                  <p style={{ fontSize: 13.5, fontWeight: 800, color: c.primary }}>{fmtToman(d.price)}</p>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#fde68a,#f59e0b)" }}><Banknote size={10} color="#7c2d12" /></div>
+                    <p style={{ fontSize: 13.5, fontWeight: 800, color: c.primary, direction: "ltr" }}>{fmtToman(d.price)}</p>
+                  </div>
                   <p style={{ fontSize: 10.5, color: c.muted }}>{d.advisor}</p>
                 </div>
                 <div style={{ height: 5, borderRadius: 6, background: c.surface2, marginTop: 8, overflow: "hidden" }}>
@@ -1789,7 +1875,7 @@ function FinanceCenterView({ ctx, onBack }) {
       {tab === "transactions" && (
         <div className="mt-4">
           <SectionHeader c={c} title="تاریخچه پرداخت‌ها" action={<button onClick={() => setSheet("payment")} className="press flex items-center gap-1 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11.5 }}><Plus size={12} /> ثبت پرداخت</button>} />
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 flora-stagger">
             {[...payments].sort((a, b) => b.date.localeCompare(a.date)).map((p) => {
               const deal = deals.find((d) => d.id === p.dealId);
               const method = PAYMENT_METHODS.find((m) => m.id === p.method) || PAYMENT_METHODS[0];
@@ -1811,14 +1897,23 @@ function FinanceCenterView({ ctx, onBack }) {
 
       {tab === "office" && (
         <div>
-          <div className="grid grid-cols-2 gap-2.5 mb-3">
+          <div className="grid grid-cols-2 gap-2.5 mb-3 flora-stagger">
             <FinStat c={c} icon={TrendingUp} color={c.success} value={fmtToman(totalOfficeIncome)} label="کل درآمد دفتر" />
             <FinStat c={c} icon={TrendingDown} color={c.danger} value={fmtToman(totalExpenses)} label="کل هزینه‌های دفتر" />
           </div>
-          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
-            <div className="flex items-center justify-between">
-              <span style={{ fontSize: 12.5, color: c.muted, fontWeight: 700 }}>سود خالص دفتر</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: netProfit >= 0 ? c.success : c.danger }}>{fmtToman(Math.abs(netProfit))}{netProfit < 0 ? " (زیان)" : ""}</span>
+          <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${netProfit >= 0 ? c.successSoft : c.dangerSoft}, ${c.surface} 65%)`, position: "relative", overflow: "hidden" }}>
+            <span style={{ position: "absolute", inset: 6, borderRadius: 16, border: `1px dashed ${(netProfit >= 0 ? c.success : c.danger)}33`, pointerEvents: "none" }} />
+            <div className="flex items-center justify-between" style={{ position: "relative" }}>
+              <div className="flex items-center gap-2">
+                <div className="flora-coin w-7 h-7 rounded-full flex items-center justify-center" style={{ background: netProfit >= 0 ? "linear-gradient(135deg,#86efac,#22c55e)" : "linear-gradient(135deg,#fca5a5,#ef4444)" }}>
+                  <Banknote size={13} color="#fff" />
+                </div>
+                <span style={{ fontSize: 12.5, color: c.muted, fontWeight: 700 }}>سود خالص دفتر</span>
+              </div>
+              <div className="text-left">
+                <CountUpToman value={Math.abs(netProfit)} style={{ fontSize: 15.5, fontWeight: 800, color: netProfit >= 0 ? c.success : c.danger, direction: "ltr", display: "inline-block" }} />
+                {netProfit < 0 && <p style={{ fontSize: 9.5, color: c.danger }}>زیان</p>}
+              </div>
             </div>
           </div>
 
@@ -1828,7 +1923,7 @@ function FinanceCenterView({ ctx, onBack }) {
           </div>
 
           <SectionHeader c={c} title="گردش مالی دفتر" />
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 flora-stagger">
             {officeTxns.map((t) => (
               <div key={t.kind + t.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 20)}>
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: t.kind === "in" ? c.successSoft : c.dangerSoft }}>
@@ -1855,7 +1950,7 @@ function FinanceCenterView({ ctx, onBack }) {
       {tab === "debtors" && (
         <div>
           <SectionHeader c={c} title="بدهکاران" />
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2.5 flora-stagger">
             {debtors.map((x, i) => (
               <div key={i} className="rounded-2xl p-4" style={{ ...glass(c, 22), border: `1px solid ${c.dangerSoft}` }}>
                 <div className="flex justify-between items-center mb-3">
@@ -1863,7 +1958,7 @@ function FinanceCenterView({ ctx, onBack }) {
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: c.dangerSoft }}><UserCircle2 size={17} color={c.danger} /></div>
                     <div><p style={{ fontSize: 13, fontWeight: 700 }}>{x.name}</p><p style={{ fontSize: 10, color: c.danger }}>{faDigits(x.days)} روز تأخیر</p></div>
                   </div>
-                  <p style={{ fontSize: 14.5, fontWeight: 800, color: c.danger }}>{fmtToman(x.amount)}</p>
+                  <CountUpToman value={x.amount} style={{ fontSize: 14.5, fontWeight: 800, color: c.danger, direction: "ltr", display: "inline-block" }} />
                 </div>
                 <div className="flex gap-2">
                   <a href={x.phone ? `tel:${x.phone}` : "#"} className="press flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, opacity: x.phone ? 1 : 0.5, pointerEvents: x.phone ? "auto" : "none" }}><PhoneCall size={13} color={c.success} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.success }}>تماس</span></a>
@@ -1969,9 +2064,11 @@ function FinanceCenterView({ ctx, onBack }) {
 
 function FinStat({ c, icon: Icon, color, value, label }) {
   return (
-    <div className="rounded-xl p-3.5" style={glass(c, 20)}>
-      <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2.5" style={{ background: color + "22" }}><Icon size={15} color={color} /></div>
-      <p style={{ fontSize: 13.5, fontWeight: 800 }}>{value}</p>
+    <div className="rounded-xl p-3.5" style={{ ...glass(c, 20), background: `linear-gradient(160deg, ${color}14, ${c.surface} 60%)`, position: "relative", overflow: "hidden" }}>
+      {/* faint coin edge in the corner */}
+      <span style={{ position: "absolute", top: -14, left: -14, width: 46, height: 46, borderRadius: "50%", border: `1.5px dashed ${color}33`, pointerEvents: "none" }} />
+      <div className="w-8 h-8 rounded-full flex items-center justify-center mb-2.5" style={{ background: color + "22", boxShadow: `inset 0 0 0 1.5px ${color}33` }}><Icon size={15} color={color} /></div>
+      <p style={{ fontSize: 13.5, fontWeight: 800, direction: "ltr", textAlign: "right" }}>{value}</p>
       <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{label}</p>
     </div>
   );

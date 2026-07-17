@@ -5,17 +5,18 @@
 html, body, #root {
   height: 100%;
   margin: 0;
-  /* Rubber-band overscroll used to expose the white page behind the app */
+  /* The rubber-band bounce reveals the page background, so it must match the app */
   background: #0A0E1A;
 }
 
 html {
-  /* Stops the iOS bounce from revealing anything behind the app */
-  overscroll-behavior: none;
   background-color: #0A0E1A;
 }
 
 body {
-  overscroll-behavior-y: none;
+  /* Bounce is left ON deliberately: it's what makes hitting the end feel soft
+     instead of hitting a wall. Painting the background above is what stops the
+     white flash — killing the bounce was the wrong fix. */
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: none;
 }
