@@ -40,7 +40,8 @@ async function dbSet(key, value) {
 
 // ---------- Jalali (Persian) calendar helpers ----------
 const div = (a, b) => Math.floor(a / b);
-const faDigits = (v) => String(v).replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]);
+// Latin digits read faster for money and phone numbers; Persian month names stay Persian.
+const faDigits = (v) => String(v);
 const MONTHS_FA = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
 const WEEK_FA = ["ش","ی","د","س","چ","پ","ج"];
 const LEAP_CYCLE = [1, 5, 9, 13, 17, 22, 26, 30];
@@ -111,7 +112,7 @@ function parseDivarText(raw) {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
-const fmtToman = (n) => (n ? Math.round(n).toLocaleString("fa-IR") : "۰") + " تومان";
+const fmtToman = (n) => (n ? Math.round(n).toLocaleString("en-US") : "0") + " تومان";
 const todayISO = () => new Date().toISOString().slice(0, 10);
 // Phone photos are 3-8MB each. Storing them raw made IndexedDB huge and every save slow,
 // so images are downscaled to <=1280px and re-encoded as JPEG before they're ever saved.
@@ -145,6 +146,7 @@ const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (f
 }));
 
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
+const BUILD_STAGES = ["گودبرداری", "فونداسیون", "اسکلت", "سفت‌کاری", "نازک‌کاری", "نما", "آماده تحویل"];
 const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش", "اجاره", "رهن کامل"];
 const STAGE_FILTERS = ["همه", "فعال", "در حال مذاکره", "فروخته شد"];
 
@@ -270,6 +272,9 @@ export default function FloraCRM() {
   const [deals, setDeals] = useState(seedDeals);
   const [payments, setPayments] = useState(seedPayments);
   const [expenses, setExpenses] = useState(seedExpenses);
+  // The office splits every received commission three ways. Kept as settings (not baked into
+  // each payment) so the whole ledger stays consistent if the ratio is ever corrected.
+  const [splitShares, setSplitShares] = useState({ agent: 1, management: 1, rent: 1 });
   const [officeIncomes, setOfficeIncomes] = useState(seedOfficeIncomes);
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
@@ -304,6 +309,7 @@ export default function FloraCRM() {
         if (settings?.grokKey) setGrokKey(settings.grokKey);
         if (settings?.aiProvider) setAiProvider(settings.aiProvider);
         if (settings?.agentName) setAgentName(settings.agentName);
+        if (settings?.splitShares) setSplitShares(settings.splitShares);
         const lastReminder = await dbGet(REMINDER_KEY);
         const today = todayISO();
         if (lastReminder !== today) { setShowDailyReminder(true); dbSet(REMINDER_KEY, today).catch(() => {}); }
@@ -319,7 +325,7 @@ export default function FloraCRM() {
     }, 400);
     return () => clearTimeout(t);
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares]);
 
   const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
   const callAI = async (prompt) => {
@@ -428,7 +434,7 @@ export default function FloraCRM() {
   const ctx = {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName,
     scheduleReminder, goProperties, exportBackup, importBackup,
@@ -498,6 +504,7 @@ export default function FloraCRM() {
         }
         @keyframes floraCoin { 0%,100% { transform: rotateY(0deg);} 50% { transform: rotateY(180deg);} }
         .flora-coin { animation: floraCoin 3.2s ease-in-out infinite; transform-style: preserve-3d; }
+        @keyframes floraMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         @keyframes floraRise { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
         .flora-rise { animation: floraRise .5s cubic-bezier(.22,1,.36,1) both; }
 
@@ -883,6 +890,7 @@ function PropertiesTab({ ctx, search, stageHint }) {
         <div className="flex items-center rounded-full p-1 gap-1" style={glass(c, 20)}>
           <button onClick={() => setMode("list")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "list" ? c.primary : "transparent" }}><LayoutGrid size={13} color={mode === "list" ? "#fff" : c.muted} /></button>
           <button onClick={() => setMode("pipeline")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "pipeline" ? c.primary : "transparent" }}><Columns3 size={13} color={mode === "pipeline" ? "#fff" : c.muted} /></button>
+          <button onClick={() => setMode("map")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "map" ? c.primary : "transparent" }}><MapPin size={13} color={mode === "map" ? "#fff" : c.muted} /></button>
         </div>
         <button onClick={() => setSortAsc((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2 mr-auto" style={glass(c, 20)}>
           <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{sortAsc ? "ارزان‌ترین" : "گران‌ترین"}</span>
@@ -900,9 +908,78 @@ function PropertiesTab({ ctx, search, stageHint }) {
           {filtered.map((p) => <PropertyGridCard key={p.id} p={p} ctx={ctx} onClick={() => setDetail({ type: "property", id: p.id })} />)}
           {filtered.length === 0 && <div className="col-span-2"><EmptyLine c={c} text="فایلی پیدا نشد" /></div>}
         </div>
+      ) : mode === "map" ? (
+        <AllPropertiesMap c={c} rows={filtered} onOpen={(id) => setDetail({ type: "property", id })} />
       ) : (
         <PipelineBoard rows={filtered} ctx={ctx} />
       )}
+    </div>
+  );
+}
+
+// Every pinned property on one Sarein map. Markers are colour-coded by deal type and
+// tapping one opens that file.
+function AllPropertiesMap({ c, rows, onOpen }) {
+  const ref = useRef(null); const objRef = useRef(null);
+  const pinned = rows.filter((p) => p.lat && p.lng);
+  const DEAL_COLOR = { "فروش": "#2f7cf6", "پیش‌فروش": "#7c6ff5", "اجاره": "#f59e0b", "رهن کامل": "#22c55e" };
+
+  useEffect(() => {
+    let cancelled = false;
+    loadLeaflet().then((L) => {
+      if (cancelled || !ref.current) return;
+      if (objRef.current) { objRef.current.remove(); objRef.current = null; }
+      const map = L.map(ref.current, { zoomControl: false, attributionControl: false }).setView(SAREIN_CENTER, 14);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "" }).addTo(map);
+
+      pinned.forEach((p) => {
+        const color = DEAL_COLOR[p.deal] || "#2f7cf6";
+        const sold = p.stage === "فروخته شد";
+        const icon = L.divIcon({
+          className: "",
+          html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:${sold ? "#6b7280" : color};box-shadow:0 3px 8px rgba(0,0,0,.45);border:2px solid rgba(255,255,255,.85);"></div>`,
+          iconSize: [26, 26], iconAnchor: [13, 26],
+        });
+        const m = L.marker([p.lat, p.lng], { icon }).addTo(map);
+        m.bindPopup(`<div style="font-family:Vazirmatn,sans-serif;direction:rtl;text-align:right;min-width:130px">
+          <b style="font-size:12px">${p.title}</b><br/>
+          <span style="font-size:11px;color:#2f7cf6;direction:ltr;display:inline-block">${(p.price || 0).toLocaleString("en-US")} تومان</span><br/>
+          <span style="font-size:10px;color:#666">${p.deal} · ${p.area} متر</span>
+        </div>`);
+        m.on("popupopen", () => {
+          const el = document.querySelector(".leaflet-popup-content");
+          if (el) el.style.cursor = "pointer";
+          if (el) el.onclick = () => onOpen(p.id);
+        });
+      });
+
+      if (pinned.length > 1) map.fitBounds(pinned.map((p) => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 16 });
+      else if (pinned.length === 1) map.setView([pinned[0].lat, pinned[0].lng], 15);
+      objRef.current = map;
+      setTimeout(() => map.invalidateSize(), 120);
+    });
+    return () => { cancelled = true; if (objRef.current) { objRef.current.remove(); objRef.current = null; } };
+  }, [rows.length, pinned.length]);
+
+  return (
+    <div className="pb-4">
+      <div className="rounded-2xl overflow-hidden" style={glass(c, 22)}>
+        <div ref={ref} style={{ width: "100%", height: 420, background: c.surface2 }} />
+      </div>
+      <div className="flex flex-wrap gap-2 mt-3">
+        {Object.entries(DEAL_COLOR).map(([k, v]) => (
+          <span key={k} className="flex items-center gap-1.5 rounded-full px-2.5 py-1" style={{ background: c.surface2 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 99, background: v }} />
+            <span style={{ fontSize: 9.5, color: c.muted }}>{k}</span>
+          </span>
+        ))}
+      </div>
+      {pinned.length < rows.length && (
+        <p style={{ fontSize: 10.5, color: c.muted, marginTop: 10, lineHeight: 1.8 }}>
+          {faDigits(rows.length - pinned.length)} فایل روی نقشه نیست، چون موقعیتشان ثبت نشده. برای افزودن، فایل را ویرایش کن و از دکمه‌ی نقشه استفاده کن.
+        </p>
+      )}
+      {pinned.length === 0 && <EmptyLine c={c} text="هیچ فایلی موقعیت نقشه ندارد" />}
     </div>
   );
 }
@@ -1331,6 +1408,19 @@ function PropertyDetail({ id, ctx, onBack }) {
           className="press w-full mt-2 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ذخیره آگهی</button>
       </div>
 
+      {p.deal === "پیش‌فروش" && (p.preDown || p.preDelivery || p.preDeed || p.preMonths) && (
+        <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2"><Hammer size={14} color={c.purple} /><p style={{ fontSize: 12.5, fontWeight: 700 }}>شرایط پیش‌فروش</p></div>
+            {p.buildStage && <span style={{ fontSize: 10, fontWeight: 700, color: c.purple, background: c.purpleSoft, padding: "3px 9px", borderRadius: 999 }}>{p.buildStage}</span>}
+          </div>
+          <Row c={c} label="پرداخت اولیه" value={`${fmtToman(p.preDown)}${p.price ? ` (${faDigits(Math.round((p.preDown / p.price) * 1000) / 10)}%)` : ""}`} color={c.success} />
+          <Row c={c} label="موقع تحویل" value={`${fmtToman(p.preDelivery)}${p.price ? ` (${faDigits(Math.round((p.preDelivery / p.price) * 1000) / 10)}%)` : ""}`} color={c.primary} />
+          <Row c={c} label="موقع سند" value={`${fmtToman(p.preDeed)}${p.price ? ` (${faDigits(Math.round((p.preDeed / p.price) * 1000) / 10)}%)` : ""}`} color={c.purple} />
+          {p.preMonths > 0 && <Row c={c} label="زمان تحویل" value={`${faDigits(p.preMonths)} ماه`} />}
+        </div>
+      )}
+
       {p.lat && p.lng && <PropertyMiniMap c={c} lat={p.lat} lng={p.lng} title={p.title} />}
 
       <SectionHeader c={c} title="بازدیدهای این فایل" />
@@ -1661,11 +1751,33 @@ const INCOME_CATEGORIES = ["حق مشاوره", "درآمد تبلیغات", "خ
 const EXPENSE_COLORS = ["#5b9dff", "#a78bfa", "#f59e0b", "#ec4899", "#22c55e", "#64748b", "#ef4444", "#06b6d4", "#f472b6", "#94a3b8"];
 const FIN_TABS = [
   { id: "overview", label: "نمای کلی" },
+  { id: "split", label: "تقسیم کمیسیون" },
   { id: "transactions", label: "معاملات" },
   { id: "office", label: "درآمد و هزینه" },
   { id: "debtors", label: "بدهکاران" },
   { id: "reports", label: "گزارشات" },
 ];
+
+// The split is always DERIVED from money actually received — never stored per payment.
+// That way the books can't drift: change the ratio and every figure recomputes from the
+// same source of truth (the payments list).
+const SPLIT_PARTIES = [
+  { id: "agent", label: "سهم من", icon: UserCircle2, color: "#22c55e" },
+  { id: "management", label: "سهم مدیریت", icon: Award, color: "#7c6ff5" },
+  { id: "rent", label: "اجاره دفتر", icon: Home, color: "#f59e0b" },
+];
+function splitAmounts(total, shares) {
+  const units = SPLIT_PARTIES.map((p) => Math.max(0, Number(shares?.[p.id]) || 0));
+  const sum = units.reduce((a, b) => a + b, 0);
+  if (!sum) return SPLIT_PARTIES.map(() => 0);
+  // Give the remainder to the largest share so the parts always add back to the total exactly.
+  const raw = units.map((u) => (total * u) / sum);
+  const floored = raw.map(Math.floor);
+  let rem = Math.round(total - floored.reduce((a, b) => a + b, 0));
+  const order = raw.map((v, i) => [v - floored[i], i]).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; k < rem; k++) floored[order[k % order.length][1]] += 1;
+  return floored;
+}
 
 function DealStatusBadge({ c, status }) {
   if (status === "تسویه شده") return <span style={{ fontSize: 10, fontWeight: 700, color: c.success, background: c.successSoft, padding: "4px 10px", borderRadius: 10 }}>تسویه شده</span>;
@@ -1781,7 +1893,7 @@ function FinanceCenterView({ ctx, onBack }) {
               </div>
               {/* Gold seal, the way a note carries its denomination stamp */}
               <div className="flora-coin w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#fde68a,#f59e0b)", boxShadow: "0 3px 10px rgba(245,158,11,.5), inset 0 0 0 1.5px rgba(255,255,255,.35)" }}>
-                <span style={{ fontSize: 13, fontWeight: 900, color: "#7c2d12" }}>﷼</span>
+                <span style={{ fontSize: 11, fontWeight: 900, color: "#7c2d12" }}>ت</span>
               </div>
             </div>
 
@@ -1795,30 +1907,18 @@ function FinanceCenterView({ ctx, onBack }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 mb-4 flora-stagger">
-            <FinStat c={c} icon={TrendingUp} color={c.success} value={fmtToman(todayVal)} label="فروش امروز" />
-            <FinStat c={c} icon={CalendarDays} color={c.primary} value={fmtToman(monthVal)} label="فروش این ماه" />
-            <FinStat c={c} icon={TrendingUp} color={c.purple} value={fmtToman(yearVal)} label="فروش امسال" />
-            <FinStat c={c} icon={Landmark} color={c.primary} value={fmtToman(totalValue)} label="کل ارزش معاملات" />
-            <FinStat c={c} icon={Wallet} color={c.success} value={fmtToman(totalPaidAll)} label="کمیسیون دریافتی" />
-            <FinStat c={c} icon={AlertTriangle} color={c.attn} value={fmtToman(totalRemainingAll)} label="کمیسیون وصول‌نشده" />
-            <FinStat c={c} icon={FileCheck} color={c.purple} value={faDigits(deals.length)} label="تعداد معاملات" />
-            <FinStat c={c} icon={Award} color={c.primary} value={fmtToman(avgDeal)} label="میانگین هر معامله" />
-            <FinStat c={c} icon={TrendingDown} color={c.danger} value={fmtToman(totalExpenses)} label="کل هزینه‌های دفتر" />
-            <FinStat c={c} icon={Wallet} color={c.success} value={fmtToman(netProfit)} label="سود خالص دفتر" />
-          </div>
+          <FinMarquee c={c} items={[
+            { icon: CalendarDays, color: c.primary, value: fmtToman(monthVal), label: "فروش این ماه" },
+            { icon: TrendingUp, color: c.purple, value: fmtToman(yearVal), label: "فروش امسال" },
+            { icon: Landmark, color: c.primary, value: fmtToman(totalValue), label: "کل ارزش معاملات" },
+            { icon: Wallet, color: c.success, value: fmtToman(totalPaidAll), label: "کمیسیون دریافتی" },
+            { icon: AlertTriangle, color: c.attn, value: fmtToman(totalRemainingAll), label: "کمیسیون وصول‌نشده" },
+            { icon: FileCheck, color: c.purple, value: faDigits(deals.length), label: "تعداد معاملات" },
+            { icon: TrendingDown, color: c.danger, value: fmtToman(totalExpenses), label: "کل هزینه‌های دفتر" },
+            { icon: Wallet, color: c.success, value: fmtToman(netProfit), label: "سود خالص دفتر" },
+          ]} />
 
-          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
-            <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>تعداد معاملات ۶ ماه اخیر</p>
-            <div className="flex items-end justify-between gap-1.5" style={{ height: 80 }}>
-              {monthlyTotals.map((m, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-                  <div style={{ width: "100%", borderRadius: "6px 6px 0 0", background: "linear-gradient(180deg,#5b9dff,#2f7cf6)", height: `${Math.max(6, (m.value / maxMonthly) * 64)}px`, transition: "height .6s ease" }} />
-                  <span style={{ fontSize: 9, color: c.muted }}>{m.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <MonthlyDealsChart c={c} data={monthlyTotals} max={maxMonthly} />
 
           <SectionHeader c={c} title="هشدارها" />
           <div className="flex flex-col gap-2 mb-4">
@@ -1832,6 +1932,8 @@ function FinanceCenterView({ ctx, onBack }) {
           </div>
         </div>
       )}
+
+      {tab === "split" && <SplitTab ctx={ctx} deals={deals} payments={payments} />}
 
       {tab === "transactions" && (
         <div>
@@ -2062,6 +2164,223 @@ function FinanceCenterView({ ctx, onBack }) {
   );
 }
 
+// Stats drift leftwards continuously; the list is duplicated so the loop has no visible seam.
+// Touching it pauses the drift so a figure can actually be read.
+function FinMarquee({ c, items }) {
+  const [paused, setPaused] = useState(false);
+  const doubled = [...items, ...items];
+  return (
+    <div className="mb-4" style={{ overflow: "hidden", position: "relative", margin: "0 -16px", padding: "2px 0" }}
+      onTouchStart={() => setPaused(true)} onTouchEnd={() => setPaused(false)}
+      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      <span style={{ position: "absolute", inset: "0 auto 0 0", width: 28, zIndex: 2, background: `linear-gradient(90deg, ${c.bg}, transparent)`, pointerEvents: "none" }} />
+      <span style={{ position: "absolute", inset: "0 0 0 auto", width: 28, zIndex: 2, background: `linear-gradient(270deg, ${c.bg}, transparent)`, pointerEvents: "none" }} />
+      <div dir="ltr" style={{ display: "flex", gap: 10, width: "max-content", animation: `floraMarquee ${items.length * 4.5}s linear infinite`, animationPlayState: paused ? "paused" : "running" }}>
+        {doubled.map((it, i) => (
+          <div key={i} dir="rtl" className="rounded-xl p-3" style={{ ...glass(c, 18), width: 150, flexShrink: 0, background: `linear-gradient(160deg, ${it.color}14, ${c.surface} 60%)` }}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: it.color + "22", boxShadow: `inset 0 0 0 1.2px ${it.color}33` }}><it.icon size={12} color={it.color} /></div>
+              <p style={{ fontSize: 9.5, color: c.muted }}>{it.label}</p>
+            </div>
+            <p style={{ fontSize: 12.5, fontWeight: 800, direction: "ltr", textAlign: "right", whiteSpace: "nowrap" }}>{it.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MonthlyDealsChart({ c, data, max }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setShow(true), 80); return () => clearTimeout(t); }, []);
+  const best = data.reduce((m, x) => (x.value > m ? x.value : m), 0);
+  return (
+    <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.primarySoft}, ${c.surface} 60%)` }}>
+      <div className="flex items-center justify-between mb-4">
+        <p style={{ fontSize: 13, fontWeight: 700 }}>تعداد معاملات ۶ ماه اخیر</p>
+        <span style={{ fontSize: 9.5, color: c.muted, background: c.surface2, padding: "3px 8px", borderRadius: 999 }}>مجموع {faDigits(data.reduce((a, b) => a + b.value, 0))}</span>
+      </div>
+      <div className="flex items-end justify-between gap-2" style={{ height: 108, position: "relative" }}>
+        {[0.33, 0.66, 1].map((g, i) => (
+          <span key={i} style={{ position: "absolute", left: 0, right: 0, bottom: `${18 + g * 76}px`, height: 1, background: c.border, opacity: .5 }} />
+        ))}
+        {data.map((m, i) => {
+          const h = Math.max(4, (m.value / max) * 76);
+          const isBest = m.value === best && best > 0;
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1.5" style={{ zIndex: 1 }}>
+              <span style={{ fontSize: 9.5, fontWeight: 800, color: isBest ? c.primary : c.muted, opacity: show ? 1 : 0, transition: "opacity .5s ease .5s" }}>{m.value ? faDigits(m.value) : ""}</span>
+              <div style={{ width: "100%", position: "relative", display: "flex", justifyContent: "center" }}>
+                <div style={{
+                  width: "72%", borderRadius: "7px 7px 3px 3px",
+                  background: isBest ? "linear-gradient(180deg,#7c6ff5,#2f7cf6)" : `linear-gradient(180deg,${c.primary}88,${c.primary}33)`,
+                  boxShadow: isBest ? "0 6px 16px rgba(124,111,245,.45)" : "none",
+                  height: show ? `${h}px` : "3px",
+                  transition: `height .8s cubic-bezier(.34,1.3,.64,1) ${i * 0.07}s`,
+                }} />
+              </div>
+              <span style={{ fontSize: 9, color: isBest ? c.primary : c.muted, fontWeight: isBest ? 700 : 400 }}>{m.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Commission split. Every number here is derived from payments already received, so the
+// three shares always reconcile back to the money that actually came in.
+function SplitTab({ ctx, deals, payments }) {
+  const { c, splitShares, setSplitShares, notify } = ctx;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(splitShares);
+
+  const receivedTotal = deals.reduce((sum, d) => sum + dealTotalPaid(d, payments), 0);
+  const pendingTotal = deals.reduce((sum, d) => sum + dealTotalRemaining(d, payments), 0);
+  const parts = splitAmounts(receivedTotal, splitShares);
+  const futureParts = splitAmounts(pendingTotal, splitShares);
+  const unitSum = SPLIT_PARTIES.reduce((a, p) => a + (Number(splitShares?.[p.id]) || 0), 0);
+
+  const perDeal = deals
+    .map((d) => ({ deal: d, paid: dealTotalPaid(d, payments) }))
+    .filter((x) => x.paid > 0)
+    .sort((a, b) => b.paid - a.paid);
+
+  return (
+    <div>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0f2f5e 0%,#1e3a8a 45%,#4c1d95 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
+        <span style={{ position: "absolute", top: "-45%", left: "-20%", width: 190, height: 190, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>کمیسیون دریافت‌شده (قابل تقسیم)</p>
+        <CountUpToman value={receivedTotal} className="flora-money" style={{ fontSize: 21, fontWeight: 800, color: "#fbbf24", display: "inline-block", marginTop: 3, direction: "ltr" }} />
+        <p style={{ fontSize: 10.5, color: "rgba(255,255,255,.65)", marginTop: 6, lineHeight: 1.8 }}>
+          فقط پولی که واقعاً به دست‌مان رسیده تقسیم می‌شود؛ مانده‌ی وصول‌نشده پایین جدا آمده تا حساب‌ها قاطی نشود.
+        </p>
+      </div>
+
+      {/* The ratio itself */}
+      <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+        <div className="flex items-center justify-between mb-3">
+          <p style={{ fontSize: 12.5, fontWeight: 700 }}>نسبت تقسیم</p>
+          {!editing ? (
+            <button onClick={() => { setDraft(splitShares); setEditing(true); }} className="press flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: c.primarySoft }}>
+              <Edit3 size={11} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary }}>تغییر</span>
+            </button>
+          ) : (
+            <div className="flex gap-1.5">
+              <button onClick={() => setEditing(false)} className="press rounded-lg px-2.5 py-1.5" style={{ background: c.surface2, fontSize: 10.5, fontWeight: 700, color: c.muted }}>لغو</button>
+              <button onClick={() => {
+                const total = SPLIT_PARTIES.reduce((a, p) => a + (Number(toEnDigits(String(draft[p.id]))) || 0), 0);
+                if (!total) { notify("حداقل یک سهم باید بزرگ‌تر از صفر باشد"); return; }
+                setSplitShares({ agent: Number(toEnDigits(String(draft.agent))) || 0, management: Number(toEnDigits(String(draft.management))) || 0, rent: Number(toEnDigits(String(draft.rent))) || 0 });
+                setEditing(false); notify("نسبت تقسیم ذخیره شد");
+              }} className="press rounded-lg px-2.5 py-1.5" style={{ background: c.primary, fontSize: 10.5, fontWeight: 700, color: "#fff" }}>ذخیره</button>
+            </div>
+          )}
+        </div>
+        {editing ? (
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              {SPLIT_PARTIES.map((p) => (
+                <div key={p.id}>
+                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 5 }}>{p.label}</p>
+                  <input inputMode="numeric" value={draft[p.id]} onChange={(e) => setDraft({ ...draft, [p.id]: e.target.value })} style={{ ...inputStyle(c), textAlign: "center", padding: "9px 6px" }} />
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 10, color: c.muted, marginTop: 8, lineHeight: 1.8 }}>سهم‌ها نسبی‌اند: ۱-۱-۱ یعنی تقسیم مساوی سه‌نفره. مثلاً ۲-۱-۱ یعنی سهم تو دو برابر.</p>
+          </>
+        ) : (
+          <div className="flex gap-2">
+            {SPLIT_PARTIES.map((p, i) => {
+              const units = Number(splitShares?.[p.id]) || 0;
+              const pct = unitSum ? Math.round((units / unitSum) * 100) : 0;
+              return (
+                <div key={p.id} className="flex-1 rounded-xl p-2.5 text-center" style={{ background: p.color + "14", border: `1px solid ${p.color}2e` }}>
+                  <p style={{ fontSize: 15, fontWeight: 800, color: p.color }}>{faDigits(pct)}%</p>
+                  <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>{p.label}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* The three shares */}
+      <SectionHeader c={c} title="سهم هر طرف از دریافتی‌ها" />
+      <div className="flex flex-col gap-2.5 mb-4 flora-stagger">
+        {SPLIT_PARTIES.map((p, i) => (
+          <div key={p.id} className="rounded-2xl p-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${p.color}12, ${c.surface} 62%)`, position: "relative", overflow: "hidden" }}>
+            <span style={{ position: "absolute", inset: 6, borderRadius: 16, border: `1px dashed ${p.color}2e`, pointerEvents: "none" }} />
+            <div className="flex items-center justify-between" style={{ position: "relative" }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: p.color + "22", boxShadow: `inset 0 0 0 1.5px ${p.color}44` }}><p.icon size={17} color={p.color} /></div>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 700 }}>{p.label}</p>
+                  <p style={{ fontSize: 9.5, color: c.muted }}>سهم {faDigits(unitSum ? Math.round(((Number(splitShares?.[p.id]) || 0) / unitSum) * 100) : 0)}%</p>
+                </div>
+              </div>
+              <CountUpToman value={parts[i]} style={{ fontSize: 15, fontWeight: 800, color: p.color, direction: "ltr", display: "inline-block" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Reconciliation — proves the three parts add back up */}
+      <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+        <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>کنترل حساب</p>
+        {SPLIT_PARTIES.map((p, i) => <Row key={p.id} c={c} label={p.label} value={fmtToman(parts[i])} color={p.color} />)}
+        <div className="flex justify-between items-center" style={{ paddingTop: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 800 }}>جمع سه سهم</span>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: parts.reduce((a, b) => a + b, 0) === receivedTotal ? c.success : c.danger, direction: "ltr" }}>{fmtToman(parts.reduce((a, b) => a + b, 0))}</span>
+        </div>
+        <p className="flex items-center gap-1.5" style={{ fontSize: 10, color: c.success, marginTop: 6 }}>
+          <BadgeCheck size={11} /> برابر با کل دریافتی — ریالی کم و زیاد نشده
+        </p>
+      </div>
+
+      {/* Not yet collected */}
+      {pendingTotal > 0 && (
+        <>
+          <SectionHeader c={c} title="هنوز وصول نشده (سهم آینده)" />
+          <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), border: `1px solid ${c.attnSoft}` }}>
+            <p style={{ fontSize: 11, color: c.muted, marginBottom: 8, lineHeight: 1.8 }}>این مبالغ هنوز به دست‌مان نرسیده؛ فقط برای برنامه‌ریزی است و در حساب بالا لحاظ نشده.</p>
+            {SPLIT_PARTIES.map((p, i) => <Row key={p.id} c={c} label={p.label} value={fmtToman(futureParts[i])} color={c.muted} />)}
+            <div className="flex justify-between items-center" style={{ paddingTop: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: c.attn }}>جمع وصول‌نشده</span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: c.attn, direction: "ltr" }}>{fmtToman(pendingTotal)}</span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Per-deal breakdown */}
+      <SectionHeader c={c} title="تفکیک به ازای هر معامله" />
+      <div className="flex flex-col gap-2 mb-4 flora-stagger">
+        {perDeal.map(({ deal, paid }) => {
+          const dp = splitAmounts(paid, splitShares);
+          return (
+            <div key={deal.id} className="rounded-xl p-3.5" style={glass(c, 20)}>
+              <div className="flex items-center justify-between mb-2.5">
+                <p style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{deal.propertyTitle}</p>
+                <span style={{ fontSize: 11.5, fontWeight: 800, color: c.success, direction: "ltr", flexShrink: 0, marginRight: 8 }}>{fmtToman(paid)}</span>
+              </div>
+              <div className="flex gap-1.5">
+                {SPLIT_PARTIES.map((p, i) => (
+                  <div key={p.id} className="flex-1 rounded-lg py-1.5 px-1 text-center" style={{ background: p.color + "14" }}>
+                    <p style={{ fontSize: 10.5, fontWeight: 800, color: p.color, direction: "ltr" }}>{dp[i].toLocaleString("en-US")}</p>
+                    <p style={{ fontSize: 8.5, color: c.muted, marginTop: 1 }}>{p.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {perDeal.length === 0 && <EmptyLine c={c} text="هنوز کمیسیونی دریافت نشده" />}
+      </div>
+    </div>
+  );
+}
+
 function FinStat({ c, icon: Icon, color, value, label }) {
   return (
     <div className="rounded-xl p-3.5" style={{ ...glass(c, 20), background: `linear-gradient(160deg, ${color}14, ${c.surface} 60%)`, position: "relative", overflow: "hidden" }}>
@@ -2250,8 +2569,8 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
     loadLeaflet().then((L) => {
       if (cancelled || !mapRef.current || mapObjRef.current) return;
       const start = initial && initial.lat ? [initial.lat, initial.lng] : SAREIN_CENTER;
-      const map = L.map(mapRef.current).setView(start, initial && initial.lat ? 16 : 14);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
+      const map = L.map(mapRef.current, { attributionControl: false }).setView(start, initial && initial.lat ? 16 : 14);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "" }).addTo(map);
       const marker = L.marker(start, { draggable: true }).addTo(map);
       marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
       map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
@@ -2429,7 +2748,7 @@ function MessageTemplatesSheet({ ctx, onClose, customerId }) {
 
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} placeholder="اختیاری" /></Field>
-        <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="اختیاری" /></Field>
+        <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="اختیاری" /></Field>
       </div>
       {active.needsProperty && <Field c={c} label="فایل ملک"><Select c={c} value={propertyId} onChange={(e) => setPropertyId(e.target.value)} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>}
       {active.needsTime && <Field c={c} label="ساعت قرار"><input type="time" style={inputStyle(c)} value={time} onChange={(e) => setTime(e.target.value)} /></Field>}
@@ -2448,6 +2767,76 @@ function MessageTemplatesSheet({ ctx, onClose, customerId }) {
 }
 
 
+// Pre-sale terms. Percentages are computed from the total price rather than typed, so the
+// three instalments can't silently stop adding up to the deal.
+function PreSaleFields({ c, f, setF, total }) {
+  const down = toNum(f.preDown), delivery = toNum(f.preDelivery), deed = toNum(f.preDeed);
+  const pct = (v) => (total ? Math.round((v / total) * 1000) / 10 : 0);
+  const sum = down + delivery + deed;
+  const diff = total - sum;
+  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  return (
+    <div className="rounded-2xl p-3.5 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: c.purpleSoft }}><Hammer size={13} color={c.purple} /></div>
+        <p style={{ fontSize: 12.5, fontWeight: 700 }}>شرایط پیش‌فروش</p>
+      </div>
+
+      <Field c={c} label="مبلغ پرداخت اولیه (تومان)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.preDown} onChange={set("preDown")} placeholder="مثلاً 3000000000" />
+        <p style={{ fontSize: 10.5, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(down)} {total ? `— ${faDigits(pct(down))}% کل` : ""}</p>
+      </Field>
+
+      <Field c={c} label="مبلغ موقع تحویل (تومان)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.preDelivery} onChange={set("preDelivery")} placeholder="مبلغ پرداخت هنگام تحویل" />
+        <p style={{ fontSize: 10.5, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(delivery)} {total ? `— ${faDigits(pct(delivery))}% کل` : ""}</p>
+      </Field>
+
+      <Field c={c} label="مبلغ موقع سند (تومان)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.preDeed} onChange={set("preDeed")} placeholder="مبلغ پرداخت هنگام سند" />
+        <p style={{ fontSize: 10.5, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(deed)} {total ? `— ${faDigits(pct(deed))}% کل` : ""}</p>
+      </Field>
+
+      <Field c={c} label="زمان تحویل پروژه (ماه)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.preMonths} onChange={set("preMonths")} placeholder="مثلاً 18" />
+        {toNum(f.preMonths) > 0 && <p style={{ fontSize: 10.5, color: c.muted, marginTop: 5 }}>تحویل حدود {faDigits(toNum(f.preMonths))} ماه دیگر</p>}
+      </Field>
+
+      <Field c={c} label="مرحله ساخت">
+        <div className="flex flex-wrap gap-1.5">
+          {BUILD_STAGES.map((st) => {
+            const active = f.buildStage === st;
+            return <button key={st} type="button" onClick={() => setF((p) => ({ ...p, buildStage: st }))} className="press rounded-lg px-2.5 py-1.5"
+              style={{ background: active ? c.purple : c.surface2, color: active ? "#fff" : c.muted, fontWeight: 700, fontSize: 10 }}>{st}</button>;
+          })}
+        </div>
+      </Field>
+
+      {/* Reconciliation: the three instalments must equal the total price */}
+      {total > 0 && (
+        <div className="rounded-xl p-3" style={{ background: c.surface2 }}>
+          <div className="flex justify-between items-center mb-1.5">
+            <span style={{ fontSize: 10.5, color: c.muted }}>جمع سه پرداخت</span>
+            <span style={{ fontSize: 11, fontWeight: 800, direction: "ltr" }}>{fmtToman(sum)}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span style={{ fontSize: 10.5, color: c.muted }}>قیمت کل فایل</span>
+            <span style={{ fontSize: 11, fontWeight: 800, direction: "ltr" }}>{fmtToman(total)}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 6, background: c.border, marginTop: 8, overflow: "hidden", display: "flex" }}>
+            {[down, delivery, deed].map((v, i) => (
+              <div key={i} style={{ width: `${total ? Math.min(100, (v / total) * 100) : 0}%`, background: [c.success, c.primary, c.purple][i], transition: "width .5s ease" }} />
+            ))}
+          </div>
+          <p className="flex items-center gap-1.5" style={{ fontSize: 10, marginTop: 7, color: Math.abs(diff) < 1 ? c.success : c.attn, fontWeight: 700 }}>
+            {Math.abs(diff) < 1 ? <><BadgeCheck size={11} /> جمع پرداخت‌ها با قیمت کل برابر است</> : <><AlertTriangle size={11} /> {diff > 0 ? `${fmtToman(diff)} کمتر از قیمت کل` : `${fmtToman(-diff)} بیشتر از قیمت کل`}</>}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PropertyForm({ ctx, onClose, editId }) {
   const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker } = ctx;
   const editing = editId ? properties.find((x) => x.id === editId) : null;
@@ -2456,7 +2845,8 @@ function PropertyForm({ ctx, onClose, editId }) {
     title: editing.title, type: editing.type, deal: editing.deal, pricePerMeter: String(editing.pricePerMeter), area: String(editing.area),
     rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address,
     ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "", lat: editing.lat, lng: editing.lng,
-  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null });
+    preDown: String(editing.preDown || ""), preMonths: String(editing.preMonths || ""), preDelivery: String(editing.preDelivery || ""), preDeed: String(editing.preDeed || ""), buildStage: editing.buildStage || BUILD_STAGES[0],
+  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0] });
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
   const [showDivar, setShowDivar] = useState(false);
@@ -2496,6 +2886,7 @@ function PropertyForm({ ctx, onClose, editId }) {
     const payload = {
       title: f.title, type: f.type, deal: f.deal, address: f.address, builderId: f.builderId, furnished: f.furnished,
       pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId, media, lat: f.lat ?? null, lng: f.lng ?? null,
+      preDown: toNum(f.preDown), preMonths: toNum(f.preMonths), preDelivery: toNum(f.preDelivery), preDeed: toNum(f.preDeed), buildStage: f.buildStage,
     };
     if (editing) {
       setProperties((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
@@ -2565,9 +2956,14 @@ function PropertyForm({ ctx, onClose, editId }) {
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نام مالک"><input style={inputStyle(c)} value={f.ownerName} onChange={set("ownerName")} placeholder="اختیاری" /></Field>
-        <Field c={c} label="شماره مالک"><input style={inputStyle(c)} dir="ltr" value={f.ownerPhone} onChange={set("ownerPhone")} placeholder="اختیاری" /></Field>
+        <Field c={c} label="شماره مالک"><input style={inputStyle(c)} dir="ltr" value={f.ownerPhone} inputMode="tel" onChange={set("ownerPhone")} placeholder="اختیاری" /></Field>
       </div>
-      {isPreSale && <Field c={c} label="سازنده"><Select c={c} value={f.builderId} onChange={set("builderId")} placeholder="انتخاب سازنده" options={builders.map(b=>({value:b.id,label:b.name}))} /></Field>}
+      {isPreSale && (
+        <>
+          <Field c={c} label="سازنده"><Select c={c} value={f.builderId} onChange={set("builderId")} placeholder="انتخاب سازنده" options={builders.map(b=>({value:b.id,label:b.name}))} /></Field>
+          <PreSaleFields c={c} f={f} setF={setF} total={total} />
+        </>
+      )}
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره فایل"} disabled={!valid} onClick={submit} />
     </SheetShell>
   );
@@ -2594,7 +2990,7 @@ function CustomerForm({ ctx, onClose }) {
         </button>
       )}
       <Field c={c} label="نام و نام‌خانوادگی"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
-      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
+      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} inputMode="tel" onChange={set("phone")} /></Field>
       <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={set("need")} placeholder="مثلاً خرید آپارتمان ۲ خواب" /></Field>
       <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.budget} onChange={set("budget")} /></Field>
       <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget) }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
@@ -2610,7 +3006,7 @@ function OwnerForm({ ctx, onClose, editId }) {
   return (
     <SheetShell c={c} title={editing ? "ویرایش مالک" : "ثبت مالک"} onClose={onClose}>
       <Field c={c} label="نام و نام‌خانوادگی"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
-      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
+      <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} inputMode="tel" onChange={set("phone")} /></Field>
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره مالک"} disabled={!valid} onClick={() => {
         if (editing) setOwners((prev) => prev.map((x) => x.id === editId ? { ...x, ...f } : x));
         else setOwners((prev) => [{ id: uid(), ...f }, ...prev]);
@@ -2628,7 +3024,7 @@ function BuilderForm({ ctx, onClose, editId }) {
   return (
     <SheetShell c={c} title={editing ? "ویرایش سازنده" : "ثبت سازنده"} onClose={onClose}>
       <Field c={c} label="نام شرکت / سازنده"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
-      <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={set("phone")} /></Field>
+      <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} inputMode="tel" onChange={set("phone")} /></Field>
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره سازنده"} disabled={!valid} onClick={() => {
         if (editing) setBuilders((prev) => prev.map((x) => x.id === editId ? { ...x, ...f } : x));
         else setBuilders((prev) => [{ id: uid(), ...f }, ...prev]);
@@ -2733,11 +3129,11 @@ function DealForm({ ctx, onClose, editId }) {
       <Field c={c} label="عنوان معامله (می‌توانی مستقیم تایپ کنی)"><input style={inputStyle(c)} value={f.propertyTitle} onChange={set("propertyTitle")} placeholder="مثلاً ویلا تانیا — لواسان" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نام فروشنده"><input style={inputStyle(c)} value={f.sellerName} onChange={set("sellerName")} /></Field>
-        <Field c={c} label="شماره فروشنده"><input style={inputStyle(c)} dir="ltr" value={f.sellerPhone} onChange={set("sellerPhone")} /></Field>
+        <Field c={c} label="شماره فروشنده"><input style={inputStyle(c)} dir="ltr" value={f.sellerPhone} inputMode="tel" onChange={set("sellerPhone")} /></Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نام خریدار"><input style={inputStyle(c)} value={f.buyerName} onChange={set("buyerName")} /></Field>
-        <Field c={c} label="شماره خریدار"><input style={inputStyle(c)} dir="ltr" value={f.buyerPhone} onChange={set("buyerPhone")} /></Field>
+        <Field c={c} label="شماره خریدار"><input style={inputStyle(c)} dir="ltr" value={f.buyerPhone} inputMode="tel" onChange={set("buyerPhone")} /></Field>
       </div>
       <Field c={c} label="مبلغ معامله (تومان)">
         <input style={inputStyle(c)} inputMode="numeric" value={f.price} onChange={set("price")} />
