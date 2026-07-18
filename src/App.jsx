@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -332,6 +332,30 @@ export default function FloraCRM() {
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares]);
 
+  // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
+  // so once a week the app downloads a fresh backup file automatically (and flags it),
+  // rather than relying on the agent to remember.
+  const [backupDue, setBackupDue] = useState(false);
+  useEffect(() => {
+    if (!loaded) return;
+    (async () => {
+      let meta = null;
+      try { meta = await dbGet(AUTOBACKUP_KEY); } catch (e) {}
+      const WEEK = 7 * 24 * 60 * 60 * 1000;
+      const last = meta?.lastDownload || 0;
+      if (Date.now() - last >= WEEK) {
+        // only auto-download if there's real data worth saving
+        const hasData = properties.length || customers.length || deals.length;
+        if (hasData) {
+          downloadBackup(buildBackupPayload(), `auto-${todayISO()}`);
+          dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now(), auto: true }).catch(() => {});
+          setBackupDue(true);
+          setTimeout(() => notify("بکاپ هفتگی خودکار دانلود شد — آن را جای امن نگه‌دار"), 800);
+        }
+      }
+    })();
+  }, [loaded]); // eslint-disable-line
+
   const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
   const callAI = async (prompt) => {
     if (aiProvider === "openai") {
@@ -400,13 +424,17 @@ export default function FloraCRM() {
     });
   };
 
-  const exportBackup = () => {
-    const payload = { version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes };
+  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes });
+  const downloadBackup = (payload, label) => {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `flora-backup-${todayISO()}.json`; a.click();
+    a.href = url; a.download = `flora-backup-${label || todayISO()}.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  const exportBackup = () => {
+    downloadBackup(buildBackupPayload());
+    dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now() }).catch(() => {});
     notify("فایل بکاپ دانلود شد");
   };
   const importBackup = (file) => {
@@ -695,7 +723,7 @@ function FIcon({ children, size = 26, color = "currentColor", gold = FLORA_GOLD,
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none"
       stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {typeof children === "function" ? children(gold) : children}
+      {typeof children === "function" ? children(gold, color) : children}
     </svg>
   );
 }
@@ -726,9 +754,20 @@ const FloraIcons = {
     <path d="M20 36 L28 36 M20 42 L28 42" />
     <rect x="42" y="42" width="4" height="4" fill={g} stroke={g} />
   </>}</FIcon>,
-  window: (p) => <FIcon {...p}>{(g) => <>
+  handover: (p) => <FIcon {...p}>{(g) => <>
+    <path d={HOUSE} />
+    <circle cx="32" cy="28" r="4" stroke={g} />
+    <path d="M32 32 L32 44 M32 38 L37 38 M32 41 L36 41" stroke={g} />
+  </>}</FIcon>,
+  deed: (p) => <FIcon {...p}>{(g) => <>
+    <path d="M20 12 L38 12 L46 20 L46 54 L20 54 Z" />
+    <path d="M26 26 L40 26 M26 32 L40 32 M26 38 L34 38" />
+    <circle cx="40" cy="44" r="6" stroke={g} />
+    <path d="M37 44 L39 46 L43 42" stroke={g} />
+  </>}</FIcon>,
+  window: (p) => <FIcon {...p}>{(g, col) => <>
     <path d="M21 32 C21 21 43 21 43 32 L43 50 L21 50 Z" fill={g} fillOpacity="0.85" stroke={g} />
-    <path d="M32 23 L32 50 M22 39 L42 39" stroke={color} />
+    <path d="M32 23 L32 50 M22 39 L42 39" stroke={col} />
   </>}</FIcon>,
   investment: (p) => <FIcon {...p}>{(g) => <>
     <path d={HOUSE} />
@@ -755,6 +794,10 @@ const FloraIcons = {
     <path d="M32 28 C35 26 38 27 39 31 C35 32 33 31 32 28 Z" />
   </>}</FIcon>,
 };
+
+// Safe lookup: falls back to the residential icon if a key is ever missing,
+// so a bad icon name degrades gracefully instead of crashing the whole screen.
+const floraIcon = (name, props) => (FloraIcons[name] || FloraIcons.residential)(props);
 
 function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.6, gold = FLORA_GOLD }) {
   // Brand mark: gold arched window with white/stone mullions, plus a gold key
@@ -872,8 +915,8 @@ function HomeTab({ ctx }) {
         <span style={{ position: "absolute", top: "-50%", right: "-30%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)", animation: "floraFloat 4s ease-in-out infinite" }} />
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 flora-float" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={21} color="#fff" /></div>
         <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13.5, fontWeight: 800, color: "#fff" }}>برنامه‌ی امروز</p>
-          <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.85)", marginTop: 1 }}>اولویت‌ها، مشتریان داغ و فایل‌های خواب‌رفته</p>
+          <p style={{ fontSize: 13.5, fontWeight: 800, color: "#fff" }}>دستیار مدیر فروش</p>
+          <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.85)", marginTop: 1 }}>ماموریت امروز، اولویت‌ها و نگاه مدیر فروش</p>
         </div>
         <ChevronLeft size={17} color="rgba(255,255,255,0.75)" />
       </button>
@@ -1530,7 +1573,7 @@ function PropertyDetail({ id, ctx, onBack }) {
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2.5">
             <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}>
-              {FloraIcons[floraTypeIcon(p.type, p.deal)]({ size: 26, color: c.primary })}
+              {floraIcon(floraTypeIcon(p.type, p.deal), { size: 26, color: c.primary })}
             </div>
             <span style={{ fontSize: 11, background: c.primarySoft, color: c.primary, padding: "3px 10px", borderRadius: 999, fontWeight: 700 }}>{p.deal}</span>
           </div>
@@ -1661,10 +1704,239 @@ function greetingPhrase() {
 }
 const HEAT_STYLE = { hot: { label: "🔥 داغ", }, warm: { label: "🟡 متوسط" }, cold: { label: "❄️ سرد" } };
 
+// The daily targets a real-estate agent works toward. Editable, and progress is
+// saved per-day so ticking things off survives closing the app.
+const DEFAULT_MISSION = [
+  { id: "newfiles", icon: "residential", label: "ثبت فایل جدید", target: 2 },
+  { id: "ownercalls", icon: "handover", label: "تماس با مالک", target: 12 },
+  { id: "visits", icon: "location", label: "انجام بازدید", target: 2 },
+  { id: "stories", icon: "window", label: "انتشار استوری", target: 3 },
+  { id: "renew", icon: "investment", label: "تمدید آگهی دیوار", target: 4 },
+  { id: "buyers", icon: "monogram", label: "پیگیری خریدار", target: 5 },
+  { id: "contract", icon: "deed", label: "ثبت قرارداد", target: 1 },
+];
+const MISSION_ICONS = { newfiles: "residential", ownercalls: "handover", visits: "location", stories: "window", renew: "investment", buyers: "monogram", contract: "deed" };
+
+// Builds today's targets from the agent's real numbers when AI isn't available,
+// so the mission still adapts to their actual situation.
+function smartMission(ctx) {
+  const { customers, calls, appointments, properties } = ctx;
+  const active = properties.filter((p) => p.stage !== "فروخته شد");
+  const staleCustomers = customers.filter((cu) => {
+    const last = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
+    return !last || daysSince(last.date) >= 3;
+  }).length;
+  const sleeping = active.filter((p) => p.createdAt && daysSince(p.createdAt) >= 20).length;
+  const visitsToday = appointments.filter((a) => a.date === todayISO()).length;
+  return [
+    { id: "newfiles", label: "ثبت فایل جدید", target: active.length < 10 ? 3 : 2 },
+    { id: "ownercalls", label: "تماس با مالک", target: 12 },
+    { id: "visits", label: "انجام بازدید", target: Math.max(1, visitsToday) },
+    { id: "stories", label: "انتشار استوری", target: 3 },
+    { id: "renew", label: "تمدید آگهی دیوار", target: Math.max(2, Math.min(6, sleeping)) },
+    { id: "buyers", label: "پیگیری خریدار", target: Math.max(3, Math.min(8, staleCustomers)) },
+    { id: "contract", label: "ثبت قرارداد", target: 1 },
+  ].map((m) => ({ ...m, icon: MISSION_ICONS[m.id] || "residential" }));
+}
+
+function MissionOfTheDay({ ctx }) {
+  const { c, notify, hasAiKey, callAI, agentName } = ctx;
+  const [mission, setMission] = useState(null); // { date, items, coach, source }
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { (async () => {
+    try {
+      const saved = await dbGet(MISSION_KEY);
+      if (saved?.date === todayISO()) { setMission(saved); return; }
+    } catch (e) {}
+    // fresh day: smart deterministic targets until AI is asked
+    const items = smartMission(ctx).map((m) => ({ ...m, done: 0 }));
+    setMission({ date: todayISO(), items, coach: "", source: "auto" });
+  })(); }, []); // eslint-disable-line
+
+  const persist = (next) => { setMission(next); dbSet(MISSION_KEY, next).catch(() => {}); };
+
+  const askAI = async () => {
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); return; }
+    setLoading(true);
+    try {
+      const { customers, calls, appointments, properties, deals } = ctx;
+      const active = properties.filter((p) => p.stage !== "فروخته شد");
+      const staleCustomers = customers.filter((cu) => {
+        const last = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
+        return !last || daysSince(last.date) >= 3;
+      }).length;
+      const sleeping = active.filter((p) => p.createdAt && daysSince(p.createdAt) >= 20).length;
+      const visitsToday = appointments.filter((a) => a.date === todayISO()).length;
+      const newToday = properties.filter((p) => (p.createdAt || "").slice(0, 10) === todayISO()).length;
+      const weekStart = daysAgoISO(new Date().getDay());
+      const dealsThisWeek = (deals || []).filter((d) => (d.createdAt || "") >= weekStart).length;
+      const filesThisWeek = properties.filter((p) => (p.createdAt || "") >= weekStart).length;
+
+      const prompt = `تو مشاور و مدیر فروش شخصی یک مشاور املاک ایرانی به اسم ${agentName || "مشاور"} هستی. بر اساس وضعیت واقعی امروزِ او، «ماموریت امروز» را تعیین کن — یعنی برای هر کار، عدد هدفِ منطقی امروز را مشخص کن. لحن جمله‌ات صمیمی و انگیزشی است.
+وضعیت واقعی:
+- فایل‌های فعال: ${active.length}
+- فایل ثبت‌شده امروز: ${newToday}
+- مشتریان پیگیری‌نشده (۳+ روز): ${staleCustomers}
+- فایل‌های خواب‌رفته (۲۰+ روز): ${sleeping}
+- بازدید امروز: ${visitsToday}
+- این هفته: ${filesThisWeek} فایل، ${dealsThisWeek} قرارداد
+
+دقیقاً JSON خام برگردان (بدون توضیح، بدون markdown):
+{"coach":"یک تا دو جمله‌ی صمیمی خطاب به ${agentName || "مشاور"} که بگوید امروز روی چه چیزی تمرکز کند و چرا","targets":{"newfiles":عدد,"ownercalls":عدد,"visits":عدد,"stories":عدد,"renew":عدد,"buyers":عدد,"contract":عدد}}
+اعداد باید بر اساس وضعیت بالا واقع‌بینانه باشند (مثلاً اگر مشتری پیگیری‌نشده زیاد است، عدد پیگیری خریدار بیشتر شود). عددی خارج از توان یک روز نگذار.`;
+      const text = await callAI(prompt);
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const t = parsed.targets || {};
+      const items = DEFAULT_MISSION.map((m) => ({
+        id: m.id, icon: m.icon, label: m.label,
+        target: Math.max(1, Number(t[m.id]) || m.target),
+        done: mission?.items.find((x) => x.id === m.id)?.done || 0,
+      }));
+      persist({ date: todayISO(), items, coach: parsed.coach || "", source: "ai" });
+      notify("ماموریت امروز توسط مشاور هوشمند تنظیم شد");
+    } catch (e) {
+      if (e instanceof SyntaxError) notify("پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن");
+      else notify(`خطا: ${e.message || "نامشخص"}`);
+    }
+    setLoading(false);
+  };
+
+  if (!mission) return null;
+  const totalTarget = mission.items.reduce((s, m) => s + m.target, 0);
+  const totalDone = mission.items.reduce((s, m) => s + Math.min(m.done, m.target), 0);
+  const pct = totalTarget ? Math.round((totalDone / totalTarget) * 100) : 0;
+
+  const bump = (id, delta) => persist({ ...mission, items: mission.items.map((m) => m.id === id ? { ...m, done: Math.max(0, Math.min(m.target, m.done + delta)) } : m) });
+  const setTarget = (id, t) => persist({ ...mission, items: mission.items.map((m) => m.id === id ? { ...m, target: Math.max(1, Number(toEnDigits(String(t))) || 1) } : m) });
+
+  return (
+    <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 24), position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: -16, left: -12, opacity: 0.08, pointerEvents: "none" }}><FloraMark size={110} color={c.ink} /></div>
+      <div className="flex items-center justify-between mb-3" style={{ position: "relative" }}>
+        <div className="flex items-center gap-2">
+          <span style={{ width: 9, height: 9, borderRadius: 99, background: pct >= 100 ? c.success : c.primary }} className={pct < 100 ? "flora-pulse" : ""} />
+          <p style={{ fontSize: 14, fontWeight: 800 }}>ماموریت امروز</p>
+        </div>
+        <button onClick={() => setEditing((e) => !e)} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1" style={{ background: c.surface2 }}>
+          <Edit3 size={11} color={c.muted} /><span style={{ fontSize: 10, fontWeight: 700, color: c.muted }}>{editing ? "تمام" : "اهداف"}</span>
+        </button>
+      </div>
+
+      {/* progress bar */}
+      <div className="flex items-center gap-2 mb-3">
+        <div style={{ flex: 1, height: 8, borderRadius: 6, background: c.surface2, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 6, background: pct >= 100 ? c.success : "linear-gradient(90deg,#2f7cf6,#7c6ff5)", transition: "width .5s cubic-bezier(.34,1.3,.64,1)" }} />
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 800, color: pct >= 100 ? c.success : c.primary }}>{faDigits(pct)}%</span>
+      </div>
+      {pct >= 100 && <p style={{ fontSize: 11, color: c.success, fontWeight: 700, marginBottom: 10 }}>🎉 آفرین! همه‌ی اهداف امروز را زدی</p>}
+
+      {/* AI coach message */}
+      {mission.coach && (
+        <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)" }}>
+          <Bot size={16} color="#fff" className="shrink-0" style={{ marginTop: 1 }} />
+          <p style={{ fontSize: 11.5, color: "#fff", lineHeight: 1.85, fontWeight: 500 }}>{mission.coach}</p>
+        </div>
+      )}
+
+      {/* Ask the AI advisor to set today's targets */}
+      <button onClick={askAI} disabled={loading} className="press w-full rounded-xl py-2.5 mb-3 flex items-center justify-center gap-1.5" style={{ background: mission.source === "ai" ? c.surface2 : c.primarySoft }}>
+        {loading ? <Loader2 size={13} className="animate-spin" color={c.primary} /> : <Sparkles size={13} color={c.primary} />}
+        <span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>{loading ? "مشاور در حال تنظیم ماموریت..." : mission.source === "ai" ? "به‌روزرسانی ماموریت با مشاور" : "بگذار مشاور هوشمند ماموریت امروزت را بچیند"}</span>
+      </button>
+
+      <div className="flex flex-col gap-2">
+        {mission.items.map((m) => {
+          const complete = m.done >= m.target;
+          return (
+            <div key={m.id} className="rounded-xl p-3 flex items-center gap-3" style={{ background: c.surface2 }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: complete ? c.successSoft : c.primarySoft }}>
+                {floraIcon(m.icon, { size: 20, color: complete ? c.success : c.primary })}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: 12.5, fontWeight: 700, textDecoration: complete ? "line-through" : "none", color: complete ? c.muted : c.ink }}>{m.label}</p>
+                {editing ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span style={{ fontSize: 10, color: c.muted }}>هدف:</span>
+                    <input inputMode="numeric" value={m.target} onChange={(e) => setTarget(m.id, e.target.value)} style={{ width: 46, textAlign: "center", background: c.surface, border: `1px solid ${c.border}`, borderRadius: 8, padding: "3px 4px", fontSize: 11, color: c.ink }} />
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 10.5, color: c.muted }}>{faDigits(Math.min(m.done, m.target))} از {faDigits(m.target)}</p>
+                )}
+              </div>
+              {!editing && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => bump(m.id, -1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface, color: c.muted, fontSize: 15, fontWeight: 700 }}>−</button>
+                  <button onClick={() => { bump(m.id, +1); if (m.done + 1 >= m.target) notify(`${m.label} تکمیل شد ✓`); }} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: complete ? c.success : c.primary, color: "#fff", fontSize: 15, fontWeight: 700 }}>{complete ? "✓" : "+"}</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Real, deterministic insights computed only from the agent's own CRM data.
+// Deliberately avoids any Divar-style metrics (views/saves) that Flora can't see —
+// those become "go check Divar" reminders instead of invented numbers.
+function useSalesInsights(ctx) {
+  const { customers, calls, appointments, properties, deals } = ctx;
+  return useMemo(() => {
+    const out = [];
+    const today = todayISO();
+
+    // Files registered today
+    const newToday = properties.filter((p) => (p.createdAt || "").slice(0, 10) === today).length;
+    if (newToday === 0) out.push({ tone: "warn", icon: "residential", text: "امروز هنوز هیچ فایل جدیدی ثبت نکرده‌ای." });
+
+    // Customers not followed up in 3+ days
+    const stale = customers.filter((cu) => {
+      const last = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
+      return !last || daysSince(last.date) >= 3;
+    }).length;
+    if (stale > 0) out.push({ tone: "warn", icon: "monogram", text: `${faDigits(stale)} مشتری بیش از ۳ روز پیگیری نشده‌اند.` });
+
+    // Inventory gap in the 80–100m band
+    const active = properties.filter((p) => p.stage !== "فروخته شد");
+    const band = active.filter((p) => p.area >= 80 && p.area <= 100).length;
+    if (band <= 1) out.push({ tone: "info", icon: "floorArea", text: "موجودی فایل‌های ۸۰ تا ۱۰۰ متر کم است؛ فایل جدید بگیر." });
+
+    // Sleeping listings — remind to refresh the Divar ad (no fake view counts)
+    const sleeping = active.filter((p) => p.createdAt && daysSince(p.createdAt) >= 20);
+    if (sleeping.length > 0) out.push({ tone: "info", icon: "window", text: `${faDigits(sleeping.length)} فایل بیش از ۲۰ روز است تکان نخورده؛ آگهی دیوارشان را چک و در صورت نیاز تمدید کن.` });
+
+    // This week vs recent weeks — contracts
+    const weekStart = daysAgoISO(new Date().getDay());
+    const dealsThisWeek = deals.filter((d) => (d.createdAt || "") >= weekStart).length;
+    const prev = [];
+    for (let w = 1; w <= 3; w++) {
+      const s = daysAgoISO(new Date().getDay() + 7 * w);
+      const e = daysAgoISO(new Date().getDay() + 7 * (w - 1));
+      prev.push(deals.filter((d) => (d.createdAt || "") >= s && (d.createdAt || "") < e).length);
+    }
+    const avgPrev = prev.length ? Math.round(prev.reduce((a, b) => a + b, 0) / prev.length) : 0;
+    if (dealsThisWeek === 0 && avgPrev > 0) out.push({ tone: "warn", icon: "deed", text: `این هفته هنوز قراردادی ثبت نشده، در حالی که میانگین هفته‌های اخیرت ${faDigits(avgPrev)} قرارداد بوده.` });
+
+    // Today's visits — coordinate with owner
+    const visits = appointments.filter((a) => a.date === today);
+    if (visits.length > 0) {
+      const first = [...visits].sort((a, b) => a.time.localeCompare(b.time))[0];
+      out.push({ tone: "good", icon: "location", text: `امروز ${faDigits(visits.length)} بازدید داری؛ اولین ساعت ${first.time} — ۳۰ دقیقه قبل با مالک هماهنگ کن.` });
+    }
+
+    return out;
+  }, [customers, calls, appointments, properties, deals]);
+}
+
 function CopilotView({ ctx, onBack }) {
   const { c, customers, calls, appointments, properties, hasAiKey, callAI, notify, setSheet, agentName } = ctx;
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
+  const insights = useSalesInsights(ctx);
 
   useEffect(() => { (async () => {
     try { const cached = await dbGet(COPILOT_KEY); if (cached?.date === todayISO()) setPlan(cached.data); } catch (e) {}
@@ -1699,9 +1971,16 @@ function CopilotView({ ctx, onBack }) {
       }).join("\n");
       const propSummary = properties.filter((p) => p.stage !== "فروخته شد").slice(0, 30).map((p) => `- ${p.title} | ${p.deal} | ${p.price} تومان | ${p.area} متر | ${p.createdAt ? `${daysSince(p.createdAt)} روز از ثبتش گذشته` : "تاریخ ثبت نامشخص"}`).join("\n");
       const recentNotes = calls.slice(0, 8).map((cl) => `- ${cl.customerName}: ${cl.notes || "-"}`).join("\n");
-      const prompt = `تو دستیار فروش شخصی یک مشاور املاک ایرانی به اسم ${agentName || "مشاور"} هستی. لحنت مثل یک همکار باتجربه و صمیمی است، نه یک ربات رسمی. بر اساس اطلاعات زیر یک برنامه‌ی عملیاتی امروز بساز و دقیقاً به‌صورت JSON خام (بدون توضیح، بدون markdown fence) با این ساختار برگردان:
-{"greeting":"یک جمله‌ی کوتاه صمیمی درباره‌ی وضعیت کلی امروز، خطاب به ${agentName || "مشاور"}","biggestRisk":"مهم‌ترین ریسک امروز در یک جمله، یا خالی اگر چیز خاصی نیست","priorities":[{"rank":1,"customer":"نام دقیق از لیست","action":"چیکار بکنه","reason":"چرا","suggestedTime":"HH:MM","message":"پیام پیشنهادی کوتاه فارسی برای ارسال"}],"sleepingSuggestions":[{"property":"عنوان دقیق از لیست فایل‌ها","suggestion":"چه کاری برای این فایل بکنه"}],"hotLeads":[{"customer":"نام","heat":"hot یا warm","reason":"چرا"}],"atRiskLeads":[{"customer":"نام","reason":"چرا"}],"coachTip":"یک نکته‌ی مربی‌گری کوتاه بر اساس یادداشت‌های تماس اخیر، یا خالی"}
-هر آرایه حداکثر ۴ مورد. اعداد درصد یا احتمال دقیق اختراع نکن. نام مشتری/عنوان فایل را دقیقاً از لیست‌های زیر انتخاب کن.
+      const newTodayCount = properties.filter((p) => (p.createdAt || "").slice(0, 10) === todayISO()).length;
+      const weekStart = daysAgoISO(new Date().getDay());
+      const dealsThisWeek = (ctx.deals || []).filter((d) => (d.createdAt || "") >= weekStart).length;
+      const filesThisWeek = properties.filter((p) => (p.createdAt || "") >= weekStart).length;
+      const perfLine = `این هفته تا الان: ${filesThisWeek} فایل جدید، ${dealsThisWeek} قرارداد. امروز ${newTodayCount} فایل ثبت شده.`;
+      const prompt = `تو دستیار و مربی فروش شخصی یک مشاور املاک ایرانی به اسم ${agentName || "مشاور"} هستی — مثل یک مدیر فروش باتجربه که هم برنامه می‌دهد هم انگیزه. لحنت صمیمی و مستقیم است، نه رسمی و رباتیک. بر اساس اطلاعات زیر یک برنامه‌ی عملیاتی امروز بساز و دقیقاً به‌صورت JSON خام (بدون توضیح، بدون markdown fence) با این ساختار برگردان:
+{"greeting":"یک جمله‌ی کوتاه و انگیزشی درباره‌ی وضعیت امروز و این هفته، خطاب به ${agentName || "مشاور"}","biggestRisk":"مهم‌ترین ریسک امروز در یک جمله، یا خالی","priorities":[{"rank":1,"customer":"نام دقیق از لیست","action":"چیکار بکنه","reason":"چرا","suggestedTime":"HH:MM","message":"پیام پیشنهادی کوتاه فارسی"}],"sleepingSuggestions":[{"property":"عنوان دقیق از لیست","suggestion":"چه کاری بکنه"}],"hotLeads":[{"customer":"نام","heat":"hot یا warm","reason":"چرا"}],"atRiskLeads":[{"customer":"نام","reason":"چرا"}],"coachTip":"یک نکته‌ی مربی‌گری کوتاه؛ اگر عملکرد این هفته از میانگین کمتر است، با لحن انگیزشی تشویق به جبران کن"}
+هر آرایه حداکثر ۴ مورد. اعداد بازدید/ذخیره/احتمال دقیق اختراع نکن (این داده‌ها را نداری). نام مشتری/عنوان فایل را دقیقاً از لیست‌های زیر انتخاب کن.
+
+عملکرد: ${perfLine}
 
 مشتریان:
 ${custSummary || "موردی ثبت نشده"}
@@ -1740,6 +2019,34 @@ ${recentNotes || "موردی ثبت نشده"}`;
           {plan?.greeting || `${faDigits(overdue.length)} مشتری نیاز به پیگیری دارند و ${faDigits(sleeping.length)} فایل مدتی است تکون نخورده. برای برنامه‌ی کامل امروز، پایین را بزن.`}
         </p>
       </div>
+
+      <MissionOfTheDay ctx={ctx} />
+
+      {insights.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <span style={{ opacity: 0.55 }}>{FloraIcons.sprig({ size: 15, color: c.muted })}</span>
+            <h2 style={{ fontSize: 15, fontWeight: 700 }}>نگاه مدیر فروش</h2>
+          </div>
+          <div className="flex flex-col gap-2 flora-stagger">
+            {insights.map((it, i) => {
+              const tint = it.tone === "warn" ? c.attn : it.tone === "good" ? c.success : c.primary;
+              const soft = it.tone === "warn" ? c.attnSoft : it.tone === "good" ? c.successSoft : c.primarySoft;
+              return (
+                <div key={i} className="rounded-xl p-3 flex items-center gap-3" style={glass(c, 20)}>
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: soft }}>
+                    {floraIcon(it.icon, { size: 19, color: tint })}
+                  </div>
+                  <p style={{ fontSize: 11.5, color: c.ink, lineHeight: 1.8, fontWeight: 500 }}>{it.text}</p>
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 10, color: c.muted, marginTop: 8, lineHeight: 1.8, textAlign: "center" }}>
+            این‌ها از داده‌های خودت حساب شده‌اند. آمار بازدید و ذخیره‌ی دیوار در Flora موجود نیست، پس به‌جای عدد ساختگی، یادآوری چک‌کردن دیوار داده می‌شود.
+          </p>
+        </div>
+      )}
 
       {plan?.biggestRisk && (
         <div className="rounded-xl p-3.5 mb-4 flex items-center gap-2.5" style={{ background: c.dangerSoft }}>
