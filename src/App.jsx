@@ -756,16 +756,21 @@ const FloraIcons = {
   </>}</FIcon>,
 };
 
-function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.4, gold = FLORA_GOLD }) {
-  // The brand monogram: pentagon house frame with a stylised sprig inside,
-  // one gold accent at the bud — the same shape the icon set is built on.
+function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.6, gold = FLORA_GOLD }) {
+  // Brand mark: gold arched window with white/stone mullions, plus a gold key
+  // whose bow carries a checkmark — the "verified handover" emblem.
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ opacity }}
-      stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M32 6 L54 22 L54 56 L10 56 L10 22 Z" />
-      <circle cx="32" cy="24" r="3.4" fill={gold} stroke={gold} />
-      <path d="M32 27 L32 48" />
-      <path d="M32 35 C26 32 22 34 20 40 M32 35 C38 32 42 34 44 40 M32 42 C27 40 24 42 22 47 M32 42 C37 40 40 42 42 47" stroke={gold} strokeWidth={stroke * 0.85} />
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ opacity }} aria-hidden="true">
+      {/* arched window, gold fill */}
+      <path d="M16 32 A12 12 0 0 1 40 32 L40 55 L16 55 Z" fill={gold} fillOpacity="0.9" />
+      {/* window outline + mullions in stone */}
+      <path d="M16 32 A12 12 0 0 1 40 32 L40 55 L16 55 Z" stroke={color} strokeWidth={stroke} strokeLinejoin="round" fill="none" />
+      <path d="M28 21 L28 55 M16 43 L40 43" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
+      {/* gold key */}
+      <path d="M50 18 L50 43" stroke={gold} strokeWidth={stroke * 1.3} strokeLinecap="round" />
+      <path d="M50 36 L54 36 M50 40 L53 40" stroke={gold} strokeWidth={stroke} strokeLinecap="round" />
+      <circle cx="50" cy="49.5" r="6.5" stroke={gold} strokeWidth={stroke * 1.1} fill="none" />
+      <path d="M47 49.6 L49 52 L52.5 47.6" stroke={gold} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   );
 }
@@ -1227,6 +1232,31 @@ function CalendarTab({ ctx }) {
 }
 
 // ---------- More tab ----------
+// Lets the agent download the whole Sarein area once, while online, so the maps
+// then work with no connection at all.
+function OfflineMapButton({ c, notify }) {
+  const [state, setState] = useState("idle"); // idle | working | done
+  const [pct, setPct] = useState(0);
+  const run = async () => {
+    if (state === "working") return;
+    setState("working"); setPct(0);
+    try {
+      await precacheSareinTiles((done, total) => setPct(Math.round((done / total) * 100)));
+      setState("done"); notify("نقشه سرعین برای استفاده آفلاین ذخیره شد");
+    } catch {
+      setState("idle"); notify("ذخیره نقشه ناموفق بود، اتصال اینترنت را بررسی کن");
+    }
+  };
+  return (
+    <button onClick={run} disabled={state === "working"} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mt-2" style={{ background: c.primarySoft }}>
+      <MapPin size={14} color={c.primary} />
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>
+        {state === "working" ? `در حال ذخیره نقشه… ${faDigits(pct)}%` : state === "done" ? "نقشه سرعین آفلاین شد ✓" : "ذخیره نقشه سرعین برای آفلاین"}
+      </span>
+    </button>
+  );
+}
+
 function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -1354,6 +1384,7 @@ function MoreTab({ ctx }) {
         <button onClick={() => setSheet("ai-settings")} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.purpleSoft }}>
           <Sparkles size={14} color={c.purple} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.purple }}>تنظیمات هوش مصنوعی</span>
         </button>
+        <OfflineMapButton c={c} notify={notify} />
       </CollapsibleCard>
 
       <div style={{ height: 12 }} />
@@ -2008,7 +2039,7 @@ function FinanceCenterView({ ctx, onBack }) {
       {tab === "overview" && (
         <div>
           {/* Banknote-styled hero: guilloche lines, gold seal, engraved figures */}
-          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0f2f5e 0%,#1e3a8a 45%,#4c1d95 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)", boxShadow: "0 14px 34px rgba(30,58,138,.4)" }}>
+          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)", boxShadow: "0 14px 34px rgba(30,58,138,.4)" }}>
             {/* Engraved guilloche lines, like the back of a banknote */}
             <svg width="100%" height="100%" viewBox="0 0 320 160" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, opacity: 0.14, pointerEvents: "none" }}>
               {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -2423,7 +2454,7 @@ function SplitTab({ ctx, deals, payments }) {
 
   return (
     <div>
-      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0f2f5e 0%,#1e3a8a 45%,#4c1d95 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
         <span style={{ position: "absolute", top: "-45%", left: "-20%", width: 190, height: 190, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
         <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>کمیسیون دریافت‌شده (قابل تقسیم)</p>
@@ -2713,6 +2744,42 @@ function JalaliDatePicker({ c, value, onChange }) {
 
 // ---------- Map picker (Sarein) — separate overlay, never unmounts the form beneath it ----------
 const SAREIN_CENTER = [38.1465, 48.0043];
+
+// Pre-download every map tile covering Sarein across the useful zoom levels, so the
+// whole town is visible offline afterwards (the service worker keeps them forever).
+// Covers roughly a 6km box around the centre — enough for the whole town + outskirts.
+async function precacheSareinTiles(onProgress) {
+  const [lat, lng] = SAREIN_CENTER;
+  const zooms = [13, 14, 15, 16, 17];
+  const kmBox = 6; // half-width in km
+  const lat2tile = (lat, z) => Math.floor(((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2) * Math.pow(2, z));
+  const lng2tile = (lng, z) => Math.floor(((lng + 180) / 360) * Math.pow(2, z));
+  const dLat = kmBox / 111;
+  const dLng = kmBox / (111 * Math.cos(lat * Math.PI / 180));
+
+  const urls = [];
+  for (const z of zooms) {
+    const xMin = lng2tile(lng - dLng, z), xMax = lng2tile(lng + dLng, z);
+    const yMin = lat2tile(lat + dLat, z), yMax = lat2tile(lat - dLat, z);
+    for (let x = xMin; x <= xMax; x++)
+      for (let y = yMin; y <= yMax; y++)
+        urls.push(`https://a.tile.openstreetmap.org/${z}/${x}/${y}.png`);
+  }
+
+  let done = 0;
+  const total = urls.length;
+  // Fetch in small batches so we don't hammer the tile server or the phone.
+  const batch = 6;
+  for (let i = 0; i < urls.length; i += batch) {
+    await Promise.all(urls.slice(i, i + batch).map((u) =>
+      fetch(u, { mode: "no-cors" }).then(() => {}).catch(() => {})
+    ));
+    done = Math.min(total, i + batch);
+    onProgress && onProgress(done, total);
+  }
+  return total;
+}
+
 function loadLeaflet() {
   return new Promise((resolve) => {
     if (window.L) return resolve(window.L);
