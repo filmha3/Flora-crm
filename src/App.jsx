@@ -81,6 +81,13 @@ const jalaliFirstWeekday = (jy, jm) => { const [gy, gm, gd] = jalaliToGregorian(
 
 const TYPE_ICON = { "آپارتمان": Building2, "ویلا": Home, "زمین": Trees, "مغازه": Store, "اداری": Briefcase };
 const typeIcon = (t) => TYPE_ICON[t] || Building2;
+// Flora-branded icon per property type / deal, used where the brand icons shine.
+const floraTypeIcon = (t, deal) => {
+  if (deal === "پیش‌فروش") return "investment";
+  if (t === "ویلا" || t === "زمین") return "villa";
+  if (t === "مغازه" || t === "اداری") return "multiunit";
+  return "residential";
+};
 
 const toEnDigits = (s) => String(s ?? "").replace(/[۰-۹٠-٩]/g, (d) => {
   const p = "۰۱۲۳۴۵۶۷۸۹".indexOf(d); if (p > -1) return p;
@@ -99,8 +106,6 @@ function parseDivarText(raw) {
   const floorMatch = norm.match(/طبقه[:\s]*(\d{1,2})/);
   let deal = "فروش";
   if (/پیش[\s\u200c]?فروش/.test(raw)) deal = "پیش‌فروش";
-  else if (/رهن/.test(raw) && /اجاره/.test(raw)) deal = "رهن کامل";
-  else if (/اجاره/.test(raw)) deal = "اجاره";
   const priceMatches = [...norm.matchAll(/([\d,]{6,})\s*تومان/g)].map((m) => Number(m[1].replace(/,/g, "")));
   const price = priceMatches.length ? Math.max(...priceMatches) : 0;
   const area = areaMatch ? Number(areaMatch[1]) : 0;
@@ -147,7 +152,7 @@ const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (f
 
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
 const BUILD_STAGES = ["گودبرداری", "فونداسیون", "اسکلت", "سفت‌کاری", "نازک‌کاری", "نما", "آماده تحویل"];
-const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش", "اجاره", "رهن کامل"];
+const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش"];
 const STAGE_FILTERS = ["همه", "فعال", "در حال مذاکره", "فروخته شد"];
 
 // ---------- Glassmorphism tokens ----------
@@ -219,7 +224,7 @@ const seedBuilders = [{ id: "b1", name: "شرکت سازه پارس", phone: "02
 const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
 const seedProperties = [
   { id: "p1", title: "آپارتمان ۱۲۰ متری سعادت‌آباد", type: "آپارتمان", deal: "فروش", pricePerMeter: 70000000, price: 8400000000, area: 120, rooms: 2, floor: 3, furnished: "با لوازم", address: "سعادت‌آباد، خیابان سرو", ownerId: "o1", builderId: "", stage: "فعال", desc: "", media: [], createdAt: daysAgoISO(3) },
-  { id: "p2", title: "ویلا دوبلکس لواسان", type: "ویلا", deal: "اجاره", pricePerMeter: 150000, price: 45000000, area: 300, rooms: 4, floor: 1, furnished: "بدون لوازم", address: "لواسان، جاده امام‌زاده", ownerId: "o2", builderId: "", stage: "در حال مذاکره", desc: "", media: [], createdAt: daysAgoISO(52) },
+  { id: "p2", title: "ویلا دوبلکس لواسان", type: "ویلا", deal: "فروش", pricePerMeter: 150000000, price: 45000000000, area: 300, rooms: 4, floor: 1, furnished: "بدون لوازم", address: "لواسان، جاده امام‌زاده", ownerId: "o2", builderId: "", stage: "در حال مذاکره", desc: "", media: [], createdAt: daysAgoISO(52) },
   { id: "p3", title: "پیش‌فروش برج مروارید", type: "آپارتمان", deal: "پیش‌فروش", pricePerMeter: 55000000, price: 4950000000, area: 90, rooms: 2, floor: 7, furnished: "بدون لوازم", address: "پونک، بلوار گلستان", ownerId: "", builderId: "b1", stage: "فعال", desc: "", media: [], createdAt: daysAgoISO(10) },
 ];
 const seedCustomers = [
@@ -444,8 +449,8 @@ export default function FloraCRM() {
     return (
       <div dir="rtl" style={{ background: c.bg, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex flex-col items-center justify-center gap-3">
         <style>{`@keyframes floraFloat { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-6px);} }`}</style>
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: c.primarySoft, animation: "floraFloat 1.8s ease-in-out infinite" }}>
-          <Home size={26} color={c.primary} />
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: c.primarySoft, animation: "floraFloat 1.8s ease-in-out infinite" }}>
+          <FloraMark size={40} color={c.primary} stroke={1.4} />
         </div>
         <p style={{ fontSize: 12, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
       </div>
@@ -513,6 +518,11 @@ export default function FloraCRM() {
       <span className="flora-orb" style={{ width: 300, height: 300, background: c.orb1, top: -90, right: -70 }} />
       <span className="flora-orb" style={{ width: 260, height: 260, background: c.orb2, bottom: -50, left: -50, animationDelay: "-4s" }} />
       <span className="flora-orb" style={{ width: 220, height: 220, background: c.orb3, top: "42%", left: "48%", animationDelay: "-8s", opacity: .25 }} />
+
+      {/* Faint Flora emblem watermark, drifting gently behind the whole app */}
+      <div className="flora-float" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none", zIndex: 0, opacity: dark ? 0.04 : 0.05 }}>
+        <FloraMark size={320} color={c.ink} stroke={1} />
+      </div>
 
       {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
       <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -663,11 +673,127 @@ function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts }) {
     </div>
   );
 }
-function SectionHeader({ c, title }) { return <div className="flex items-center justify-between mt-6 mb-2.5"><h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2></div>; }
+function SectionHeader({ c, title, action }) {
+  return (
+    <div className="flex items-center justify-between mt-6 mb-2.5">
+      <div className="flex items-center gap-1.5">
+        <span style={{ opacity: 0.55 }}>{FloraIcons.sprig({ size: 15, color: c.muted })}</span>
+        <h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2>
+      </div>
+      {action}
+    </div>
+  );
+}
+// ============================================================
+// Flora icon system — from the brand's flora-icon-set spec.
+// Every icon: 64×64 canvas, 6px safe margin, stroke 1.6 on the main form,
+// rounded caps/joins, and AT MOST ONE gold accent (#BA9358). Everything else
+// is the stone line, which inherits the surrounding text colour.
+// ============================================================
+const FLORA_GOLD = "#BA9358";
+function FIcon({ children, size = 26, color = "currentColor", gold = FLORA_GOLD, sw = 1.6 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none"
+      stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {typeof children === "function" ? children(gold) : children}
+    </svg>
+  );
+}
+// pentagon "house" frame reused by most icons (apex 26w×23h ratio, per spec)
+const HOUSE = "M32 8 L52 22 L52 54 L12 54 L12 22 Z";
+
+const FloraIcons = {
+  residential: (p) => <FIcon {...p}>{(g) => <>
+    <path d={HOUSE} />
+    <path d="M28 54 L28 40 L36 40 L36 54" />
+    <circle cx="34" cy="47" r="0.9" fill={g} stroke={g} />
+  </>}</FIcon>,
+  monogram: (p) => <FIcon {...p}>{(g) => <>
+    <path d={HOUSE} />
+    <circle cx="32" cy="26" r="3.4" fill={g} stroke={g} />
+    <path d="M32 29 L32 46" />
+    <path d="M32 36 C27 33 24 35 22 40 M32 36 C37 33 40 35 42 40 M32 42 C28 40 25 42 24 46 M32 42 C36 40 39 42 40 46" stroke={g} />
+  </>}</FIcon>,
+  villa: (p) => <FIcon {...p}>{(g) => <>
+    <path d="M32 12 L50 27 M32 12 L14 27" />
+    <path d="M18 27 L18 46 L46 46 L46 27" />
+    <path d="M22 46 L42 46" stroke={g} />
+    <path d="M32 46 L32 38 M32 40 C29 38 27 39 26 42 M32 40 C35 38 37 39 38 42" stroke={g} />
+  </>}</FIcon>,
+  multiunit: (p) => <FIcon {...p}>{(g) => <>
+    <path d="M40 14 L48 20 L48 54 L40 54 Z" />
+    <path d="M16 30 L40 30 L40 54 L16 54 Z" />
+    <path d="M20 36 L28 36 M20 42 L28 42" />
+    <rect x="42" y="42" width="4" height="4" fill={g} stroke={g} />
+  </>}</FIcon>,
+  window: (p) => <FIcon {...p}>{(g) => <>
+    <path d="M21 32 C21 21 43 21 43 32 L43 50 L21 50 Z" fill={g} fillOpacity="0.85" stroke={g} />
+    <path d="M32 23 L32 50 M22 39 L42 39" stroke={color} />
+  </>}</FIcon>,
+  investment: (p) => <FIcon {...p}>{(g) => <>
+    <path d={HOUSE} />
+    <path d="M23 46 L23 39 M29 46 L29 35 M35 46 L35 41" />
+    <path d="M42 46 L42 27 M38 32 L42 27 L46 32" stroke={g} />
+  </>}</FIcon>,
+  floorArea: (p) => <FIcon {...p}>{(g) => <>
+    <path d={HOUSE} />
+    <path d="M20 38 L20 54 L44 54" />
+    <path d="M22 30 L38 30" stroke={g} />
+    <path d="M22 27 L19 30 L22 33 M38 27 L41 30 L38 33" stroke={g} />
+  </>}</FIcon>,
+  location: (p) => <FIcon {...p}>{(g) => <>
+    <path d="M32 12 L46 26 L32 46 L18 26 Z" />
+    <circle cx="32" cy="26" r="4.5" fill={g} stroke={g} />
+    <path d="M24 54 L40 54" />
+  </>}</FIcon>,
+  // tiny leaf sprig — used as a section divider, per the spec
+  sprig: (p) => <FIcon {...p} sw={1.2}>{(g) => <>
+    <path d="M32 46 L32 26" />
+    <path d="M32 34 C27 31 23 33 21 38 C26 40 30 38 32 34 Z" />
+    <path d="M32 34 C37 31 41 33 43 38 C38 40 34 38 32 34 Z" />
+    <path d="M32 28 C29 26 26 27 25 31 C29 32 31 31 32 28 Z" />
+    <path d="M32 28 C35 26 38 27 39 31 C35 32 33 31 32 28 Z" />
+  </>}</FIcon>,
+};
+
+function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.4, gold = FLORA_GOLD }) {
+  // The brand monogram: pentagon house frame with a stylised sprig inside,
+  // one gold accent at the bud — the same shape the icon set is built on.
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ opacity }}
+      stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M32 6 L54 22 L54 56 L10 56 L10 22 Z" />
+      <circle cx="32" cy="24" r="3.4" fill={gold} stroke={gold} />
+      <path d="M32 27 L32 48" />
+      <path d="M32 35 C26 32 22 34 20 40 M32 35 C38 32 42 34 44 40 M32 42 C27 40 24 42 22 47 M32 42 C37 40 40 42 42 47" stroke={gold} strokeWidth={stroke * 0.85} />
+    </svg>
+  );
+}
+
+function LegacyFloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.4 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" style={{ opacity }} aria-hidden="true">
+      {/* diamond house outline */}
+      <path d="M50 6 L92 48 L82 92 L18 92 L8 48 Z" stroke={color} strokeWidth={stroke} strokeLinejoin="round" fill="none" />
+      {/* keyhole / trunk */}
+      <circle cx="50" cy="40" r="7" stroke={color} strokeWidth={stroke} fill="none" />
+      <path d="M50 47 L50 78" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
+      {/* branching leaves, left */}
+      <path d="M50 58 C40 54 33 58 28 68 C38 70 46 66 50 58 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
+      <path d="M50 68 C42 66 36 70 32 79 C41 80 47 76 50 68 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
+      {/* branching leaves, right */}
+      <path d="M50 58 C60 54 67 58 72 68 C62 70 54 66 50 58 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
+      <path d="M50 68 C58 66 64 70 68 79 C59 80 53 76 50 68 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
+      {/* fine veins */}
+      <path d="M50 58 L50 78 M34 66 L44 63 M56 63 L66 66 M38 76 L46 72 M54 72 L62 76" stroke={color} strokeWidth={stroke * 0.5} strokeLinecap="round" opacity="0.7" />
+    </svg>
+  );
+}
+
 function EmptyLine({ c, text }) {
   return (
     <div className="flex flex-col items-center justify-center" style={{ padding: "18px 2px" }}>
-      <Home size={20} color={c.muted} className="flora-float" style={{ opacity: 0.5, marginBottom: 6 }} />
+      <div className="flora-float" style={{ opacity: 0.4, marginBottom: 8 }}><FloraMark size={44} color={c.muted} stroke={1.2} /></div>
       <p style={{ color: c.muted, fontSize: 12.5, textAlign: "center" }}>{text}</p>
     </div>
   );
@@ -921,7 +1047,7 @@ function PropertiesTab({ ctx, search, stageHint }) {
 function AllPropertiesMap({ c, rows, onOpen }) {
   const ref = useRef(null); const objRef = useRef(null);
   const pinned = rows.filter((p) => p.lat && p.lng);
-  const DEAL_COLOR = { "فروش": "#2f7cf6", "پیش‌فروش": "#7c6ff5", "اجاره": "#f59e0b", "رهن کامل": "#22c55e" };
+  const DEAL_COLOR = { "فروش": "#2f7cf6", "پیش‌فروش": "#7c6ff5" };
 
   useEffect(() => {
     let cancelled = false;
@@ -1129,6 +1255,7 @@ function MoreTab({ ctx }) {
       {/* Hero: quick pulse of the whole business */}
       <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
         <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
+        <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
         <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.8)" }}>املاک گنجینه — سرعین</p>
         <p style={{ fontSize: 15.5, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
         <div className="flex gap-2 mt-3.5">
@@ -1370,7 +1497,12 @@ function PropertyDetail({ id, ctx, onBack }) {
 
       <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
         <div className="flex items-center justify-between mb-1">
-          <span style={{ fontSize: 11, background: c.primarySoft, color: c.primary, padding: "3px 10px", borderRadius: 999, fontWeight: 700 }}>{p.deal}</span>
+          <div className="flex items-center gap-2.5">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}>
+              {FloraIcons[floraTypeIcon(p.type, p.deal)]({ size: 26, color: c.primary })}
+            </div>
+            <span style={{ fontSize: 11, background: c.primarySoft, color: c.primary, padding: "3px 10px", borderRadius: 999, fontWeight: 700 }}>{p.deal}</span>
+          </div>
           <StageBadge c={c} stage={p.stage} />
         </div>
         <h3 style={{ fontSize: 17, fontWeight: 800, marginTop: 8, textDecoration: p.stage === "فروخته شد" ? "line-through" : "none" }}>{p.title}</h3>
@@ -1884,6 +2016,7 @@ function FinanceCenterView({ ctx, onBack }) {
               ))}
             </svg>
             <span style={{ position: "absolute", top: "-40%", left: "-20%", width: 180, height: 180, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
+            <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
 
             <div className="flex items-center justify-between mb-3" style={{ position: "relative" }}>
               <div className="flex items-center gap-2">
@@ -2292,6 +2425,7 @@ function SplitTab({ ctx, deals, payments }) {
     <div>
       <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0f2f5e 0%,#1e3a8a 45%,#4c1d95 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
         <span style={{ position: "absolute", top: "-45%", left: "-20%", width: 190, height: 190, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
         <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>کمیسیون دریافت‌شده (قابل تقسیم)</p>
         <CountUpToman value={receivedTotal} className="flora-money" style={{ fontSize: 21, fontWeight: 800, color: "#fbbf24", display: "inline-block", marginTop: 3, direction: "ltr" }} />
         <p style={{ fontSize: 10.5, color: "rgba(255,255,255,.65)", marginTop: 6, lineHeight: 1.8 }}>
@@ -2969,7 +3103,7 @@ function PropertyForm({ ctx, onClose, editId }) {
       <Field c={c} label="عنوان فایل"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder="مثلاً آپارتمان ۹۰ متری تهرانپارس" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نوع ملک"><Select c={c} value={f.type} onChange={set("type")} placeholder="انتخاب کنید" options={["آپارتمان","ویلا","زمین","مغازه","اداری"].map(v=>({value:v,label:v}))} /></Field>
-        <Field c={c} label="نوع معامله"><Select c={c} value={f.deal} onChange={set("deal")} placeholder="انتخاب کنید" options={["فروش","پیش‌فروش","اجاره","رهن کامل"].map(v=>({value:v,label:v}))} /></Field>
+        <Field c={c} label="نوع معامله"><Select c={c} value={f.deal} onChange={set("deal")} placeholder="انتخاب کنید" options={["فروش","پیش‌فروش"].map(v=>({value:v,label:v}))} /></Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="متراژ (متر)"><input style={inputStyle(c)} inputMode="numeric" value={f.area} onChange={set("area")} placeholder="فارسی یا انگلیسی" /></Field>
@@ -3154,8 +3288,8 @@ function DealForm({ ctx, onClose, editId }) {
     buyerName: editing.buyerName || "", buyerPhone: editing.buyerPhone || "", price: String(editing.price),
     sellerMode: editing.sellerMode || "pct", sellerPct: String(editing.sellerPct || 0), sellerFixed: String(editing.sellerFixed || ""),
     buyerMode: editing.buyerMode || "pct", buyerPct: String(editing.buyerPct || 0), buyerFixed: String(editing.buyerFixed || ""),
-    advisor: editing.advisor || "من", status: editing.status,
-  } : { propertyId: "", propertyTitle: "", sellerName: "", sellerPhone: "", buyerName: "", buyerPhone: "", price: "", sellerMode: "pct", sellerPct: "1", sellerFixed: "", buyerMode: "pct", buyerPct: "0.5", buyerFixed: "", advisor: "من", status: "در حال مذاکره" });
+    advisor: editing.advisor || "من", status: editing.status, dealDate: (editing.createdAt || todayISO()).slice(0, 10),
+  } : { propertyId: "", propertyTitle: "", sellerName: "", sellerPhone: "", buyerName: "", buyerPhone: "", price: "", sellerMode: "pct", sellerPct: "1", sellerFixed: "", buyerMode: "pct", buyerPct: "0.5", buyerFixed: "", advisor: "من", status: "در حال مذاکره", dealDate: todayISO() });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const onPickProperty = (e) => {
     const pid = e.target.value;
@@ -3187,6 +3321,9 @@ function DealForm({ ctx, onClose, editId }) {
         <Field c={c} label="مشاور"><input style={inputStyle(c)} value={f.advisor} onChange={set("advisor")} /></Field>
         <Field c={c} label="وضعیت"><Select c={c} value={f.status} onChange={set("status")} placeholder="انتخاب کنید" options={["در حال مذاکره", "در انتظار پرداخت", "تسویه شده"].map((v) => ({ value: v, label: v }))} /></Field>
       </div>
+      <Field c={c} label="تاریخ قرارداد (برای ماه‌های قبل هم می‌توانی عقب ببری)">
+        <JalaliDatePicker c={c} value={f.dealDate} onChange={(iso) => setF((p) => ({ ...p, dealDate: iso }))} />
+      </Field>
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره قرارداد"} disabled={!valid} onClick={() => {
         const payload = {
           propertyId: f.propertyId, propertyTitle: f.propertyTitle.trim(), sellerName: f.sellerName.trim(), sellerPhone: f.sellerPhone.trim(), buyerName: f.buyerName.trim(), buyerPhone: f.buyerPhone.trim(), price: toNum(f.price),
@@ -3194,8 +3331,9 @@ function DealForm({ ctx, onClose, editId }) {
           buyerMode: f.buyerMode, buyerPct: Number(toEnDigits(f.buyerPct)) || 0, buyerFixed: toNum(f.buyerFixed),
           advisor: f.advisor.trim() || "من", status: f.status,
         };
-        if (editing) setDeals((prev) => prev.map((d) => d.id === editId ? { ...d, ...payload } : d));
-        else setDeals((prev) => [{ id: uid(), ...payload, createdAt: new Date().toISOString() }, ...prev]);
+        const createdAt = new Date(`${f.dealDate}T12:00:00`).toISOString();
+        if (editing) setDeals((prev) => prev.map((d) => d.id === editId ? { ...d, ...payload, createdAt } : d));
+        else setDeals((prev) => [{ id: uid(), ...payload, createdAt }, ...prev]);
         notify(editing ? "تغییرات قرارداد ذخیره شد" : "قرارداد ثبت شد"); onClose();
       }} />
     </SheetShell>
