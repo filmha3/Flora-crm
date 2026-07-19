@@ -1,4 +1,4 @@
-const CACHE_NAME = "flora-crm-v12";
+const CACHE_NAME = "flora-crm-v14";
 const TILE_CACHE = "flora-map-tiles-v1";
 
 self.addEventListener("install", (event) => {
