@@ -448,7 +448,16 @@ export default function FloraCRM() {
   const exportBackup = () => {
     downloadBackup(buildBackupPayload());
     dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now() }).catch(() => {});
-    notify("فایل بکاپ دانلود شد");
+    notify("فایل بکاپ کامل دانلود شد");
+  };
+  // Scoped backups — the import merges whatever it finds, so these restore cleanly too.
+  const exportProperties = () => {
+    downloadBackup({ version: 1, exportedAt: new Date().toISOString(), scope: "properties", properties, owners, builders, customers, appointments, calls }, `files-customers-${todayISO()}`);
+    notify("بکاپ فایل‌ها و مشتری‌ها دانلود شد");
+  };
+  const exportFinance = () => {
+    downloadBackup({ version: 1, exportedAt: new Date().toISOString(), scope: "finance", deals, payments, expenses, officeIncomes }, `finance-${todayISO()}`);
+    notify("بکاپ مالی دانلود شد");
   };
   const importBackup = (file) => {
     const reader = new FileReader();
@@ -483,7 +492,7 @@ export default function FloraCRM() {
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
-    scheduleReminder, goProperties, exportBackup, importBackup,
+    scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance,
   };
 
   if (!loaded) {
@@ -1462,7 +1471,7 @@ function AgencyCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
 }
 
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
+  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
 
@@ -1588,15 +1597,22 @@ function MoreTab({ ctx }) {
 
       {/* Collapsible: settings & backup */}
       <CollapsibleCard c={c} icon={Wallet} tint={c.purple} title="پشتیبان‌گیری و تنظیمات" subtitle="بکاپ داده‌ها و هوش مصنوعی">
+        <p style={{ fontSize: 10.5, color: c.muted, marginBottom: 8, lineHeight: 1.7 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. اگر فقط بخشی را می‌خواهی، از دکمه‌های جدا استفاده کن.</p>
+        <button onClick={exportBackup} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primarySoft }}>
+          <Download size={14} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>بکاپ کامل</span>
+        </button>
         <div className="flex gap-2 mb-2">
-          <button onClick={exportBackup} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft }}>
-            <Download size={14} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>دانلود بکاپ</span>
+          <button onClick={exportProperties} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
+            <Building2 size={13} color={c.ink} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.ink }}>فایل‌ها و مشتری‌ها</span>
           </button>
-          <button onClick={() => importRef.current?.click()} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.attnSoft }}>
-            <Upload size={14} color={c.attn} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.attn }}>بازیابی بکاپ</span>
+          <button onClick={exportFinance} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
+            <Wallet size={13} color={c.ink} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.ink }}>مالی</span>
           </button>
-          <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
         </div>
+        <button onClick={() => importRef.current?.click()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.attnSoft }}>
+          <Upload size={14} color={c.attn} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.attn }}>بازیابی بکاپ (هر نوع)</span>
+        </button>
+        <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
         <button onClick={() => setSheet("ai-settings")} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.purpleSoft }}>
           <Sparkles size={14} color={c.purple} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.purple }}>تنظیمات هوش مصنوعی</span>
         </button>
