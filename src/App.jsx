@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -89,10 +89,14 @@ const floraTypeIcon = (t, deal) => {
   return "residential";
 };
 
-const toEnDigits = (s) => String(s ?? "").replace(/[۰-۹٠-٩]/g, (d) => {
-  const p = "۰۱۲۳۴۵۶۷۸۹".indexOf(d); if (p > -1) return p;
-  const a = "٠١٢٣٤٥٦٧٨٩".indexOf(d); return a > -1 ? a : d;
-});
+const toEnDigits = (s) => String(s ?? "")
+  .replace(/[۰-۹٠-٩]/g, (d) => {
+    const p = "۰۱۲۳۴۵۶۷۸۹".indexOf(d); if (p > -1) return p;
+    const a = "٠١٢٣٤٥٦٧٨٩".indexOf(d); return a > -1 ? a : d;
+  });
+// Persian users write decimals with ٫ or / (e.g. ۰/۵ = 0.5). Use this for any
+// numeric input where a fraction is allowed, so "۰/۵" and "0.5" both mean 0.5.
+const toDecimal = (v) => Number(toEnDigits(v).replace(/[٫،/]/g, ".").replace(/[^0-9.]/g, "")) || 0;
 const toNum = (v) => Number(toEnDigits(v).replace(/[^0-9.]/g, "")) || 0;
 
 // Parses key fields out of ad text the user pasted (Divar disallows automated fetching,
@@ -250,6 +254,9 @@ const seedOfficeIncomes = [
 
 export default function FloraCRM() {
   const [dark, setDark] = useState(true);
+  // Simple mode hides advanced tools (finance, split, AI) behind "more", so a first-time
+  // agent sees only the essentials. On by default; a switch in More restores everything.
+  const [simpleMode, setSimpleMode] = useState(true);
   const c = dark ? T.dark : T.light;
 
   // The rubber-band overscroll shows the page background, not the app's — so paint it too.
@@ -315,6 +322,7 @@ export default function FloraCRM() {
         if (settings?.aiProvider) setAiProvider(settings.aiProvider);
         if (settings?.agentName) setAgentName(settings.agentName);
         if (settings?.splitShares) setSplitShares(settings.splitShares);
+        if (typeof settings?.simpleMode === "boolean") setSimpleMode(settings.simpleMode);
         const lastReminder = await dbGet(REMINDER_KEY);
         const today = todayISO();
         if (lastReminder !== today) { setShowDailyReminder(true); dbSet(REMINDER_KEY, today).catch(() => {}); }
@@ -330,7 +338,7 @@ export default function FloraCRM() {
     }, 400);
     return () => clearTimeout(t);
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
   // so once a week the app downloads a fresh backup file automatically (and flags it),
@@ -467,7 +475,7 @@ export default function FloraCRM() {
   const ctx = {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName,
     scheduleReminder, goProperties, exportBackup, importBackup,
@@ -563,9 +571,9 @@ export default function FloraCRM() {
             ) : tab === "home" ? (
               <HomeTab ctx={ctx} />
             ) : tab === "properties" ? (
-              <PropertiesTab ctx={ctx} search={search} stageHint={propStageHint} />
+              <PropertiesTab ctx={ctx} search={search} setSearch={setSearch} stageHint={propStageHint} />
             ) : tab === "customers" ? (
-              <CustomersTab ctx={ctx} search={search} />
+              <CustomersTab ctx={ctx} search={search} setSearch={setSearch} />
             ) : tab === "calendar" ? (
               <CalendarTab ctx={ctx} />
             ) : tab === "finance" ? (
@@ -576,12 +584,6 @@ export default function FloraCRM() {
           </div>
         </div>
 
-        {tab !== "home" && tab !== "finance" && tab !== "more" && !detail && (
-          <div className="absolute left-0 right-0 px-4" style={{ top: "calc(66px + env(safe-area-inset-top, 0px))" }}>
-            <SearchBox c={c} value={search} setValue={setSearch} />
-          </div>
-        )}
-
         {!detail && (
           <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
             style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 18, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
@@ -590,7 +592,7 @@ export default function FloraCRM() {
           </button>
         )}
 
-        {!detail && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} />}
+        {!detail && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} simpleMode={simpleMode} />}
 
         {sheet === "add" && <QuickAddSheet ctx={ctx} onClose={() => setSheet(null)} />}
         {sheet && sheet !== "add" && <FormSheet sheetVal={sheet} ctx={ctx} onClose={() => setSheet(null)} />}
@@ -647,8 +649,13 @@ function SearchBox({ c, value, setValue }) {
     </div>
   );
 }
-function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts }) {
-  const items = [
+function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts, simpleMode }) {
+  const items = simpleMode ? [
+    { id: "home", label: "خانه", icon: Home },
+    { id: "properties", label: "فایل‌ها", icon: Building2 },
+    { id: "customers", label: "مشتریان", icon: Users },
+    { id: "more", label: "بیشتر", icon: MoreHorizontal, dot: pendingCalls > 0 },
+  ] : [
     { id: "home", label: "خانه", icon: Home },
     { id: "finance", label: "مالی", icon: Wallet },
     { id: "customers", label: "مشتریان", icon: Users },
@@ -853,8 +860,80 @@ function StageBadge({ c, stage }) {
 }
 
 // ---------- Dashboard ----------
+// Live dollar + gold-gram, shown by the greeting because both drive property prices.
+// Browsers often block cross-origin finance APIs (CORS), so this fails softly: if it
+// can't fetch, it shows a tidy button to open chand.app instead of an error.
+function MarketWidget({ c }) {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const CACHE = "flora-market";
+    // show last known values instantly while refreshing
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE) || "null");
+      if (cached && Date.now() - cached.at < 6 * 3600 * 1000) setData(cached);
+    } catch (e) {}
+
+    (async () => {
+      try {
+        // BrsApi free endpoint returns { gold:[...], currency:[...] } as JSON
+        const res = await fetch("https://brsapi.ir/Api/Market/Gold_Currency.php?key=BVjuQ6mYZMzT9usLPTVArBTNYbFegq8B", { signal: AbortSignal.timeout?.(6000) });
+        if (!res.ok) throw new Error("bad status");
+        const json = await res.json();
+        const usd = (json.currency || []).find((x) => /USD|دلار/i.test(x.symbol || x.name || ""));
+        const gram = (json.gold || []).find((x) => /18|هجده|گرم/i.test(x.name || x.symbol || ""));
+        const parsed = {
+          usd: usd ? Number(String(usd.price).replace(/[^\d]/g, "")) : null,
+          gold: gram ? Number(String(gram.price).replace(/[^\d]/g, "")) : null,
+          at: Date.now(),
+        };
+        if (!parsed.usd && !parsed.gold) throw new Error("no fields");
+        if (!cancelled) { setData(parsed); try { localStorage.setItem(CACHE, JSON.stringify(parsed)); } catch (e) {} }
+      } catch (e) {
+        if (!cancelled && !data) setFailed(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line
+
+  const openChand = () => window.open("https://chand.app", "_blank");
+
+  if (failed && !data) {
+    return (
+      <button onClick={openChand} className="press shrink-0 rounded-2xl px-3 py-2.5 flex flex-col items-center gap-1" style={{ ...glass(c, 20), width: 92 }}>
+        <TrendingUp size={15} color={c.primary} />
+        <span style={{ fontSize: 9.5, color: c.muted, fontWeight: 600, textAlign: "center", lineHeight: 1.5 }}>قیمت دلار و طلا</span>
+        <span style={{ fontSize: 8.5, color: c.primary, fontWeight: 700 }}>chand.app ›</span>
+      </button>
+    );
+  }
+
+  const Row = ({ label, value, color }) => (
+    <div className="flex items-center justify-between gap-2">
+      <span style={{ fontSize: 8.5, color: c.muted }}>{label}</span>
+      <span style={{ fontSize: 10.5, fontWeight: 800, color, direction: "ltr" }}>{value ? Number(value).toLocaleString("en-US") : "—"}</span>
+    </div>
+  );
+
+  return (
+    <button onClick={openChand} className="press shrink-0 rounded-2xl px-3 py-2.5" style={{ ...glass(c, 20), width: 118 }}>
+      <div className="flex items-center gap-1 mb-1.5">
+        <span style={{ width: 5, height: 5, borderRadius: 99, background: data ? c.success : c.muted }} className={data ? "flora-pulse" : ""} />
+        <span style={{ fontSize: 8.5, color: c.muted, fontWeight: 600 }}>بازار امروز</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Row label="دلار" value={data?.usd} color={c.primary} />
+        <Row label="طلا (گرم)" value={data?.gold} color={c.attn} />
+      </div>
+      <p style={{ fontSize: 7.5, color: c.muted, marginTop: 4, textAlign: "left" }}>تومان · chand.app</p>
+    </button>
+  );
+}
+
 function HomeTab({ ctx }) {
-  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName } = ctx;
+  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName, simpleMode, setSheet } = ctx;
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
   const todayAppts = appointments.filter((a) => a.date === todayISO());
   const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
@@ -870,21 +949,35 @@ function HomeTab({ ctx }) {
   ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
 
   return (
-    <div className="pt-4">
-      {/* Greeting — quiet, generous, sets the tone before any numbers */}
-      <div className="mb-5 px-0.5">
-        <p style={{ fontSize: 11.5, color: c.muted, letterSpacing: ".02em" }}>{fmtJalali(todayISO())}</p>
-        <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", marginTop: 3 }}>
-          {greetingPhrase()}{agentName ? `، ${agentName}` : ""}
-        </h1>
-        <div className="flex items-center gap-1.5 mt-2">
-          <span style={{ width: 18, height: 2, borderRadius: 2, background: `linear-gradient(90deg,${c.primary},${c.purple})` }} />
-          <p style={{ fontSize: 11.5, color: c.muted }}>املاک گنجینه — سرعین</p>
+    <div className="pt-5">
+      {/* Greeting faces the live market widget — dollar & gold always matter in property */}
+      <div className="flex items-start justify-between gap-3 mb-7 px-0.5">
+        <div className="min-w-0">
+          <p style={{ fontSize: 11.5, color: c.muted, letterSpacing: ".02em" }}>{fmtJalali(todayISO())}</p>
+          <h1 style={{ fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em", marginTop: 4 }}>
+            {greetingPhrase()}{agentName ? `، ${agentName}` : ""}
+          </h1>
+          <div className="flex items-center gap-1.5 mt-2.5">
+            <span style={{ width: 18, height: 2, borderRadius: 2, background: `linear-gradient(90deg,${c.primary},${c.purple})` }} />
+            <p style={{ fontSize: 11.5, color: c.muted }}>املاک گنجینه — سرعین</p>
+          </div>
         </div>
+        <MarketWidget c={c} />
       </div>
 
-      {/* Hero: the one number that matters */}
-      <PortfolioValueCard c={c} properties={properties} />
+      {/* Simple mode: one big, obvious action */}
+      {simpleMode && (
+        <button onClick={() => setSheet("property")} className="press w-full rounded-2xl p-5 mb-3 flex items-center gap-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 14px 34px rgba(47,124,246,0.34)" }}>
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.2)" }}><Plus size={30} color="#fff" strokeWidth={2.5} /></div>
+          <div className="text-right">
+            <p style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>ثبت فایل جدید</p>
+            <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>یک ملک جدید اضافه کن</p>
+          </div>
+        </button>
+      )}
+
+      {/* Hero: the one number that matters (advanced only) */}
+      {!simpleMode && <PortfolioValueCard c={c} properties={properties} />}
 
       {/* Today's focus — only shows when there's something to act on */}
       {(todayAppts.length > 0 || pendingCalls > 0) && (
@@ -910,7 +1003,8 @@ function HomeTab({ ctx }) {
         </div>
       )}
 
-      {/* AI copilot */}
+      {/* AI copilot (advanced only) */}
+      {!simpleMode && (
       <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mt-3 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 14px 34px rgba(79,70,229,0.34)", position: "relative", overflow: "hidden" }}>
         <span style={{ position: "absolute", top: "-50%", right: "-30%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)", animation: "floraFloat 4s ease-in-out infinite" }} />
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 flora-float" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={21} color="#fff" /></div>
@@ -920,12 +1014,11 @@ function HomeTab({ ctx }) {
         </div>
         <ChevronLeft size={17} color="rgba(255,255,255,0.75)" />
       </button>
+      )}
 
-      {/* Stats */}
-      <div className="flex items-center gap-2 mt-6 mb-3 px-0.5">
-        <p style={{ fontSize: 10.5, color: c.muted, fontWeight: 700, letterSpacing: ".08em" }}>یک نگاه</p>
-        <span style={{ flex: 1, height: 1, background: c.border }} />
-      </div>
+      {/* Stats (advanced only) */}
+      {!simpleMode && <>
+      <h2 style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em", marginTop: 32, marginBottom: 16, paddingRight: 2 }}>یک نگاه</h2>
       <div className="grid grid-cols-2 gap-3 flora-stagger">
         {stats.map((s, i) => (
           <button key={i} onClick={s.onClick} className="press text-right rounded-2xl p-4" style={glass(c, 24)}>
@@ -935,25 +1028,24 @@ function HomeTab({ ctx }) {
           </button>
         ))}
       </div>
+      </>}
 
-      {/* Activity */}
-      <div className="flex items-center gap-2 mt-6 mb-3 px-0.5">
-        <p style={{ fontSize: 10.5, color: c.muted, fontWeight: 700, letterSpacing: ".08em" }}>فعالیت‌های اخیر</p>
-        <span style={{ flex: 1, height: 1, background: c.border }} />
-      </div>
+      {/* Activity (advanced only) */}
+      {!simpleMode && <>
+      <h2 style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em", marginTop: 32, marginBottom: 16, paddingRight: 2 }}>فعالیت‌های اخیر</h2>
       <div className="flex flex-col gap-2">
         {feed.map((f, i) => f.type === "appt" ? <ActivityApptRow key={i} a={f} ctx={ctx} /> : <ActivityCallRow key={i} cl={f} c={c} />)}
         {feed.length === 0 && <EmptyLine c={c} text="فعالیتی ثبت نشده" />}
       </div>
+      </>}
 
-      {/* Latest files */}
-      <div className="flex items-center gap-2 mt-6 mb-3 px-0.5">
-        <p style={{ fontSize: 10.5, color: c.muted, fontWeight: 700, letterSpacing: ".08em" }}>جدیدترین فایل‌ها</p>
-        <span style={{ flex: 1, height: 1, background: c.border }} />
-        <button onClick={() => setTab("properties")} style={{ fontSize: 10.5, color: c.primary, fontWeight: 700 }}>همه ›</button>
+      {/* Latest files — quiet header, generous space, no heavy divider */}
+      <div className="flex items-baseline justify-between mt-8 mb-4 px-0.5">
+        <h2 style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em" }}>جدیدترین فایل‌ها</h2>
+        <button onClick={() => setTab("properties")} style={{ fontSize: 11.5, color: c.primary, fontWeight: 700 }}>همه ›</button>
       </div>
-      <div className="flex flex-col gap-2 mb-6">
-        {properties.slice(0, 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
+      <div className="flex flex-col gap-2.5 mb-8">
+        {properties.slice(0, simpleMode ? 3 : 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
         {properties.length === 0 && <EmptyLine c={c} text="فایلی ثبت نشده" />}
       </div>
     </div>
@@ -1042,7 +1134,7 @@ function PropertyMiniCard({ p, c, onClick }) {
 }
 
 // ---------- Properties tab: big list + pipeline ----------
-function PropertiesTab({ ctx, search, stageHint }) {
+function PropertiesTab({ ctx, search, setSearch, stageHint }) {
   const { c, properties, setDetail } = ctx;
   const [mode, setMode] = useState("list");
   const [dealFilter, setDealFilter] = useState("همه");
@@ -1058,7 +1150,9 @@ function PropertiesTab({ ctx, search, stageHint }) {
   }, [properties, search, dealFilter, stageFilter, sortAsc]);
 
   return (
-    <div className="pt-16">
+    <div className="pt-4">
+      <SearchBox c={c} value={search} setValue={setSearch} />
+      <div style={{ height: 14 }} />
       <div className="flex items-center gap-2 mb-3">
         <div className="flex items-center rounded-full p-1 gap-1" style={glass(c, 20)}>
           <button onClick={() => setMode("list")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "list" ? c.primary : "transparent" }}><LayoutGrid size={13} color={mode === "list" ? "#fff" : c.muted} /></button>
@@ -1068,9 +1162,6 @@ function PropertiesTab({ ctx, search, stageHint }) {
         <button onClick={() => setSortAsc((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2 mr-auto" style={glass(c, 20)}>
           <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{sortAsc ? "ارزان‌ترین" : "گران‌ترین"}</span>
         </button>
-      </div>
-      <div className="flex items-center gap-2 mb-2 overflow-x-auto pb-1">
-        {STAGE_FILTERS.map((s) => { const active = stageFilter === s; return <button key={s} onClick={() => setStageFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.attn } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span></button>; })}
       </div>
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
         {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
@@ -1235,7 +1326,7 @@ function PipelineBoard({ rows, ctx }) {
 }
 
 // ---------- Customers tab ----------
-function CustomersTab({ ctx, search }) {
+function CustomersTab({ ctx, search, setSearch }) {
   const { c, customers, setDetail } = ctx;
   const filtered = useMemo(() => {
     if (!search) return customers;
@@ -1243,7 +1334,10 @@ function CustomersTab({ ctx, search }) {
     return customers.filter((cu) => Object.values(cu).some((v) => String(v).toLowerCase().includes(q)));
   }, [customers, search]);
   return (
-    <div className="pt-16 flex flex-col gap-2">
+    <div className="pt-4">
+      <SearchBox c={c} value={search} setValue={setSearch} />
+      <div style={{ height: 14 }} />
+      <div className="flex flex-col gap-2">
       {filtered.map((cu) => (
         <button key={cu.id} onClick={() => setDetail({ type: "customer", id: cu.id })} className="press w-full text-right rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
           <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 44, height: 44, background: c.primarySoft }}><UserCircle2 size={22} color={c.primary} /></div>
@@ -1252,6 +1346,7 @@ function CustomersTab({ ctx, search }) {
         </button>
       ))}
       {filtered.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
+      </div>
     </div>
   );
 }
@@ -1319,12 +1414,27 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
 }
 
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers } = ctx;
+  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers, simpleMode, setSimpleMode } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
 
   return (
     <div className="pt-3">
+      {/* Simple / advanced mode switch — the master control for how busy the app feels */}
+      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={glass(c, 22)}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: simpleMode ? c.successSoft : c.primarySoft }}>
+          {simpleMode ? <Sparkles size={18} color={c.success} /> : <LayoutGrid size={18} color={c.primary} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>{simpleMode ? "حالت ساده" : "حالت حرفه‌ای"}</p>
+          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{simpleMode ? "فقط فایل‌ها و مشتری‌ها — تمیز و بی‌شلوغی" : "همه‌ی امکانات: مالی، کمیسیون، گزارش و AI"}</p>
+        </div>
+        <button onClick={() => { setSimpleMode(!simpleMode); notify(simpleMode ? "حالت حرفه‌ای فعال شد" : "حالت ساده فعال شد"); }}
+          className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: simpleMode ? c.border : c.primary, position: "relative", transition: "background .3s ease" }}>
+          <span style={{ position: "absolute", top: 3, right: simpleMode ? 3 : 25, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
+        </button>
+      </div>
+
       {/* Hero: quick pulse of the whole business */}
       <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
         <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
@@ -1340,6 +1450,18 @@ function MoreTab({ ctx }) {
           ))}
         </div>
       </div>
+
+      {/* In simple mode, Finance isn't in the nav — give it a shortcut here */}
+      {simpleMode && (
+        <button onClick={() => setTab("finance")} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><Wallet size={20} color={c.success} /></div>
+          <div className="flex-1 min-w-0">
+            <p style={{ fontSize: 13, fontWeight: 700 }}>مالی و کمیسیون</p>
+            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>معاملات، پرداخت‌ها و تقسیم کمیسیون</p>
+          </div>
+          <ChevronLeft size={17} color={c.muted} />
+        </button>
+      )}
 
       {/* Two hero shortcuts */}
       <div className="grid grid-cols-2 gap-3 mb-3">
@@ -1462,6 +1584,35 @@ function BackHeader({ c, title, onBack, onEdit, onDelete }) {
   );
 }
 
+// Owner contact stays hidden by default so the file can be shown to a customer
+// without exposing the owner's name and number. One tap reveals it for the agent.
+function OwnerReveal({ c, owner }) {
+  const [shown, setShown] = useState(false);
+  if (!shown) {
+    return (
+      <button onClick={() => setShown(true)} className="press flex items-center gap-1.5 mt-3 rounded-lg px-3 py-2" style={{ background: c.surface2 }}>
+        <Eye size={13} color={c.primary} />
+        <span style={{ fontSize: 11.5, color: c.primary, fontWeight: 700 }}>نمایش اطلاعات مالک</span>
+      </button>
+    );
+  }
+  return (
+    <div className="mt-3 rounded-lg px-3 py-2.5" style={{ background: c.surface2 }}>
+      <div className="flex items-center gap-1.5" style={{ color: c.ink, fontSize: 12.5, fontWeight: 600 }}>
+        <UserCircle2 size={14} color={c.primary} /> {owner.name}
+      </div>
+      {owner.phone && (
+        <div className="flex items-center justify-between mt-2">
+          <span dir="ltr" style={{ fontSize: 12.5, color: c.muted }}>{owner.phone}</span>
+          <a href={`tel:${owner.phone}`} className="press flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: c.successSoft }}>
+            <PhoneCall size={12} color={c.success} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.success }}>تماس</span>
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MediaGallery({ c, media, onAdd, onRemove, onView, uploading }) {
   const inputRef = useRef(null);
   return (
@@ -1471,9 +1622,9 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading }) {
         <span style={{ fontSize: 10, color: c.primary, fontWeight: 700 }}>افزودن</span>
       </button>
       <input ref={inputRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files?.length) onAdd(e.target.files); e.target.value = ""; }} />
-      {media.map((m) => (
+      {media.map((m, mi) => (
         <div key={m.id} className="relative shrink-0 rounded-lg overflow-hidden" style={{ width: 84, height: 84 }}>
-          <button onClick={() => onView(m)} className="w-full h-full">
+          <button onClick={() => onView({ media, index: mi })} className="w-full h-full">
             {m.type === "image" ? <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
               <div className="relative w-full h-full"><video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} /><div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={18} color="#fff" fill="#fff" /></div></div>
             )}
@@ -1485,10 +1636,39 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading }) {
   );
 }
 function Lightbox({ item, onClose }) {
+  // item can be a single media object (legacy) or { media:[...], index }
+  const media = item.media || [item];
+  const [idx, setIdx] = useState(item.index || 0);
+  const touch = useRef({ x: 0 });
+  const cur = media[idx];
+  const go = (d) => setIdx((i) => Math.max(0, Math.min(media.length - 1, i + d)));
+
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.9)" }} onClick={onClose}>
-      <button onClick={onClose} className="absolute top-5 left-5 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
-      {item.type === "image" ? <img src={item.url} alt="" style={{ maxWidth: "92%", maxHeight: "80%", borderRadius: 18, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} /> : <video src={item.url} controls autoPlay style={{ maxWidth: "92%", maxHeight: "80%", borderRadius: 18 }} onClick={(e) => e.stopPropagation()} />}
+    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.92)" }} onClick={onClose}>
+      <button onClick={onClose} className="absolute top-5 left-5 w-9 h-9 rounded-full flex items-center justify-center z-10" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
+
+      <div
+        className="flex items-center justify-center"
+        style={{ width: "100%", flex: 1 }}
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={(e) => { touch.current.x = e.touches[0].clientX; }}
+        onTouchEnd={(e) => {
+          const dx = e.changedTouches[0].clientX - touch.current.x;
+          if (Math.abs(dx) > 45) go(dx > 0 ? -1 : 1); // RTL: swipe right = previous
+        }}
+      >
+        {cur.type === "image"
+          ? <img src={cur.url} alt="" style={{ maxWidth: "92%", maxHeight: "78vh", borderRadius: 18, objectFit: "contain" }} />
+          : <video src={cur.url} controls autoPlay style={{ maxWidth: "92%", maxHeight: "78vh", borderRadius: 18 }} />}
+      </div>
+
+      {media.length > 1 && (
+        <div className="flex items-center gap-2 pb-6" onClick={(e) => e.stopPropagation()}>
+          {media.map((_, i) => (
+            <button key={i} onClick={() => setIdx(i)} style={{ width: i === idx ? 20 : 7, height: 7, borderRadius: 99, background: i === idx ? "#fff" : "rgba(255,255,255,0.4)", transition: "all .25s ease" }} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1554,8 +1734,18 @@ function PropertyDetail({ id, ctx, onBack }) {
     if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
     setAiLoading(true);
     try {
-      const prompt = `یک آگهی ملکی حرفه‌ای، جذاب و کوتاه (حداکثر ۵ خط) به زبان فارسی برای این فایل ملکی بنویس:
-عنوان: ${p.title}\nنوع: ${p.type}\nنوع معامله: ${p.deal}\nمتراژ: ${p.area} متر\nطبقه: ${p.floor || "-"}\nتعداد اتاق: ${p.rooms}\nوضعیت لوازم: ${p.furnished || "-"}\nآدرس: ${p.address}\nقیمت کل: ${fmtToman(p.price)}\nفقط متن آگهی را برگردان.`;
+      const isPreSale = p.deal === "پیش‌فروش";
+      const prompt = `تو یک مشاور املاک حرفه‌ای و خوش‌ذوق در سرعین هستی. یک متن معرفی گرم و جذاب برای این ملک بنویس — طوری که وقتی مشاور آن را برای مشتری می‌خواند، مشتری هیجان‌زده شود و بگوید «بریم ببینیمش». لحن صمیمی و تصویری باشد، نه خشک و فهرست‌وار. حس زندگی در آن ملک را منتقل کن (نور، فضا، آرامش، موقعیت خوب سرعین و نزدیکی به طبیعت و آب‌گرم). حداکثر ۵ خط. با یک جمله‌ی دعوت‌کننده تمام کن.
+اطلاعات ملک:
+عنوان: ${p.title}
+نوع: ${p.type}${isPreSale ? " (پیش‌فروش)" : ""}
+متراژ: ${p.area} متر
+طبقه: ${p.floor || "-"}
+اتاق خواب: ${p.rooms}
+لوازم: ${p.furnished || "-"}
+موقعیت: ${p.address}
+قیمت: ${fmtToman(p.price)}
+فقط خودِ متن معرفی را برگردان، بدون تیتر و توضیح اضافه.`;
       const text = await callAI(prompt);
       setAdText(text.trim());
       setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: text.trim() } : x));
@@ -1590,7 +1780,7 @@ function PropertyDetail({ id, ctx, onBack }) {
           {p.furnished && <InfoChip c={c} icon={BadgeCheck} label={p.furnished} />}
         </div>
         <div className="flex items-center gap-1.5 mt-3" style={{ color: c.muted, fontSize: 12.5 }}><MapPin size={13} /> {p.address}</div>
-        {owner && <div className="flex items-center gap-1.5 mt-2" style={{ color: c.muted, fontSize: 12.5 }}><UserCircle2 size={13} /> مالک: {owner.name} · <span dir="ltr">{owner.phone}</span></div>}
+        {owner && <OwnerReveal c={c} owner={owner} />}
         {builder && <div className="flex items-center gap-1.5 mt-2" style={{ color: c.muted, fontSize: 12.5 }}><Hammer size={13} /> سازنده: {builder.name} · <span dir="ltr">{builder.phone}</span></div>}
 
         <div className="flex gap-2 mt-4">
@@ -1602,12 +1792,12 @@ function PropertyDetail({ id, ctx, onBack }) {
 
       <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
         <div className="flex items-center justify-between mb-2.5">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>آگهی</p>
+          <p style={{ fontSize: 13, fontWeight: 700 }}>معرفی برای مشتری</p>
           <button onClick={generateAd} disabled={aiLoading} className="press flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontSize: 11.5, fontWeight: 700 }}>
-            {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال تولید..." : "تولید با AI"}
+            {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال نوشتن..." : "نوشتن با AI"}
           </button>
         </div>
-        <textarea value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="متن آگهی را اینجا بنویس، یا از دکمه‌ی بالا با Gemini بساز..."
+        <textarea value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="یک متن گرم برای نشان‌دادن به مشتری بنویس، یا با دکمه‌ی بالا بگذار AI بنویسد..."
           rows={5} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.9, color: c.ink, outline: "none", fontFamily: "inherit", resize: "vertical" }} />
         <button onClick={() => { setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: adText } : x)); notify("آگهی ذخیره شد"); }}
           className="press w-full mt-2 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ذخیره آگهی</button>
@@ -2203,8 +2393,22 @@ ${transcript}
 }
 
 // ---------- Finance Center ----------
+// Official Iranian real-estate commission formula (per the office's standard):
+// first 1 billion toman → flat 10M; anything above → +0.5% of the excess; then +10% tax.
+// Returns the full breakdown so the UI can show every line.
+function officialCommission(price) {
+  const BASE_CAP = 1_000_000_000;
+  const BASE_FEE = 10_000_000;
+  const p = Math.max(0, Math.round(price || 0));
+  const excess = p > BASE_CAP ? p - BASE_CAP : 0;
+  const commission = BASE_FEE + Math.round(excess * 0.005);
+  const tax = Math.round(commission * 0.10);
+  return { price: p, excess, commission, tax, final: commission + tax };
+}
+
 const dealCommission = (deal, side) => {
   const mode = side === "seller" ? deal.sellerMode : deal.buyerMode;
+  if (mode === "official") return officialCommission(deal.price).final;
   if (mode === "fixed") return (side === "seller" ? deal.sellerFixed : deal.buyerFixed) || 0;
   return Math.round((deal.price || 0) * ((side === "seller" ? deal.sellerPct : deal.buyerPct) || 0) / 100);
 };
@@ -2255,9 +2459,11 @@ function DealStatusBadge({ c, status }) {
 }
 
 function FinanceCenterView({ ctx, onBack }) {
-  const { c, deals, payments, setPayments, setSheet } = ctx;
+  const { c, deals, payments, setPayments, setSheet, simpleMode } = ctx;
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
+  // In simple mode, keep only the three tabs an agent needs daily.
+  const visibleTabs = FIN_TABS;
   const [statusFilter, setStatusFilter] = useState("همه");
 
   const totalValue = deals.reduce((s, d) => s + (d.price || 0), 0);
@@ -2336,7 +2542,7 @@ function FinanceCenterView({ ctx, onBack }) {
     <div className={onBack ? "pt-2" : "pt-16"}>
       {onBack && <BackHeader c={c} title="مرکز مالی" onBack={onBack} />}
       <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
-        {FIN_TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
             <span style={{ fontSize: 11.5, fontWeight: 700, color: tab === t.id ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
           </button>
@@ -2376,6 +2582,16 @@ function FinanceCenterView({ ctx, onBack }) {
               </div>
             </div>
           </div>
+
+          {simpleMode && (
+            <button onClick={() => setSheet("deal")} className="press w-full rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 30px rgba(47,124,246,0.32)" }}>
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.2)" }}><FileText size={24} color="#fff" /></div>
+              <div className="text-right">
+                <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>ثبت قرارداد جدید</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>معامله و کمیسیونش را ثبت کن</p>
+              </div>
+            </button>
+          )}
 
           <FinMarquee c={c} items={[
             { icon: CalendarDays, color: c.primary, value: fmtToman(monthVal), label: "فروش این ماه" },
@@ -3399,6 +3615,7 @@ function PropertyForm({ ctx, onClose, editId }) {
   } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0] });
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [showDivar, setShowDivar] = useState(false);
   const [divarLink, setDivarLink] = useState("");
   const [divarText, setDivarText] = useState("");
@@ -3486,11 +3703,6 @@ function PropertyForm({ ctx, onClose, editId }) {
       <div className="rounded-2xl px-4 py-3 mb-3 flex items-center justify-between" style={{ background: c.primarySoft }}>
         <span style={{ fontSize: 12.5, color: c.primary, fontWeight: 700 }}>مبلغ کل (متراژ × قیمت هر متر)</span><span style={{ fontSize: 15, color: c.primary, fontWeight: 800 }}>{fmtToman(total)}</span>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <Field c={c} label="تعداد اتاق"><input style={inputStyle(c)} inputMode="numeric" value={f.rooms} onChange={set("rooms")} /></Field>
-        <Field c={c} label="طبقه"><Select c={c} value={f.floor} onChange={set("floor")} placeholder="طبقه" options={Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), label: faDigits(i + 1) }))} /></Field>
-        <Field c={c} label="لوازم"><Select c={c} value={f.furnished} onChange={set("furnished")} placeholder="وضعیت" options={["با لوازم","بدون لوازم"].map(v=>({value:v,label:v}))} /></Field>
-      </div>
       <Field c={c} label="آدرس">
         <div className="flex gap-2">
           <input style={{ ...inputStyle(c), flex: 1 }} value={f.address} onChange={set("address")} placeholder="آدرس را بنویس یا از نقشه انتخاب کن" />
@@ -3504,10 +3716,23 @@ function PropertyForm({ ctx, onClose, editId }) {
           <p style={{ fontSize: 10.5, color: c.muted, marginTop: 6 }}>برای ثبت موقعیت دقیق روی نقشه، دکمه‌ی کنار را بزن</p>
         )}
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field c={c} label="نام مالک"><input style={inputStyle(c)} value={f.ownerName} onChange={set("ownerName")} placeholder="اختیاری" /></Field>
-        <Field c={c} label="شماره مالک"><input style={inputStyle(c)} dir="ltr" value={f.ownerPhone} inputMode="tel" onChange={set("ownerPhone")} placeholder="اختیاری" /></Field>
-      </div>
+      <button type="button" onClick={() => setShowMore((s) => !s)} className="press w-full flex items-center justify-between rounded-xl px-4 py-3 mb-3" style={{ background: c.surface2 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: c.ink }}>جزئیات بیشتر (اختیاری)</span>
+        <ChevronDown size={16} color={c.muted} style={{ transform: showMore ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
+      </button>
+      {showMore && (
+        <div className="flora-rise">
+          <div className="grid grid-cols-3 gap-3">
+            <Field c={c} label="تعداد اتاق"><input style={inputStyle(c)} inputMode="numeric" value={f.rooms} onChange={set("rooms")} /></Field>
+            <Field c={c} label="طبقه"><Select c={c} value={f.floor} onChange={set("floor")} placeholder="طبقه" options={Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), label: faDigits(i + 1) }))} /></Field>
+            <Field c={c} label="لوازم"><Select c={c} value={f.furnished} onChange={set("furnished")} placeholder="وضعیت" options={["با لوازم","بدون لوازم"].map(v=>({value:v,label:v}))} /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field c={c} label="نام مالک"><input style={inputStyle(c)} value={f.ownerName} onChange={set("ownerName")} placeholder="اختیاری" /></Field>
+            <Field c={c} label="شماره مالک"><input style={inputStyle(c)} dir="ltr" value={f.ownerPhone} inputMode="tel" onChange={set("ownerPhone")} placeholder="اختیاری" /></Field>
+          </div>
+        </div>
+      )}
       {isPreSale && (
         <>
           <Field c={c} label="سازنده"><Select c={c} value={f.builderId} onChange={set("builderId")} placeholder="انتخاب سازنده" options={builders.map(b=>({value:b.id,label:b.name}))} /></Field>
@@ -3639,18 +3864,47 @@ function CommissionField({ c, f, setF, side, label }) {
   const modeKey = side === "seller" ? "sellerMode" : "buyerMode";
   const pctKey = side === "seller" ? "sellerPct" : "buyerPct";
   const fixedKey = side === "seller" ? "sellerFixed" : "buyerFixed";
-  const previewAmount = mode === "pct" ? Math.round(toNum(f.price) * (Number(toEnDigits(f[pctKey])) || 0) / 100) : toNum(f[fixedKey]);
+  const price = toNum(f.price);
+  const breakdown = officialCommission(price);
+  const previewAmount = mode === "official" ? breakdown.final
+    : mode === "pct" ? Math.round(price * toDecimal(f[pctKey]) / 100)
+    : toNum(f[fixedKey]);
+  const modeBtn = (m, txt) => (
+    <button type="button" onClick={() => setF((p) => ({ ...p, [modeKey]: m }))} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === m ? c.primary : c.surface2, color: mode === m ? "#fff" : c.muted, fontWeight: 700, fontSize: 10 }}>{txt}</button>
+  );
   return (
     <Field c={c} label={label}>
       <div className="flex gap-2 mb-2">
-        <button type="button" onClick={() => setF((p) => ({ ...p, [modeKey]: "pct" }))} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "pct" ? c.primary : c.surface2, color: mode === "pct" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>درصدی</button>
-        <button type="button" onClick={() => setF((p) => ({ ...p, [modeKey]: "fixed" }))} className="press flex-1 rounded-lg py-1.5" style={{ background: mode === "fixed" ? c.primary : c.surface2, color: mode === "fixed" ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>مبلغ ثابت (تومان)</button>
+        {modeBtn("official", "فرمول رسمی")}
+        {modeBtn("pct", "درصدی")}
+        {modeBtn("fixed", "مبلغ ثابت")}
       </div>
-      {mode === "pct"
+      {mode === "official" ? (
+        <div className="rounded-xl p-3" style={{ background: c.surface2 }}>
+          <BreakdownRow c={c} label="ثمن معامله" value={breakdown.price} />
+          {breakdown.excess > 0 && <BreakdownRow c={c} label="مبلغ مازاد (بالای ۱ میلیارد)" value={breakdown.excess} muted />}
+          <BreakdownRow c={c} label="کمیسیون قبل از مالیات" value={breakdown.commission} />
+          <BreakdownRow c={c} label="مالیات ۱۰٪" value={breakdown.tax} muted />
+          <div className="flex items-center justify-between" style={{ paddingTop: 8, marginTop: 4, borderTop: `1px solid ${c.border}` }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: c.primary }}>مبلغ نهایی قابل پرداخت</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: c.primary, direction: "ltr" }}>{fmtToman(breakdown.final)}</span>
+          </div>
+          <p style={{ fontSize: 9.5, color: c.muted, marginTop: 8, lineHeight: 1.7 }}>۱ میلیارد اول: ۱۰ میلیون ثابت · مازاد: نیم درصد · سپس ۱۰٪ مالیات</p>
+        </div>
+      ) : mode === "pct"
         ? <input style={inputStyle(c)} inputMode="decimal" value={f[pctKey]} onChange={(e) => setF((p) => ({ ...p, [pctKey]: e.target.value }))} placeholder="مثلاً ۱" />
         : <input style={inputStyle(c)} inputMode="numeric" value={f[fixedKey]} onChange={(e) => setF((p) => ({ ...p, [fixedKey]: e.target.value }))} placeholder="مبلغ به تومان" />}
-      <p style={{ fontSize: 11, color: c.primary, fontWeight: 700, marginTop: 6 }}>{fmtToman(previewAmount)}</p>
+      {mode !== "official" && <p style={{ fontSize: 11, color: c.primary, fontWeight: 700, marginTop: 6 }}>{fmtToman(previewAmount)}</p>}
     </Field>
+  );
+}
+
+function BreakdownRow({ c, label, value, muted }) {
+  return (
+    <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+      <span style={{ fontSize: 11, color: c.muted }}>{label}</span>
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: muted ? c.muted : c.ink, direction: "ltr" }}>{fmtToman(value)}</span>
+    </div>
   );
 }
 
@@ -3663,7 +3917,7 @@ function DealForm({ ctx, onClose, editId }) {
     sellerMode: editing.sellerMode || "pct", sellerPct: String(editing.sellerPct || 0), sellerFixed: String(editing.sellerFixed || ""),
     buyerMode: editing.buyerMode || "pct", buyerPct: String(editing.buyerPct || 0), buyerFixed: String(editing.buyerFixed || ""),
     advisor: editing.advisor || "من", status: editing.status, dealDate: (editing.createdAt || todayISO()).slice(0, 10),
-  } : { propertyId: "", propertyTitle: "", sellerName: "", sellerPhone: "", buyerName: "", buyerPhone: "", price: "", sellerMode: "pct", sellerPct: "1", sellerFixed: "", buyerMode: "pct", buyerPct: "0.5", buyerFixed: "", advisor: "من", status: "در حال مذاکره", dealDate: todayISO() });
+  } : { propertyId: "", propertyTitle: "", sellerName: "", sellerPhone: "", buyerName: "", buyerPhone: "", price: "", sellerMode: "official", sellerPct: "1", sellerFixed: "", buyerMode: "official", buyerPct: "0.5", buyerFixed: "", advisor: "من", status: "در حال مذاکره", dealDate: todayISO() });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const onPickProperty = (e) => {
     const pid = e.target.value;
@@ -3701,8 +3955,8 @@ function DealForm({ ctx, onClose, editId }) {
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره قرارداد"} disabled={!valid} onClick={() => {
         const payload = {
           propertyId: f.propertyId, propertyTitle: f.propertyTitle.trim(), sellerName: f.sellerName.trim(), sellerPhone: f.sellerPhone.trim(), buyerName: f.buyerName.trim(), buyerPhone: f.buyerPhone.trim(), price: toNum(f.price),
-          sellerMode: f.sellerMode, sellerPct: Number(toEnDigits(f.sellerPct)) || 0, sellerFixed: toNum(f.sellerFixed),
-          buyerMode: f.buyerMode, buyerPct: Number(toEnDigits(f.buyerPct)) || 0, buyerFixed: toNum(f.buyerFixed),
+          sellerMode: f.sellerMode, sellerPct: toDecimal(f.sellerPct), sellerFixed: toNum(f.sellerFixed),
+          buyerMode: f.buyerMode, buyerPct: toDecimal(f.buyerPct), buyerFixed: toNum(f.buyerFixed),
           advisor: f.advisor.trim() || "من", status: f.status,
         };
         const createdAt = new Date(`${f.dealDate}T12:00:00`).toISOString();
