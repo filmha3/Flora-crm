@@ -157,6 +157,7 @@ const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (f
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
 const BUILD_STAGES = ["گودبرداری", "فونداسیون", "اسکلت", "سفت‌کاری", "نازک‌کاری", "نما", "آماده تحویل"];
 const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش"];
+const TYPE_FILTERS = ["همه", "آپارتمان", "ویلا", "زمین", "مغازه", "اداری"];
 const STAGE_FILTERS = ["همه", "فعال", "در حال مذاکره", "فروخته شد"];
 
 // ---------- Glassmorphism tokens ----------
@@ -293,6 +294,8 @@ export default function FloraCRM() {
   const [grokKey, setGrokKey] = useState("");
   const [aiProvider, setAiProvider] = useState("gemini");
   const [agentName, setAgentName] = useState("");
+  const [agencyName, setAgencyName] = useState("املاک گنجینه");
+  const [agencyCity, setAgencyCity] = useState("سرعین");
   const [loaded, setLoaded] = useState(false);
   const [showDailyReminder, setShowDailyReminder] = useState(false);
 
@@ -321,6 +324,8 @@ export default function FloraCRM() {
         if (settings?.grokKey) setGrokKey(settings.grokKey);
         if (settings?.aiProvider) setAiProvider(settings.aiProvider);
         if (settings?.agentName) setAgentName(settings.agentName);
+        if (settings?.agencyName) setAgencyName(settings.agencyName);
+        if (settings?.agencyCity) setAgencyCity(settings.agencyCity);
         if (settings?.splitShares) setSplitShares(settings.splitShares);
         if (typeof settings?.simpleMode === "boolean") setSimpleMode(settings.simpleMode);
         const lastReminder = await dbGet(REMINDER_KEY);
@@ -338,7 +343,7 @@ export default function FloraCRM() {
     }, 400);
     return () => clearTimeout(t);
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName, splitShares, simpleMode]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
   // so once a week the app downloads a fresh backup file automatically (and flags it),
@@ -477,7 +482,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
-    openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName,
+    openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup,
   };
 
@@ -501,10 +506,6 @@ export default function FloraCRM() {
         ::-webkit-scrollbar { display: none; }
         .press { transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease, opacity .18s ease; }
         .press:active { transform: scale(0.955); opacity: .92; }
-        /* Honour the OS setting — motion should never be forced on someone */
-        @media (prefers-reduced-motion: reduce) {
-          *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-        }
         @keyframes floraUp { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
         @keyframes floraSheet { from { transform: translateY(100%);} to { transform: translateY(0);} }
         @keyframes floraPop { from { opacity:0; transform: scale(.95);} to { opacity:1; transform: scale(1);} }
@@ -562,7 +563,7 @@ export default function FloraCRM() {
 
       {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
       <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
-        <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} />
+        <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} setTab={setTab} />
 
         <div className="flex-1 overflow-y-auto pb-28 px-4 relative">
           <div key={detail ? `d-${detail.id}` : tab} className="flora-door">
@@ -614,7 +615,7 @@ export default function FloraCRM() {
 }
 
 // ---------- Top bar / search / nav ----------
-function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail }) {
+function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail, setTab }) {
   const titles = { home: "داشبورد", properties: "فایل‌های ملکی", customers: "مشتریان", calendar: "تقویم بازدید", finance: "مرکز مالی", more: "بیشتر" };
   return (
     <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0 relative z-10">
@@ -628,10 +629,10 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail }) {
       </div>
       <div className="flex items-center gap-2">
         {pendingCalls > 0 && (
-          <div className="flex items-center gap-1.5 rounded-full px-2.5 py-2" style={{ background: c.attnSoft }}>
-            <span className="flora-pulse" style={{ width: 7, height: 7, borderRadius: 99, background: c.attn, display: "inline-block" }} />
+          <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center gap-1.5 rounded-full px-2.5 py-2" style={{ background: c.attnSoft }}>
+            <PhoneCall size={12} color={c.attn} />
             <span style={{ fontSize: 10.5, fontWeight: 700, color: c.attn }}>{faDigits(pendingCalls)}</span>
-          </div>
+          </button>
         )}
         <button onClick={() => setDetail({ type: "ai-chat" })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><MessageCircle size={16} color={c.ink} /></button>
         <button onClick={() => setSheet("ai-settings")} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><Sparkles size={16} color={c.ink} /></button>
@@ -933,7 +934,7 @@ function MarketWidget({ c }) {
 }
 
 function HomeTab({ ctx }) {
-  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName, simpleMode, setSheet } = ctx;
+  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName, agencyName, agencyCity, simpleMode, setSheet } = ctx;
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
   const todayAppts = appointments.filter((a) => a.date === todayISO());
   const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
@@ -959,7 +960,7 @@ function HomeTab({ ctx }) {
           </h1>
           <div className="flex items-center gap-1.5 mt-2.5">
             <span style={{ width: 18, height: 2, borderRadius: 2, background: `linear-gradient(90deg,${c.primary},${c.purple})` }} />
-            <p style={{ fontSize: 11.5, color: c.muted }}>املاک گنجینه — سرعین</p>
+            <p style={{ fontSize: 11.5, color: c.muted }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
           </div>
         </div>
         <MarketWidget c={c} />
@@ -1138,6 +1139,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
   const { c, properties, setDetail } = ctx;
   const [mode, setMode] = useState("list");
   const [dealFilter, setDealFilter] = useState("همه");
+  const [typeFilter, setTypeFilter] = useState("همه");
   const [stageFilter, setStageFilter] = useState(stageHint || "همه");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -1145,9 +1147,10 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
     let out = properties;
     if (search) { const q = search.toLowerCase(); out = out.filter((p) => Object.values(p).some((v) => String(v).toLowerCase().includes(q))); }
     if (dealFilter !== "همه") out = out.filter((p) => p.deal === dealFilter);
+    if (typeFilter !== "همه") out = out.filter((p) => p.type === typeFilter);
     if (stageFilter !== "همه") out = out.filter((p) => p.stage === stageFilter);
     return [...out].sort((a, b) => (sortAsc ? a.price - b.price : b.price - a.price));
-  }, [properties, search, dealFilter, stageFilter, sortAsc]);
+  }, [properties, search, dealFilter, typeFilter, stageFilter, sortAsc]);
 
   return (
     <div className="pt-4">
@@ -1165,6 +1168,9 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
       </div>
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
         {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
+      </div>
+      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
+        {TYPE_FILTERS.map((t) => { const active = typeFilter === t; return <button key={t} onClick={() => setTypeFilter(t)} className="press shrink-0 rounded-full px-3 py-1.5 flex items-center gap-1" style={active ? { background: c.purple } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t}</span></button>; })}
       </div>
 
       {mode === "list" ? (
@@ -1413,8 +1419,50 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
   );
 }
 
+// Editable agency identity. Flora is meant to be published for any agent, so the
+// name, city, and agent name aren't hardcoded — each office sets their own here.
+function AgencyCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, notify }) {
+  const [editing, setEditing] = useState(false);
+  const [n, setN] = useState(agencyName);
+  const [ct, setCt] = useState(agencyCity);
+  const [ag, setAg] = useState(agentName);
+  const save = () => {
+    setAgencyName(n.trim() || "املاک");
+    setAgencyCity(ct.trim());
+    setAgentName(ag.trim());
+    setEditing(false);
+    notify("مشخصات دفتر ذخیره شد");
+  };
+  return (
+    <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+      {!editing ? (
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><FloraMark size={26} color={c.primary} /></div>
+          <div className="flex-1 min-w-0">
+            <p style={{ fontSize: 13.5, fontWeight: 800 }}>{agencyName}</p>
+            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{[agencyCity, agentName].filter(Boolean).join(" · ") || "مشخصات دفتر"}</p>
+          </div>
+          <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1" style={{ background: c.surface2 }}>
+            <Edit3 size={11} color={c.muted} /><span style={{ fontSize: 10, fontWeight: 700, color: c.muted }}>ویرایش</span>
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          <Field c={c} label="نام دفتر املاک"><input style={inputStyle(c)} value={n} onChange={(e) => setN(e.target.value)} placeholder="مثلاً املاک گنجینه" /></Field>
+          <Field c={c} label="شهر"><input style={inputStyle(c)} value={ct} onChange={(e) => setCt(e.target.value)} placeholder="مثلاً سرعین" /></Field>
+          <Field c={c} label="نام شما (مشاور)"><input style={inputStyle(c)} value={ag} onChange={(e) => setAg(e.target.value)} placeholder="مثلاً قبادی" /></Field>
+          <div className="flex gap-2">
+            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: c.surface2, fontSize: 12, fontWeight: 700, color: c.muted }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: c.primary, fontSize: 12, fontWeight: 700, color: "#fff" }}>ذخیره</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers, simpleMode, setSimpleMode } = ctx;
+  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
 
@@ -1435,11 +1483,14 @@ function MoreTab({ ctx }) {
         </button>
       </div>
 
+      {/* Agency identity — editable, since Flora is meant for any agency */}
+      <AgencyCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} notify={notify} />
+
       {/* Hero: quick pulse of the whole business */}
       <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
         <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
         <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
-        <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.8)" }}>املاک گنجینه — سرعین</p>
+        <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.8)" }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
         <p style={{ fontSize: 15.5, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
         <div className="flex gap-2 mt-3.5">
           {[{ n: properties.length, l: "فایل" }, { n: customers.length, l: "مشتری" }, { n: owners.length, l: "مالک" }].map((s, i) => (
@@ -1566,6 +1617,7 @@ function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "property") return <PropertyDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   if (detail.type === "customer") return <CustomerDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   if (detail.type === "copilot") return <CopilotView ctx={ctx} onBack={onBack} />;
+  if (detail.type === "calls") return <CallsView ctx={ctx} onBack={onBack} />;
   if (detail.type === "ai-chat") return <AiChatView ctx={ctx} onBack={onBack} />;
   if (detail.type === "finance") return <FinanceCenterView ctx={ctx} onBack={onBack} />;
   return null;
@@ -2139,6 +2191,53 @@ function useSalesInsights(ctx) {
 
     return out;
   }, [customers, calls, appointments, properties, deals]);
+}
+
+// Full-page call follow-up list, reached from the top-bar badge. Pending calls
+// float to the top so the next action is always first.
+function CallsView({ ctx, onBack }) {
+  const { c, calls, setCalls, setSheet, notify } = ctx;
+  const sorted = [...calls].sort((a, b) => {
+    const ap = a.status === "انجام‌شد" ? 1 : 0, bp = b.status === "انجام‌شد" ? 1 : 0;
+    if (ap !== bp) return ap - bp;
+    return (b.date || "").localeCompare(a.date || "");
+  });
+  const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
+  return (
+    <div className="pt-3 pb-6">
+      <BackHeader c={c} title="پیگیری تماس‌ها" onBack={onBack} />
+      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)" }}>
+        <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><PhoneCall size={20} color="#fff" /></div>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار پیگیری` : "همه پیگیری شده ✓"}</p>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", marginTop: 1 }}>{faDigits(calls.length)} تماس ثبت شده</p>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 flora-stagger">
+        {sorted.map((cl) => {
+          const done = cl.status === "انجام‌شد";
+          return (
+            <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 20)}>
+              <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))} className="press shrink-0">
+                <CheckCircle2 size={22} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
+              </button>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: 13, fontWeight: 700, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p>
+                <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{cl.notes ? `${cl.notes} · ` : ""}{fmtJalali(cl.date)}</p>
+              </div>
+              {cl.customerPhone && <a href={`tel:${cl.customerPhone}`} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
+              <button onClick={() => setSheet({ kind: "call", editId: cl.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
+              <button onClick={() => { setCalls((prev) => prev.filter((x) => x.id !== cl.id)); notify("تماس حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
+            </div>
+          );
+        })}
+        {calls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
+      </div>
+      <button onClick={() => setSheet("call")} className="press w-full rounded-2xl py-3.5 mt-4 flex items-center justify-center gap-2" style={{ background: c.primary }}>
+        <Plus size={17} color="#fff" /><span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>ثبت پیگیری تماس جدید</span>
+      </button>
+    </div>
+  );
 }
 
 function CopilotView({ ctx, onBack }) {
@@ -2884,7 +2983,6 @@ function FinMarquee({ c, items }) {
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     let raf;
     const SPEED = 0.35; // px per frame — slow enough to read while it moves
 
@@ -2896,7 +2994,7 @@ function FinMarquee({ c, items }) {
       else if (el.scrollLeft <= 0) el.scrollLeft += h;
     };
     const tick = () => {
-      if (!pausedRef.current && !reduced) {
+      if (!pausedRef.current) {
         el.scrollLeft += SPEED;
         wrap();
       }
@@ -3760,6 +3858,36 @@ function PropertyForm({ ctx, onClose, editId }) {
       )}
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره فایل"} disabled={!valid} onClick={submit} />
     </SheetShell>
+  );
+}
+
+// The Contact Picker API works on Android Chrome but NOT iOS Safari. So the pick
+// button only appears where it's actually supported — no dead button on iPhone.
+const contactsSupported = typeof navigator !== "undefined" && "contacts" in navigator && "ContactsManager" in window;
+async function pickContact(onPick) {
+  try {
+    const contacts = await navigator.contacts.select(["name", "tel"], { multiple: false });
+    if (contacts && contacts[0]) {
+      const cn = contacts[0];
+      const phone = (cn.tel && cn.tel[0]) ? String(cn.tel[0]).replace(/\s/g, "") : "";
+      const name = (cn.name && cn.name[0]) ? cn.name[0] : "";
+      onPick({ name, phone });
+    }
+  } catch (e) { /* user cancelled or unsupported */ }
+}
+
+function PhoneField({ c, label, value, onChange, onPickContact }) {
+  return (
+    <Field c={c} label={label}>
+      <div className="flex gap-2">
+        <input style={{ ...inputStyle(c), flex: 1 }} dir="ltr" value={value} inputMode="tel" onChange={onChange} />
+        {contactsSupported && (
+          <button type="button" onClick={() => pickContact(onPickContact)} className="press shrink-0 rounded-2xl flex items-center justify-center px-3" style={{ background: c.primarySoft }}>
+            <Users size={16} color={c.primary} />
+          </button>
+        )}
+      </div>
+    </Field>
   );
 }
 
