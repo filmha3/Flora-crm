@@ -1641,15 +1641,21 @@ function Lightbox({ item, onClose }) {
   const [idx, setIdx] = useState(item.index || 0);
   const touch = useRef({ x: 0 });
   const cur = media[idx];
+  const atStart = idx === 0, atEnd = idx === media.length - 1;
   const go = (d) => setIdx((i) => Math.max(0, Math.min(media.length - 1, i + d)));
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.92)" }} onClick={onClose}>
-      <button onClick={onClose} className="absolute top-5 left-5 w-9 h-9 rounded-full flex items-center justify-center z-10" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
+    <div className="fixed inset-0 z-[90] flex flex-col flora-pop" style={{ background: "rgba(0,0,0,0.94)" }} onClick={onClose}>
+      {/* top bar: close + counter, clear of the notch */}
+      <div className="flex items-center justify-between px-5 shrink-0" style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
+        {media.length > 1 && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontWeight: 600, direction: "ltr" }}>{idx + 1} / {media.length}</span>}
+      </div>
 
+      {/* image area — centered, fills the middle */}
       <div
-        className="flex items-center justify-center"
-        style={{ width: "100%", flex: 1 }}
+        className="flex-1 flex items-center justify-center relative px-4"
+        style={{ minHeight: 0 }}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={(e) => { touch.current.x = e.touches[0].clientX; }}
         onTouchEnd={(e) => {
@@ -1658,12 +1664,25 @@ function Lightbox({ item, onClose }) {
         }}
       >
         {cur.type === "image"
-          ? <img src={cur.url} alt="" style={{ maxWidth: "92%", maxHeight: "78vh", borderRadius: 18, objectFit: "contain" }} />
-          : <video src={cur.url} controls autoPlay style={{ maxWidth: "92%", maxHeight: "78vh", borderRadius: 18 }} />}
+          ? <img src={cur.url} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14, objectFit: "contain" }} />
+          : <video src={cur.url} controls autoPlay style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14 }} />}
+
+        {/* arrow buttons (RTL: right arrow = previous, left arrow = next) */}
+        {media.length > 1 && !atStart && (
+          <button onClick={() => go(-1)} className="press absolute top-1/2 right-3 w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.18)", transform: "translateY(-50%)", backdropFilter: "blur(6px)" }}>
+            <ChevronRight size={22} color="#fff" />
+          </button>
+        )}
+        {media.length > 1 && !atEnd && (
+          <button onClick={() => go(1)} className="press absolute top-1/2 left-3 w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.18)", transform: "translateY(-50%)", backdropFilter: "blur(6px)" }}>
+            <ChevronLeft size={22} color="#fff" />
+          </button>
+        )}
       </div>
 
+      {/* dots */}
       {media.length > 1 && (
-        <div className="flex items-center gap-2 pb-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-center gap-2 shrink-0" style={{ paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))", paddingTop: 12 }} onClick={(e) => e.stopPropagation()}>
           {media.map((_, i) => (
             <button key={i} onClick={() => setIdx(i)} style={{ width: i === idx ? 20 : 7, height: 7, borderRadius: 99, background: i === idx ? "#fff" : "rgba(255,255,255,0.4)", transition: "all .25s ease" }} />
           ))}
