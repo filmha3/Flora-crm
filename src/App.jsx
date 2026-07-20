@@ -1550,7 +1550,7 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
 
 // Editable agency identity. Flora is meant to be published for any agent, so the
 // name, city, and agent name aren't hardcoded — each office sets their own here.
-function AgencyCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, notify }) {
+function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, notify, properties, customers, owners }) {
   const [editing, setEditing] = useState(false);
   const [n, setN] = useState(agencyName);
   const [ct, setCt] = useState(agencyCity);
@@ -1563,26 +1563,38 @@ function AgencyCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
     notify("مشخصات دفتر ذخیره شد");
   };
   return (
-    <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+    <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
+      <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
+      <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
       {!editing ? (
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><FloraMark size={26} color={c.primary} /></div>
-          <div className="flex-1 min-w-0">
-            <p style={{ fontSize: 13.5, fontWeight: 800 }}>{agencyName}</p>
-            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{[agencyCity, agentName].filter(Boolean).join(" · ") || "مشخصات دفتر"}</p>
+        <div style={{ position: "relative" }}>
+          <div className="flex items-start justify-between">
+            <div>
+              <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.8)" }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
+              <p style={{ fontSize: 15.5, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
+            </div>
+            <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1 shrink-0" style={{ background: "rgba(255,255,255,.18)" }}>
+              <Edit3 size={11} color="#fff" /><span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>ویرایش نام</span>
+            </button>
           </div>
-          <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1" style={{ background: c.surface2 }}>
-            <Edit3 size={11} color={c.muted} /><span style={{ fontSize: 10, fontWeight: 700, color: c.muted }}>ویرایش</span>
-          </button>
+          <div className="flex gap-2 mt-3.5">
+            {[{ n: properties.length, l: "فایل" }, { n: customers.length, l: "مشتری" }, { n: owners.length, l: "مالک" }].map((s, i) => (
+              <div key={i} className="flex-1 rounded-xl py-2 text-center" style={{ background: "rgba(255,255,255,.14)" }}>
+                <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{faDigits(s.n)}</p>
+                <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.8)" }}>{s.l}</p>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-2.5">
-          <Field c={c} label="نام دفتر املاک"><input style={inputStyle(c)} value={n} onChange={(e) => setN(e.target.value)} placeholder="مثلاً املاک گنجینه" /></Field>
-          <Field c={c} label="شهر"><input style={inputStyle(c)} value={ct} onChange={(e) => setCt(e.target.value)} placeholder="مثلاً سرعین" /></Field>
-          <Field c={c} label="نام شما (مشاور)"><input style={inputStyle(c)} value={ag} onChange={(e) => setAg(e.target.value)} placeholder="مثلاً قبادی" /></Field>
+        <div className="flex flex-col gap-2.5" style={{ position: "relative" }}>
+          <p style={{ fontSize: 12.5, fontWeight: 800, color: "#fff", marginBottom: 2 }}>ویرایش مشخصات دفتر</p>
+          <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={n} onChange={(e) => setN(e.target.value)} placeholder="نام دفتر (مثلاً املاک گنجینه)" />
+          <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={ct} onChange={(e) => setCt(e.target.value)} placeholder="شهر (مثلاً سرعین)" />
+          <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={ag} onChange={(e) => setAg(e.target.value)} placeholder="نام شما (مثلاً قبادی)" />
           <div className="flex gap-2">
-            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: c.surface2, fontSize: 12, fontWeight: 700, color: c.muted }}>لغو</button>
-            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: c.primary, fontSize: 12, fontWeight: 700, color: "#fff" }}>ذخیره</button>
+            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: "rgba(255,255,255,.16)", fontSize: 12, fontWeight: 700, color: "#fff" }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: "#fff", fontSize: 12, fontWeight: 700, color: c.primary }}>ذخیره</button>
           </div>
         </div>
       )}
@@ -1612,24 +1624,8 @@ function MoreTab({ ctx }) {
         </button>
       </div>
 
-      {/* Agency identity — editable, since Flora is meant for any agency */}
-      <AgencyCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} notify={notify} />
-
-      {/* Hero: quick pulse of the whole business */}
-      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
-        <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
-        <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
-        <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.8)" }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
-        <p style={{ fontSize: 15.5, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
-        <div className="flex gap-2 mt-3.5">
-          {[{ n: properties.length, l: "فایل" }, { n: customers.length, l: "مشتری" }, { n: owners.length, l: "مالک" }].map((s, i) => (
-            <div key={i} className="flex-1 rounded-xl py-2 text-center" style={{ background: "rgba(255,255,255,.14)" }}>
-              <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{faDigits(s.n)}</p>
-              <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.8)" }}>{s.l}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Office management + editable agency identity, merged into one card */}
+      <OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} notify={notify} properties={properties} customers={customers} owners={owners} />
 
       {/* In simple mode, Finance isn't in the nav — give it a shortcut here */}
       {simpleMode && (
@@ -1701,6 +1697,11 @@ function MoreTab({ ctx }) {
       {/* Collapsible: builders */}
       <CollapsibleCard c={c} icon={Hammer} tint={c.attn} title="سازندگان" subtitle="شرکت‌ها و سازنده‌های همکار" count={builders.length}>
         <div className="flex flex-col gap-2">
+          {builders.length > 0 && (
+            <button onClick={() => setSheet("builder-broadcast")} className="press w-full rounded-xl py-2.5 flex items-center justify-center gap-2 mb-1" style={{ background: c.primarySoft }}>
+              <Send size={14} color={c.primary} /><span style={{ fontSize: 12, fontWeight: 700, color: c.primary }}>پیام تبریک گروهی به همه‌ی سازنده‌ها</span>
+            </button>
+          )}
           {builders.map((b) => (
             <div key={b.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
               <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.attnSoft }}><Hammer size={15} color={c.attn} /></div>
@@ -2467,38 +2468,32 @@ ${recentNotes || "موردی ثبت نشده"}`;
     <div className="pt-2">
       <BackHeader c={c} title="برنامه‌ی امروز" onBack={onBack} />
 
-      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)" }}>
-        <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{greetingPhrase()}{agentName ? ` ${agentName}` : ""} 👋</p>
-        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 4, lineHeight: 1.9 }}>
-          {plan?.greeting || `${faDigits(overdue.length)} مشتری نیاز به پیگیری دارند و ${faDigits(sleeping.length)} فایل مدتی است تکون نخورده. برای برنامه‌ی کامل امروز، پایین را بزن.`}
+      <div style={{ marginBottom: SP.lg, paddingInline: SP.xs }}>
+        <h1 style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.02em", lineHeight: 1.15 }}>{greetingPhrase()}{agentName ? `، ${agentName}` : ""}</h1>
+        <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.sm, lineHeight: 1.6 }}>
+          {plan?.greeting || `${faDigits(overdue.length)} پیگیری و ${faDigits(sleeping.length)} فایل خواب‌رفته داری.`}
         </p>
       </div>
 
       <MissionOfTheDay ctx={ctx} />
 
       {insights.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center gap-1.5 mb-2.5">
-            <span style={{ opacity: 0.55 }}>{FloraIcons.sprig({ size: 15, color: c.muted })}</span>
-            <h2 style={{ fontSize: 15, fontWeight: 700 }}>نگاه مدیر فروش</h2>
-          </div>
-          <div className="flex flex-col gap-2 flora-stagger">
+        <div style={{ marginBottom: SP.lg }}>
+          <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em", marginBottom: SP.md, paddingRight: 2 }}>نگاه مدیر فروش</h2>
+          <div className="flex flex-col flora-stagger" style={{ gap: SP.sm }}>
             {insights.map((it, i) => {
               const tint = it.tone === "warn" ? c.attn : it.tone === "good" ? c.success : c.primary;
               const soft = it.tone === "warn" ? c.attnSoft : it.tone === "good" ? c.successSoft : c.primarySoft;
               return (
-                <div key={i} className="rounded-xl p-3 flex items-center gap-3" style={glass(c, 20)}>
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: soft }}>
+                <div key={i} className="flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
+                  <div className="flex items-center justify-center shrink-0" style={{ width: 36, height: 36, borderRadius: RAD.sm, background: soft }}>
                     {floraIcon(it.icon, { size: 19, color: tint })}
                   </div>
-                  <p style={{ fontSize: 11.5, color: c.ink, lineHeight: 1.8, fontWeight: 500 }}>{it.text}</p>
+                  <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8, fontWeight: FW.regular }}>{it.text}</p>
                 </div>
               );
             })}
           </div>
-          <p style={{ fontSize: 10, color: c.muted, marginTop: 8, lineHeight: 1.8, textAlign: "center" }}>
-            این‌ها از داده‌های خودت حساب شده‌اند. آمار بازدید و ذخیره‌ی دیوار در Flora موجود نیست، پس به‌جای عدد ساختگی، یادآوری چک‌کردن دیوار داده می‌شود.
-          </p>
         </div>
       )}
 
@@ -2634,7 +2629,7 @@ ${transcript}
 
   return (
     <div className="pt-2 flex flex-col" style={{ height: "calc(100vh - 90px)" }}>
-      <BackHeader c={c} title="چت با دستیار املاک" onBack={onBack} />
+      <BackHeader c={c} title="چت با دستیار املاک" onBack={onBack} onDelete={messages.length > 0 ? () => { setMessages([]); dbSet(CHAT_KEY, { messages: [] }).catch(() => {}); notify("تاریخچه‌ی گفتگو پاک شد"); } : undefined} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto flex flex-col gap-2.5 pb-3">
         {messages.length === 0 && (
           <div className="rounded-xl p-4" style={glass(c, 22)}>
@@ -3705,6 +3700,7 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
   if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} editId={editId} />;
+  if (kind === "builder-broadcast") return <BuilderBroadcastSheet ctx={ctx} onClose={onClose} />;
   if (kind === "appointment") return <AppointmentForm ctx={ctx} onClose={onClose} />;
   if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
@@ -4179,6 +4175,57 @@ function OwnerForm({ ctx, onClose, editId }) {
     </SheetShell>
   );
 }
+function BuilderBroadcastSheet({ ctx, onClose }) {
+  const { c, builders, hasAiKey, callAI, notify, agencyName, agentName } = ctx;
+  const OCCASIONS = ["عید نوروز", "عید فطر", "عید قربان", "یلدا", "تبریک عمومی", "تشکر از همکاری"];
+  const [occasion, setOccasion] = useState(OCCASIONS[0]);
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const generate = async () => {
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); return; }
+    setLoading(true);
+    try {
+      const prompt = `یک پیام کوتاه و صمیمی و محترمانه به مناسبت «${occasion}» بنویس که یک مشاور املاک برای سازنده‌های همکارش می‌فرستد. از طرف ${agencyName || "دفتر املاک"}${agentName ? ` (${agentName})` : ""}. لحن گرم و حرفه‌ای، حداکثر ۳ خط، بدون جای خالی برای اسم (چون برای همه یکسان فرستاده می‌شود). فقط متن پیام را بده، بدون توضیح.`;
+      const text = await callAI(prompt);
+      setMsg(text.trim());
+    } catch (e) { notify(`خطا: ${e.message || "نامشخص"}`); }
+    setLoading(false);
+  };
+
+  const withPhone = builders.filter((b) => b.phone);
+  return (
+    <SheetShell c={c} title="پیام گروهی به سازنده‌ها" onClose={onClose}>
+      <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>یک پیام بنویس یا با هوش مصنوعی بساز، بعد برای هر سازنده جدا با واتساپ یا پیامک بفرست.</p>
+      <Field c={c} label="مناسبت">
+        <div className="flex flex-wrap" style={{ gap: SP.sm }}>
+          {OCCASIONS.map((o) => { const active = occasion === o; return (
+            <button key={o} type="button" onClick={() => setOccasion(o)} className="press rounded-full" style={{ padding: `6px ${SP.md}px`, fontSize: FS.caption, fontWeight: FW.bold, background: active ? c.primary : c.surface2, color: active ? "#fff" : c.muted }}>{o}</button>
+          ); })}
+        </div>
+      </Field>
+      <button onClick={generate} disabled={loading} className="press w-full rounded-xl py-2.5 flex items-center justify-center gap-2 mb-3" style={{ background: c.primarySoft }}>
+        {loading ? <Loader2 size={14} className="animate-spin" color={c.primary} /> : <Sparkles size={14} color={c.primary} />}
+        <span style={{ fontSize: 12, fontWeight: 700, color: c.primary }}>{loading ? "در حال نوشتن..." : "ساخت پیام با هوش مصنوعی"}</span>
+      </button>
+      <Field c={c} label="متن پیام">
+        <textarea style={{ ...inputStyle(c), minHeight: 90, resize: "none", lineHeight: 1.9 }} value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="متن پیام تبریک..." />
+      </Field>
+      <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>{faDigits(withPhone.length)} سازنده با شماره — برای هرکدام جدا بفرست:</p>
+      <div className="flex flex-col gap-2" style={{ maxHeight: 220, overflowY: "auto" }}>
+        {withPhone.map((b) => (
+          <div key={b.id} className="rounded-xl p-2.5 flex items-center gap-2" style={{ background: c.surface2 }}>
+            <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700 }}>{b.name}</p><p style={{ fontSize: 10, color: c.muted }} dir="ltr">{b.phone}</p></div>
+            <a href={waLink(b.phone, msg) || "#"} target="_blank" rel="noreferrer" className={`press rounded-lg px-3 py-2 flex items-center gap-1 ${!msg ? "pointer-events-none opacity-40" : ""}`} style={{ background: c.successSoft }}><Send size={12} color={c.success} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.success }}>واتساپ</span></a>
+            <a href={smsLink(b.phone, msg) || "#"} className={`press rounded-lg px-3 py-2 flex items-center gap-1 ${!msg ? "pointer-events-none opacity-40" : ""}`} style={{ background: c.primarySoft }}><MessageCircle size={12} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary }}>پیامک</span></a>
+          </div>
+        ))}
+        {withPhone.length === 0 && <EmptyLine c={c} text="هیچ سازنده‌ای شماره ندارد" />}
+      </div>
+    </SheetShell>
+  );
+}
+
 function BuilderForm({ ctx, onClose, editId }) {
   const { c, builders, setBuilders, notify } = ctx;
   const editing = editId ? builders.find((b) => b.id === editId) : null;
