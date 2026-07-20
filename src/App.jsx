@@ -155,6 +155,23 @@ const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (f
 }));
 
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
+// Where a buyer is in their journey — cleaned-up, agent-friendly labels.
+const CUSTOMER_STAGES = ["در حال بررسی", "دنبال سرمایه‌گذاری", "دنبال پیش‌فروش", "خرید کرد", "بدون پیگیری"];
+const CUSTOMER_STAGE_COLOR = (c) => ({
+  "در حال بررسی": c.primary,
+  "دنبال سرمایه‌گذاری": c.purple,
+  "دنبال پیش‌فروش": c.attn,
+  "خرید کرد": c.success,
+  "بدون پیگیری": c.muted,
+});
+// Compact money for budgets: 10000000000 → "۱۰ میلیارد", 850000000 → "۸۵۰ میلیون".
+const fmtBudgetShort = (v) => {
+  const n = Number(v) || 0;
+  if (n >= 1e9) { const b = n / 1e9; return `${faDigits(Number.isInteger(b) ? b : b.toFixed(1))} میلیارد`; }
+  if (n >= 1e6) { const m = Math.round(n / 1e6); return `${faDigits(m)} میلیون`; }
+  if (n > 0) return fmtToman(n);
+  return "—";
+};
 const BUILD_STAGES = ["گودبرداری", "فونداسیون", "اسکلت", "سفت‌کاری", "نازک‌کاری", "نما", "آماده تحویل"];
 const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش"];
 const TYPE_FILTERS = ["همه", "آپارتمان", "ویلا", "زمین", "مغازه", "اداری"];
@@ -213,6 +230,14 @@ function CountUpNum({ value, style }) {
   const v = useCountUp(value, 700);
   return <span style={style}>{faDigits(v)}</span>;
 }
+
+// ── Design system ────────────────────────────────────────────
+// One typographic scale (6 steps), one spacing scale (multiples of 4), and a
+// small set of radii. Everything visual should pull from these, not magic numbers.
+const FS = { caption: 11, body: 13, subtitle: 15, title: 20, hero: 28, display: 34 };
+const FW = { regular: 500, medium: 600, bold: 700, heavy: 800 };
+const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
+const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
 
 const glass = (c) => ({
   background: c.surface,
@@ -292,7 +317,9 @@ export default function FloraCRM() {
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
-  const [aiProvider, setAiProvider] = useState("gemini");
+  const [avalaiKey, setAvalaiKey] = useState("");
+  const [avalaiModel, setAvalaiModel] = useState("gpt-4o-mini");
+  const [aiProvider, setAiProvider] = useState("avalai");
   const [agentName, setAgentName] = useState("");
   const [agencyName, setAgencyName] = useState("املاک گنجینه");
   const [agencyCity, setAgencyCity] = useState("سرعین");
@@ -322,6 +349,8 @@ export default function FloraCRM() {
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
         if (settings?.openaiKey) setOpenaiKey(settings.openaiKey);
         if (settings?.grokKey) setGrokKey(settings.grokKey);
+        if (settings?.avalaiKey) setAvalaiKey(settings.avalaiKey);
+        if (settings?.avalaiModel) setAvalaiModel(settings.avalaiModel);
         if (settings?.aiProvider) setAiProvider(settings.aiProvider);
         if (settings?.agentName) setAgentName(settings.agentName);
         if (settings?.agencyName) setAgencyName(settings.agencyName);
@@ -343,7 +372,7 @@ export default function FloraCRM() {
     }, 400);
     return () => clearTimeout(t);
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, avalaiKey, avalaiModel, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, avalaiKey, avalaiModel, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
   // so once a week the app downloads a fresh backup file automatically (and flags it),
@@ -369,8 +398,25 @@ export default function FloraCRM() {
     })();
   }, [loaded]); // eslint-disable-line
 
-  const hasAiKey = (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
+  const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
   const callAI = async (prompt) => {
+    // AvalAI — an Iranian gateway that's OpenAI-compatible and reachable from Iran
+    // without a VPN, so it sidesteps the Gemini/OpenAI regional blocks.
+    if (aiProvider === "avalai") {
+      if (!avalaiKey) throw new Error("کلید AvalAI وارد نشده");
+      let res, data;
+      try {
+        res = await fetch("https://api.avalai.ir/v1/chat/completions", {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
+          body: JSON.stringify({ model: avalaiModel || "gpt-4o-mini", messages: [{ role: "user", content: prompt }] }),
+        });
+      } catch (netErr) { throw new Error("اتصال به AvalAI برقرار نشد — اینترنت را بررسی کن"); }
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `خطای AvalAI (کد ${res.status})`);
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text) throw new Error("پاسخ خالی از AvalAI");
+      return text;
+    }
     if (aiProvider === "openai") {
       if (!openaiKey) throw new Error("کلید OpenAI وارد نشده");
       let res, data;
@@ -491,7 +537,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
-    openaiKey, setOpenaiKey, grokKey, setGrokKey, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance,
   };
 
@@ -723,7 +769,7 @@ function SectionHeader({ c, title, action }) {
     <div className="flex items-center justify-between mt-6 mb-2.5">
       <div className="flex items-center gap-1.5">
         <span style={{ opacity: 0.55 }}>{FloraIcons.sprig({ size: 15, color: c.muted })}</span>
-        <h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2>
+        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.bold }}>{title}</h2>
       </div>
       {action}
     </div>
@@ -864,9 +910,10 @@ function EmptyLine({ c, text }) {
   );
 }
 function StageBadge({ c, stage }) {
-  if (stage === "فروخته شد") return <span style={{ fontSize: 10, fontWeight: 700, color: c.danger, background: c.dangerSoft, padding: "3px 9px", borderRadius: 999 }}>فروخته شد</span>;
-  if (stage === "در حال مذاکره") return <span style={{ fontSize: 10, fontWeight: 700, color: c.attn, background: c.attnSoft, padding: "3px 9px", borderRadius: 999 }}>مذاکره</span>;
-  return <span style={{ fontSize: 10, fontWeight: 700, color: c.success, background: c.successSoft, padding: "3px 9px", borderRadius: 999 }}>فعال</span>;
+  const badge = (color, soft, label) => <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color, background: soft, padding: `3px ${SP.sm + 2}px`, borderRadius: RAD.pill }}>{label}</span>;
+  if (stage === "فروخته شد") return badge(c.danger, c.dangerSoft, "فروخته شد");
+  if (stage === "در حال مذاکره") return badge(c.attn, c.attnSoft, "مذاکره");
+  return badge(c.success, c.successSoft, "فعال");
 }
 
 // ---------- Dashboard ----------
@@ -912,32 +959,34 @@ function MarketWidget({ c }) {
 
   if (failed && !data) {
     return (
-      <button onClick={openChand} className="press shrink-0 rounded-2xl px-3 py-2.5 flex flex-col items-center gap-1" style={{ ...glass(c, 20), width: 92 }}>
-        <TrendingUp size={15} color={c.primary} />
-        <span style={{ fontSize: 9.5, color: c.muted, fontWeight: 600, textAlign: "center", lineHeight: 1.5 }}>قیمت دلار و طلا</span>
-        <span style={{ fontSize: 8.5, color: c.primary, fontWeight: 700 }}>chand.app ›</span>
+      <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c, 18) }}>
+        <div className="flex items-center" style={{ gap: SP.sm }}>
+          <TrendingUp size={16} color={c.primary} />
+          <span style={{ fontSize: FS.caption, color: c.muted, fontWeight: FW.medium }}>قیمت لحظه‌ای دلار و طلا</span>
+        </div>
+        <span style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>chand.app ›</span>
       </button>
     );
   }
 
-  const Row = ({ label, value, color }) => (
-    <div className="flex items-center justify-between gap-2">
-      <span style={{ fontSize: 8.5, color: c.muted }}>{label}</span>
-      <span style={{ fontSize: 10.5, fontWeight: 800, color, direction: "ltr" }}>{value ? Number(value).toLocaleString("en-US") : "—"}</span>
+  const Cell = ({ label, value, color }) => (
+    <div className="flex items-center" style={{ gap: SP.sm }}>
+      <span style={{ fontSize: FS.caption, color: c.muted }}>{label}</span>
+      <span style={{ fontSize: FS.body, fontWeight: FW.heavy, color, direction: "ltr" }}>{value ? Number(value).toLocaleString("en-US") : "—"}</span>
     </div>
   );
 
   return (
-    <button onClick={openChand} className="press shrink-0 rounded-2xl px-3 py-2.5" style={{ ...glass(c, 20), width: 118 }}>
-      <div className="flex items-center gap-1 mb-1.5">
-        <span style={{ width: 5, height: 5, borderRadius: 99, background: data ? c.success : c.muted }} className={data ? "flora-pulse" : ""} />
-        <span style={{ fontSize: 8.5, color: c.muted, fontWeight: 600 }}>بازار امروز</span>
+    <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c, 18) }}>
+      <div className="flex items-center" style={{ gap: SP.xl }}>
+        <Cell label="دلار" value={data?.usd} color={c.primary} />
+        <span style={{ width: 1, height: 16, background: c.border }} />
+        <Cell label="طلا" value={data?.gold} color={c.attn} />
       </div>
-      <div className="flex flex-col gap-1">
-        <Row label="دلار" value={data?.usd} color={c.primary} />
-        <Row label="طلا (گرم)" value={data?.gold} color={c.attn} />
+      <div className="flex items-center" style={{ gap: SP.xs }}>
+        <span style={{ width: 5, height: 5, borderRadius: RAD.pill, background: data ? c.success : c.muted }} className={data ? "flora-pulse" : ""} />
+        <span style={{ fontSize: 9.5, color: c.muted }}>تومان</span>
       </div>
-      <p style={{ fontSize: 7.5, color: c.muted, marginTop: 4, textAlign: "left" }}>تومان · chand.app</p>
     </button>
   );
 }
@@ -959,102 +1008,105 @@ function HomeTab({ ctx }) {
   ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
 
   return (
-    <div className="pt-5">
-      {/* Greeting faces the live market widget — dollar & gold always matter in property */}
-      <div className="flex items-start justify-between gap-3 mb-7 px-0.5">
-        <div className="min-w-0">
-          <p style={{ fontSize: 11.5, color: c.muted, letterSpacing: ".02em" }}>{fmtJalali(todayISO())}</p>
-          <h1 style={{ fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em", marginTop: 4 }}>
-            {greetingPhrase()}{agentName ? `، ${agentName}` : ""}
-          </h1>
-          <div className="flex items-center gap-1.5 mt-2.5">
-            <span style={{ width: 18, height: 2, borderRadius: 2, background: `linear-gradient(90deg,${c.primary},${c.purple})` }} />
-            <p style={{ fontSize: 11.5, color: c.muted }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
-          </div>
-        </div>
-        <MarketWidget c={c} />
+    <div style={{ paddingTop: SP.xl }}>
+      {/* Greeting */}
+      <div style={{ marginBottom: SP.lg, paddingInline: SP.xs }}>
+        <p style={{ fontSize: FS.caption, color: c.muted, letterSpacing: ".02em" }}>{fmtJalali(todayISO())}</p>
+        <h1 style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.02em", marginTop: SP.xs, lineHeight: 1.15 }}>
+          {greetingPhrase()}{agentName ? `، ${agentName}` : ""}
+        </h1>
+        <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.sm, lineHeight: 1.6 }}>
+          {todayAppts.length > 0 || pendingCalls > 0
+            ? <>امروز {todayAppts.length > 0 ? <b style={{ color: c.ink, fontWeight: FW.bold }}>{faDigits(todayAppts.length)} بازدید</b> : null}{todayAppts.length > 0 && pendingCalls > 0 ? " و " : ""}{pendingCalls > 0 ? <b style={{ color: c.ink, fontWeight: FW.bold }}>{faDigits(pendingCalls)} پیگیری</b> : null} داری</>
+            : "امروز کار فوری‌ای نداری. وقت خوبیه برای گرفتن فایل جدید."}
+        </p>
       </div>
 
-      {/* Simple mode: one big, obvious action */}
+      {/* Live market strip */}
+      <div style={{ marginBottom: SP.xl }}><MarketWidget c={c} /></div>
+
+      {/* Primary action — the ONLY place the accent gradient appears */}
       {simpleMode && (
-        <button onClick={() => setSheet("property")} className="press w-full rounded-2xl p-5 mb-3 flex items-center gap-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 14px 34px rgba(47,124,246,0.34)" }}>
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.2)" }}><Plus size={30} color="#fff" strokeWidth={2.5} /></div>
-          <div className="text-right">
-            <p style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>ثبت فایل جدید</p>
-            <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>یک ملک جدید اضافه کن</p>
+        <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
+          <span style={{ position: "absolute", top: "-60%", left: "-10%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%)", pointerEvents: "none" }} />
+          <div className="flex items-center justify-center shrink-0" style={{ width: 54, height: 54, borderRadius: RAD.md, background: "rgba(255,255,255,0.22)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)" }}><Plus size={28} color="#fff" strokeWidth={2.5} /></div>
+          <div className="text-right flex-1" style={{ position: "relative" }}>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: "#fff" }}>ثبت فایل جدید</p>
+            <p style={{ fontSize: FS.caption, color: "rgba(255,255,255,0.88)", marginTop: 2 }}>یک ملک جدید اضافه کن</p>
           </div>
+          <ChevronLeft size={20} color="rgba(255,255,255,0.7)" style={{ position: "relative" }} />
         </button>
       )}
 
-      {/* Hero: the one number that matters (advanced only) */}
       {!simpleMode && <PortfolioValueCard c={c} properties={properties} />}
 
-      {/* Today's focus — only shows when there's something to act on */}
+      {/* Today's focus — quiet action cards */}
       {(todayAppts.length > 0 || pendingCalls > 0) && (
-        <div className="flex gap-2.5 mt-3">
+        <>
+          <div className="flex" style={{ gap: SP.md, marginTop: SP.xl }}>
           {todayAppts.length > 0 && (
-            <button onClick={() => setTab("calendar")} className="press flex-1 text-right rounded-2xl px-4 py-3 flex items-center gap-2.5" style={glass(c, 20)}>
-              <span style={{ width: 6, height: 28, borderRadius: 3, background: c.success, flexShrink: 0 }} />
+            <button onClick={() => setTab("calendar")} className="press flex-1 text-right flex items-center" style={{ gap: SP.md, paddingInline: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, ...glass(c, 20) }}>
+              <span style={{ width: 4, height: 30, borderRadius: RAD.sm, background: c.success, flexShrink: 0 }} />
               <div className="min-w-0">
-                <p style={{ fontSize: 12.5, fontWeight: 700 }}>{faDigits(todayAppts.length)} بازدید امروز</p>
-                <p style={{ fontSize: 10, color: c.muted }}>اولین: {todayAppts.sort((a, b) => a.time.localeCompare(b.time))[0].time}</p>
+                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{faDigits(todayAppts.length)} بازدید امروز</p>
+                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>اولین: {todayAppts.sort((a, b) => a.time.localeCompare(b.time))[0].time}</p>
               </div>
             </button>
           )}
           {pendingCalls > 0 && (
-            <button onClick={() => setTab("more")} className="press flex-1 text-right rounded-2xl px-4 py-3 flex items-center gap-2.5" style={glass(c, 20)}>
-              <span style={{ width: 6, height: 28, borderRadius: 3, background: c.attn, flexShrink: 0 }} />
+            <button onClick={() => setDetail({ type: "calls" })} className="press flex-1 text-right flex items-center" style={{ gap: SP.md, paddingInline: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, ...glass(c, 20) }}>
+              <span style={{ width: 4, height: 30, borderRadius: RAD.sm, background: c.attn, flexShrink: 0 }} />
               <div className="min-w-0">
-                <p style={{ fontSize: 12.5, fontWeight: 700 }}>{faDigits(pendingCalls)} تماس معوق</p>
-                <p style={{ fontSize: 10, color: c.muted }}>نیاز به پیگیری</p>
+                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس معوق</p>
+                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>نیاز به پیگیری</p>
               </div>
             </button>
           )}
-        </div>
+          </div>
+        </>
       )}
 
-      {/* AI copilot (advanced only) */}
+      {/* AI copilot — neutral surface, not a competing gradient */}
       {!simpleMode && (
-      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right rounded-2xl p-4 mt-3 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 14px 34px rgba(79,70,229,0.34)", position: "relative", overflow: "hidden" }}>
-        <span style={{ position: "absolute", top: "-50%", right: "-30%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)", animation: "floraFloat 4s ease-in-out infinite" }} />
-        <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 flora-float" style={{ background: "rgba(255,255,255,0.18)" }}><Bot size={21} color="#fff" /></div>
+      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.lg, marginTop: SP.md, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: c.primarySoft }}><Bot size={21} color={c.primary} /></div>
         <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13.5, fontWeight: 800, color: "#fff" }}>دستیار مدیر فروش</p>
-          <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.85)", marginTop: 1 }}>ماموریت امروز، اولویت‌ها و نگاه مدیر فروش</p>
+          <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>دستیار مدیر فروش</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>ماموریت امروز و اولویت‌ها</p>
         </div>
-        <ChevronLeft size={17} color="rgba(255,255,255,0.75)" />
+        <ChevronLeft size={18} color={c.muted} />
       </button>
       )}
 
-      {/* Stats (advanced only) */}
+      {/* Stats */}
       {!simpleMode && <>
-      <h2 style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em", marginTop: 32, marginBottom: 16, paddingRight: 2 }}>یک نگاه</h2>
-      <div className="grid grid-cols-2 gap-3 flora-stagger">
+      <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em", marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>یک نگاه</h2>
+      <div className="grid grid-cols-2 flora-stagger" style={{ gap: SP.md }}>
         {stats.map((s, i) => (
-          <button key={i} onClick={s.onClick} className="press text-right rounded-2xl p-4" style={glass(c, 24)}>
-            <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ background: s.color + "1f" }}><s.icon size={17} color={s.color} /></div>
-            <p style={{ fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em" }}>{faDigits(s.value)}</p>
-            <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{s.label}</p>
+          <button key={i} onClick={s.onClick} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+            <div className="flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: RAD.pill, background: s.color + "1f", marginBottom: SP.md }}><s.icon size={17} color={s.color} /></div>
+            <p style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.02em" }}>{faDigits(s.value)}</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{s.label}</p>
           </button>
         ))}
       </div>
       </>}
 
-      {/* Activity (advanced only) */}
+      {/* Activity */}
       {!simpleMode && <>
-      <h2 style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em", marginTop: 32, marginBottom: 16, paddingRight: 2 }}>فعالیت‌های اخیر</h2>
-      <div className="flex flex-col gap-2">
+      <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em", marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>فعالیت‌های اخیر</h2>
+      <div className="flex flex-col" style={{ gap: SP.sm }}>
         {feed.map((f, i) => f.type === "appt" ? <ActivityApptRow key={i} a={f} ctx={ctx} /> : <ActivityCallRow key={i} cl={f} c={c} />)}
         {feed.length === 0 && <EmptyLine c={c} text="فعالیتی ثبت نشده" />}
       </div>
       </>}
 
-      {/* Latest files — quiet header, generous space, no heavy divider */}
-      <div className="flex items-baseline justify-between mt-8 mb-4 px-0.5">
-        <h2 style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em" }}>جدیدترین فایل‌ها</h2>
-        <button onClick={() => setTab("properties")} style={{ fontSize: 11.5, color: c.primary, fontWeight: 700 }}>همه ›</button>
+      {/* Latest files */}
+      <div className="flex items-baseline justify-between" style={{ marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>
+        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>جدیدترین فایل‌ها</h2>
+        <button onClick={() => setTab("properties")} style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>همه ›</button>
       </div>
-      <div className="flex flex-col gap-2.5 mb-8">
+      <div className="flex flex-col" style={{ gap: SP.md, marginBottom: SP.xxl }}>
         {properties.slice(0, simpleMode ? 3 : 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
         {properties.length === 0 && <EmptyLine c={c} text="فایلی ثبت نشده" />}
       </div>
@@ -1130,13 +1182,14 @@ function ActivityCallRow({ cl, c }) {
 function PropertyMiniCard({ p, c, onClick }) {
   const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
   return (
-    <button onClick={onClick} className="press w-full text-right rounded-xl p-3 flex items-center gap-3" style={{ ...glass(c, 22), opacity: sold ? 0.6 : 1 }}>
-      <div className="rounded-2xl flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 52, height: 52, background: c.primarySoft }}>
-        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={20} color={c.primary} />}
+    <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c, 22), opacity: sold ? 0.55 : 1 }}>
+      <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 56, height: 56, borderRadius: RAD.md, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
+        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
       </div>
       <div className="flex-1 min-w-0">
-        <p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: sold ? "line-through" : "none" }}>{p.title}</p>
-        <p style={{ fontSize: 11, color: c.muted }}>{faDigits(p.area)} متر · {fmtToman(p.price)}</p>
+        <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: sold ? "line-through" : "none" }}>{p.title}</p>
+        <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: c.primary, direction: "ltr", textAlign: "right", marginTop: 3, letterSpacing: "-0.01em" }}>{fmtToman(p.price)}</p>
+        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{faDigits(p.area)} متر{p.rooms ? ` · ${faDigits(p.rooms)} خواب` : ""}</p>
       </div>
       <StageBadge c={c} stage={p.stage} />
     </button>
@@ -1268,24 +1321,24 @@ function PropertyGridCard({ p, ctx, onClick }) {
   const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
   const meta = [`${faDigits(p.area)} متر`, `${faDigits(p.rooms)} خواب`].join(" · ");
   return (
-    <button onClick={onClick} className="press text-right rounded-xl overflow-hidden" style={glass(c)}>
+    <button onClick={onClick} className="press text-right overflow-hidden" style={{ borderRadius: RAD.md, ...glass(c) }}>
       <div className="relative w-full" style={{ aspectRatio: "4 / 3", background: c.primarySoft }}>
         {cover ? (
           cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center"><Icon size={30} color={c.primary} className="flora-float" style={{ opacity: 0.45 }} /></div>
         )}
-        <span className="absolute top-2 right-2" style={{ fontSize: 9.5, fontWeight: 700, color: "#fff", background: "rgba(15,20,35,0.72)", padding: "3px 8px", borderRadius: 6 }}>{p.deal}</span>
+        <span className="absolute top-2 right-2" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: "#fff", background: "rgba(15,20,35,0.72)", padding: `3px ${SP.sm}px`, borderRadius: RAD.sm }}>{p.deal}</span>
         {sold && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(15,20,35,0.55)" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: c.danger, padding: "4px 10px", borderRadius: 6 }}>فروخته شد</span>
+            <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: "#fff", background: c.danger, padding: `4px ${SP.md - 2}px`, borderRadius: RAD.sm }}>فروخته شد</span>
           </div>
         )}
       </div>
-      <div className="p-2.5">
-        <p style={{ fontSize: 13.5, fontWeight: 800, color: c.primary }}>{fmtToman(p.price)}</p>
-        <p style={{ fontSize: 11.5, fontWeight: 600, marginTop: 3, color: c.ink, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.4, minHeight: 30 }}>{p.title}</p>
-        <p style={{ fontSize: 10.5, color: c.muted, marginTop: 4 }}>{meta}</p>
+      <div style={{ padding: SP.md }}>
+        <p style={{ fontSize: FS.body + 1, fontWeight: FW.heavy, color: c.primary, direction: "ltr", textAlign: "right" }}>{fmtToman(p.price)}</p>
+        <p style={{ fontSize: FS.body, fontWeight: FW.medium, marginTop: 3, color: c.ink, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.4, minHeight: 30 }}>{p.title}</p>
+        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.xs }}>{meta}</p>
       </div>
     </button>
   );
@@ -1349,17 +1402,32 @@ function CustomersTab({ ctx, search, setSearch }) {
     return customers.filter((cu) => Object.values(cu).some((v) => String(v).toLowerCase().includes(q)));
   }, [customers, search]);
   return (
-    <div className="pt-4">
+    <div style={{ paddingTop: SP.lg }}>
       <SearchBox c={c} value={search} setValue={setSearch} />
-      <div style={{ height: 14 }} />
-      <div className="flex flex-col gap-2">
-      {filtered.map((cu) => (
-        <button key={cu.id} onClick={() => setDetail({ type: "customer", id: cu.id })} className="press w-full text-right rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 22)}>
-          <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 44, height: 44, background: c.primarySoft }}><UserCircle2 size={22} color={c.primary} /></div>
-          <div className="flex-1 min-w-0"><p style={{ fontSize: 13.5, fontWeight: 600 }}>{cu.name}</p><p style={{ fontSize: 11.5, color: c.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.need}</p></div>
-          <ChevronLeft size={16} color={c.muted} />
+      <div style={{ height: SP.lg }} />
+      <div className="flex flex-col" style={{ gap: SP.md }}>
+      {filtered.map((cu) => {
+        const stage = cu.stage || "در حال بررسی";
+        const stageColor = CUSTOMER_STAGE_COLOR(c)[stage] || c.primary;
+        return (
+        <button key={cu.id} onClick={() => setDetail({ type: "customer", id: cu.id })} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+          <div className="flex items-center" style={{ gap: SP.md }}>
+            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 48, height: 48, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
+            <div className="flex-1 min-w-0">
+              <p style={{ fontSize: FS.subtitle, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.name}</p>
+              <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.need || "بدون توضیح"}</p>
+            </div>
+            <div className="text-left shrink-0">
+              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: c.primary, direction: "rtl" }}>{fmtBudgetShort(cu.budget)}</p>
+              <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>بودجه</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
+            <span className="rounded-full" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: stageColor, background: stageColor + "1f", padding: `4px ${SP.md}px` }}>{stage}</span>
+            <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.muted }}>مشاهده <ChevronLeft size={14} color={c.muted} /></span>
+          </div>
         </button>
-      ))}
+      ); })}
       {filtered.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
       </div>
     </div>
@@ -1369,17 +1437,69 @@ function CustomersTab({ ctx, search, setSearch }) {
 // ---------- Calendar tab ----------
 function CalendarTab({ ctx }) {
   const { c, appointments } = ctx;
-  const sorted = [...appointments].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-  const grouped = sorted.reduce((acc, a) => { (acc[a.date] ||= []).push(a); return acc; }, {});
+  const todayJ = isoToJalali(todayISO());
+  const [view, setView] = useState({ jy: todayJ[0], jm: todayJ[1] });
+  const [selected, setSelected] = useState(todayISO());
+
+  // Which days this month have visits (for the dots)
+  const visitDays = useMemo(() => {
+    const set = {};
+    appointments.forEach((a) => { const [jy, jm, jd] = isoToJalali(a.date); if (jy === view.jy && jm === view.jm) set[jd] = (set[jd] || 0) + 1; });
+    return set;
+  }, [appointments, view]);
+
+  const monthLen = jalaliMonthLength(view.jy, view.jm);
+  const firstWd = jalaliFirstWeekday(view.jy, view.jm); // 0=شنبه
+  const cells = [];
+  for (let i = 0; i < firstWd; i++) cells.push(null);
+  for (let d = 1; d <= monthLen; d++) cells.push(d);
+
+  const prevMonth = () => setView((v) => v.jm === 1 ? { jy: v.jy - 1, jm: 12 } : { jy: v.jy, jm: v.jm - 1 });
+  const nextMonth = () => setView((v) => v.jm === 12 ? { jy: v.jy + 1, jm: 1 } : { jy: v.jy, jm: v.jm + 1 });
+
+  const selectedAppts = appointments.filter((a) => a.date === selected).sort((a, b) => a.time.localeCompare(b.time));
+  const WEEK = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
+
   return (
-    <div className="pt-16">
-      {Object.keys(grouped).length === 0 && <EmptyLine c={c} text="بازدیدی ثبت نشده" />}
-      {Object.entries(grouped).map(([date, items]) => (
-        <div key={date} className="mb-4">
-          <p style={{ fontSize: 12, color: c.muted, marginBottom: 8, fontWeight: 700 }}>{date === todayISO() ? "امروز" : fmtJalali(date)}</p>
-          <div className="flex flex-col gap-2">{items.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} showDelete />)}</div>
+    <div style={{ paddingTop: SP.lg }}>
+      {/* Month header */}
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.lg, paddingInline: SP.xs }}>
+        <button onClick={prevMonth} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ ...glass(c, 18) }}><ChevronRight size={18} color={c.ink} /></button>
+        <h2 style={{ fontSize: FS.title, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>{MONTHS_FA[view.jm - 1]} {faDigits(view.jy)}</h2>
+        <button onClick={nextMonth} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ ...glass(c, 18) }}><ChevronLeft size={18} color={c.ink} /></button>
+      </div>
+
+      {/* Calendar card */}
+      <div style={{ padding: SP.md, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        <div className="grid grid-cols-7" style={{ marginBottom: SP.sm }}>
+          {WEEK.map((w, i) => <div key={i} style={{ textAlign: "center", fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>{w}</div>)}
         </div>
-      ))}
+        <div className="grid grid-cols-7" style={{ gap: SP.xs }}>
+          {cells.map((d, i) => {
+            if (!d) return <div key={i} />;
+            const iso = jalaliToIso(view.jy, view.jm, d);
+            const isToday = iso === todayISO();
+            const isSel = iso === selected;
+            const hasVisit = visitDays[d];
+            return (
+              <button key={i} onClick={() => setSelected(iso)} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: isSel ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : isToday ? c.primarySoft : "transparent", position: "relative" }}>
+                <span style={{ fontSize: FS.body, fontWeight: isSel || isToday ? FW.heavy : FW.medium, color: isSel ? "#fff" : isToday ? c.primary : c.ink }}>{faDigits(d)}</span>
+                {hasVisit && <span style={{ position: "absolute", bottom: 5, width: 5, height: 5, borderRadius: RAD.pill, background: isSel ? "#fff" : c.success }} />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Selected day's appointments */}
+      <div className="flex items-baseline justify-between" style={{ marginTop: SP.xl, marginBottom: SP.md, paddingRight: 2 }}>
+        <h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{selected === todayISO() ? "بازدیدهای امروز" : `بازدیدهای ${fmtJalali(selected)}`}</h3>
+        {selectedAppts.length > 0 && <span style={{ fontSize: FS.caption, color: c.muted }}>{faDigits(selectedAppts.length)} مورد</span>}
+      </div>
+      <div className="flex flex-col" style={{ gap: SP.sm }}>
+        {selectedAppts.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} showDelete />)}
+        {selectedAppts.length === 0 && <EmptyLine c={c} text="این روز بازدیدی نداری" />}
+      </div>
     </div>
   );
 }
@@ -1642,7 +1762,7 @@ function BackHeader({ c, title, onBack, onEdit, onDelete }) {
   return (
     <div className="flex items-center justify-between pt-2 pb-4">
       <button onClick={onBack} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><ArrowRight size={16} color={c.ink} /></button>
-      <h2 style={{ fontSize: 15, fontWeight: 700 }}>{title}</h2>
+      <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.bold }}>{title}</h2>
       <div className="flex items-center gap-2">
         {onEdit && <button onClick={onEdit} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Edit3 size={15} color={c.primary} /></button>}
         {onDelete && <button onClick={onDelete} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Trash2 size={15} color={c.danger} /></button>}
@@ -1930,6 +2050,16 @@ function CustomerDetail({ id, ctx, onBack }) {
           <a href={`tel:${cu.phone}`} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
         )}
       </div>
+
+      {/* Stage — tap to change */}
+      <div className="mb-3">
+        <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, paddingRight: 2 }}>مرحله مشتری</p>
+        <div className="flex flex-wrap" style={{ gap: SP.sm }}>
+          {CUSTOMER_STAGES.map((st) => { const active = (cu.stage || "در حال بررسی") === st; const col = CUSTOMER_STAGE_COLOR(c)[st]; return (
+            <button key={st} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, stage: st } : x))} className="press rounded-full" style={{ padding: `6px ${SP.md}px`, fontSize: FS.caption, fontWeight: FW.bold, background: active ? col : c.surface2, color: active ? "#fff" : c.muted }}>{st}</button>
+          ); })}
+        </div>
+      </div>
       <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press w-full rounded-xl p-3.5 mb-3 flex items-center gap-2.5" style={{ background: c.primarySoft }}>
         <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
       </button>
@@ -2108,7 +2238,7 @@ function MissionOfTheDay({ ctx }) {
         </div>
         <span style={{ fontSize: 12, fontWeight: 800, color: pct >= 100 ? c.success : c.primary }}>{faDigits(pct)}%</span>
       </div>
-      {pct >= 100 && <p style={{ fontSize: 11, color: c.success, fontWeight: 700, marginBottom: 10 }}>🎉 آفرین! همه‌ی اهداف امروز را زدی</p>}
+      {pct >= 100 && <p style={{ fontSize: 11, color: c.success, fontWeight: 700, marginBottom: 10 }}>آفرین! همه‌ی اهداف امروز را زدی</p>}
 
       {/* AI coach message */}
       {mission.coach && (
@@ -2225,7 +2355,7 @@ function CallsView({ ctx, onBack }) {
       <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)" }}>
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><PhoneCall size={20} color="#fff" /></div>
         <div>
-          <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار پیگیری` : "همه پیگیری شده ✓"}</p>
+          <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار پیگیری` : "همه پیگیری شده"}</p>
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", marginTop: 1 }}>{faDigits(calls.length)} تماس ثبت شده</p>
         </div>
       </div>
@@ -2712,7 +2842,7 @@ function FinanceCenterView({ ctx, onBack }) {
               <CountUpToman value={totalRemainingAll} className="flora-money" style={{ fontSize: 21, fontWeight: 800, color: "#fbbf24", display: "inline-block", marginTop: 3, direction: "ltr" }} />
               <div className="flex items-center gap-1.5 mt-2.5">
                 <span style={{ width: 6, height: 6, borderRadius: 99, background: debtors.length > 0 ? "#f87171" : "#4ade80" }} className={debtors.length > 0 ? "flora-pulse" : ""} />
-                <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.85)" }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است 👌"}</p>
+                <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.85)" }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است"}</p>
               </div>
             </div>
           </div>
@@ -2741,6 +2871,8 @@ function FinanceCenterView({ ctx, onBack }) {
           <div style={{ height: 14 }} />
 
           <MonthlyDealsChart c={c} data={monthlyTotals} max={maxMonthly} />
+
+          {totalPaidAll > 0 && <MoneyIdeasCard ctx={ctx} received={totalPaidAll} />}
 
           <SectionHeader c={c} title="هشدارها" />
           <div className="flex flex-col gap-2 mb-4">
@@ -3256,6 +3388,73 @@ function FinStat({ c, icon: Icon, color, value, label }) {
   );
 }
 
+// Given the commission actually received, suggest ways to use/preserve it —
+// grounded in today's Iranian market (dollar, gold, real-estate). The AI is told
+// to reason about the current climate rather than give generic advice.
+function MoneyIdeasCard({ ctx, received }) {
+  const { c, hasAiKey, callAI, notify, setSheet } = ctx;
+  const [ideas, setIdeas] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const generate = async () => {
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
+    setLoading(true);
+    try {
+      // pull the cached market snapshot the home widget stores
+      let market = "";
+      try { const m = JSON.parse(localStorage.getItem("flora-market") || "null"); if (m) market = `دلار حدود ${m.usd} تومان، طلای گرمی حدود ${m.gold} تومان.`; } catch (e) {}
+      const today = fmtJalali(todayISO());
+      const prompt = `تو یک مشاور مالی باتجربه‌ی ایرانی هستی. یک مشاور املاک تازه ${fmtToman(received)} کمیسیون دریافت کرده. امروز ${today} است. ${market ? "وضعیت بازار امروز: " + market : ""}
+با توجه به شرایط اقتصادی و تورمی ایران در همین مقطع، ۴ تا ۵ ایده‌ی کوتاه و عملی بده که با این پول چه کند تا ارزشش حفظ یا بیشتر شود (مثلاً بخشی طلا، بخشی دلار، سرمایه‌گذاری روی فایل ملکی، سپرده، و…). لحن ساده و رفیقانه. برای هر ایده یک مزیت کوتاه بگو.
+دقیقاً JSON خام برگردان (بدون توضیح، بدون markdown):
+{"climate":"یک جمله درباره‌ی فضای کلی بازار امروز و اینکه پول نقد نگه‌داشتن چه ریسکی دارد","ideas":[{"title":"عنوان کوتاه","detail":"توضیح یک‌خطی","share":"مثلاً ۳۰٪"}]}
+اگر عددی از بازار نداری، حدس نزن و در climate صادقانه بگو قیمت روز را چک کند.`;
+      const text = await callAI(prompt);
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      setIdeas(parsed);
+    } catch (e) {
+      if (e instanceof SyntaxError) notify("پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن");
+      else notify(`خطا: ${e.message || "نامشخص"}`);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.lg, ...glass(c, 24) }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: ideas ? SP.md : 0 }}>
+        <div className="flex items-center" style={{ gap: SP.sm }}>
+          <div className="flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: RAD.md, background: c.successSoft }}><Landmark size={18} color={c.success} /></div>
+          <div>
+            <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>ایده برای کمیسیون دریافتی</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 1 }}>متناسب با بازار امروز ایران</p>
+          </div>
+        </div>
+        <button onClick={generate} disabled={loading} className="press rounded-full flex items-center" style={{ gap: SP.xs, padding: `6px ${SP.md}px`, background: c.primarySoft }}>
+          {loading ? <Loader2 size={13} className="animate-spin" color={c.primary} /> : <Sparkles size={13} color={c.primary} />}
+          <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.primary }}>{loading ? "..." : ideas ? "دوباره" : "ایده بده"}</span>
+        </button>
+      </div>
+      {ideas && (
+        <div className="flora-rise">
+          {ideas.climate && <p style={{ fontSize: FS.caption, color: c.attn, lineHeight: 1.8, marginBottom: SP.md, background: c.attnSoft, padding: SP.md, borderRadius: RAD.md }}>{ideas.climate}</p>}
+          <div className="flex flex-col" style={{ gap: SP.sm }}>
+            {(ideas.ideas || []).map((it, i) => (
+              <div key={i} className="flex items-start" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+                {it.share && <span className="shrink-0 rounded-full" style={{ fontSize: FS.caption, fontWeight: FW.heavy, color: c.primary, background: c.primarySoft, padding: `3px ${SP.sm}px` }}>{it.share}</span>}
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{it.title}</p>
+                  <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.7 }}>{it.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 9.5, color: c.muted, marginTop: SP.md, lineHeight: 1.7, textAlign: "center" }}>این‌ها پیشنهاد کلی‌اند، نه توصیه‌ی قطعی سرمایه‌گذاری. قبل از تصمیم، قیمت روز را چک کن.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FinanceAiTab({ ctx, stats }) {
   const { c, hasAiKey, callAI, notify, setSheet, agentName } = ctx;
   const [report, setReport] = useState(null);
@@ -3337,7 +3536,7 @@ function SheetShell({ c, title, onClose, children }) {
     <div className="absolute inset-0 z-30 flex items-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="w-full p-5 flora-sheet max-h-[85%] overflow-y-auto" style={{ ...glass(c), borderRadius: "26px 26px 0 0" }}>
         <div className="w-10 h-1.5 rounded-full mx-auto mb-4" style={{ background: c.surface2 }} />
-        <div className="flex items-center justify-between mb-4"><h3 style={{ fontSize: 15.5, fontWeight: 800 }}>{title}</h3><button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button></div>
+        <div className="flex items-center justify-between mb-4"><h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{title}</h3><button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button></div>
         {children}
       </div>
     </div>
@@ -3363,10 +3562,10 @@ function QuickAddSheet({ ctx, onClose }) {
     </SheetShell>
   );
 }
-function Field({ c, label, children }) { return <div className="mb-3"><label style={{ fontSize: 12, color: c.muted, marginBottom: 6, display: "block" }}>{label}</label>{children}</div>; }
-function inputStyle(c) { return { width: "100%", background: c.surface2, border: "none", borderRadius: 16, padding: "12px 14px", fontSize: 14, color: c.ink, outline: "none", fontFamily: "inherit" }; }
+function Field({ c, label, children }) { return <div style={{ marginBottom: SP.md }}><label style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, display: "block" }}>{label}</label>{children}</div>; }
+function inputStyle(c) { return { width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: `${SP.md}px ${SP.md + 2}px`, fontSize: FS.body + 1, color: c.ink, outline: "none", fontFamily: "inherit" }; }
 function Select({ c, value, onChange, options, placeholder }) { return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>; }
-function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full rounded-xl py-3.5 mt-2" style={{ background: disabled ? c.surface2 : "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", color: disabled ? c.muted : "#fff", fontWeight: 700, fontSize: 14.5 }}>{label}</button>; }
+function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full" style={{ borderRadius: RAD.md, paddingBlock: SP.md + 2, marginTop: SP.sm, background: disabled ? c.surface2 : "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: disabled ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>{label}</button>; }
 
 function JalaliDatePicker({ c, value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -3519,33 +3718,53 @@ function FormSheet({ sheetVal, ctx, onClose }) {
 }
 
 function AiSettingsSheet({ ctx, onClose }) {
-  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, agentName, setAgentName, notify } = ctx;
+  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, agentName, setAgentName, notify } = ctx;
   const [provider, setProvider] = useState(aiProvider);
   const [gKey, setGKey] = useState(geminiKey || "");
   const [oKey, setOKey] = useState(openaiKey || "");
   const [xKey, setXKey] = useState(grokKey || "");
+  const [aKey, setAKey] = useState(avalaiKey || "");
+  const [aModel, setAModel] = useState(avalaiModel || "gpt-4o-mini");
   const [name, setName] = useState(agentName || "");
   const providers = [
-    { id: "gemini", label: "Gemini (Google)", hint: "کلید رایگان: aistudio.google.com — چون این اپ بک‌اند ندارد، این پایدارترین گزینه است" },
-    { id: "openai", label: "GPT (OpenAI)", hint: "کلید: platform.openai.com — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
-    { id: "grok", label: "Grok (xAI)", hint: "کلید: console.x.ai — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
+    { id: "avalai", label: "اول‌ای‌آی", hint: "درگاه ایرانی، از داخل ایران بدون فیلترشکن کار می‌کند و به همه‌ی مدل‌ها دسترسی دارد — کلید: avalai.ir" },
+    { id: "gemini", label: "Gemini", hint: "کلید رایگان: aistudio.google.com — ممکن است از ایران بدون فیلترشکن کار نکند" },
+    { id: "openai", label: "GPT", hint: "کلید: platform.openai.com — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
+    { id: "grok", label: "Grok", hint: "کلید: console.x.ai — ممکن است مرورگر تماس مستقیم را مسدود کند" },
   ];
-  const currentKey = provider === "openai" ? oKey : provider === "grok" ? xKey : gKey;
-  const setCurrentKey = provider === "openai" ? setOKey : provider === "grok" ? setXKey : setGKey;
+  const AVALAI_MODELS = [
+    { value: "gpt-4o-mini", label: "GPT-4o mini (ارزان و سریع)" },
+    { value: "gpt-4o", label: "GPT-4o (قوی‌تر)" },
+    { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+    { value: "claude-3-5-sonnet-20240620-v1:0", label: "Claude 3.5 Sonnet" },
+    { value: "deepseek-chat", label: "DeepSeek" },
+  ];
+  const keyByProvider = { avalai: aKey, openai: oKey, grok: xKey, gemini: gKey };
+  const setKeyByProvider = { avalai: setAKey, openai: setOKey, grok: setXKey, gemini: setGKey };
+  const currentKey = keyByProvider[provider];
+  const setCurrentKey = setKeyByProvider[provider];
   return (
     <SheetShell c={c} title="تنظیمات هوش مصنوعی" onClose={onClose}>
       <Field c={c} label="نام تو (برای خطاب دستیار، اختیاری)"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً مجید" /></Field>
       <Field c={c} label="ارائه‌دهنده">
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
           {providers.map((p) => (
-            <button key={p.id} onClick={() => setProvider(p.id)} className="press flex-1 rounded-lg py-2.5" style={{ background: provider === p.id ? c.primary : c.surface2, color: provider === p.id ? "#fff" : c.muted, fontWeight: 700, fontSize: 11.5 }}>{p.label}</button>
+            <button key={p.id} onClick={() => setProvider(p.id)} className="press rounded-lg" style={{ paddingBlock: 10, background: provider === p.id ? c.primary : c.surface2, color: provider === p.id ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption, position: "relative" }}>
+              {p.id === "avalai" && provider !== "avalai" && <span style={{ position: "absolute", top: -6, right: 6, fontSize: 8, background: c.success, color: "#fff", padding: "1px 6px", borderRadius: RAD.pill }}>پیشنهادی</span>}
+              {p.label}
+            </button>
           ))}
         </div>
       </Field>
+      {provider === "avalai" && (
+        <Field c={c} label="مدل">
+          <Select c={c} value={aModel} onChange={(e) => setAModel(e.target.value)} placeholder="انتخاب مدل" options={AVALAI_MODELS} />
+        </Field>
+      )}
       <Field c={c} label="کلید API"><input style={inputStyle(c)} dir="ltr" value={currentKey} onChange={(e) => setCurrentKey(e.target.value)} placeholder="کلید را اینجا وارد کن" /></Field>
-      <p style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>{providers.find((p) => p.id === provider)?.hint} — کلید فقط روی همین گوشی ذخیره می‌شود.</p>
+      <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.9, marginBottom: SP.md }}>{providers.find((p) => p.id === provider)?.hint} — کلید فقط روی همین گوشی ذخیره می‌شود.</p>
       <SubmitBtn c={c} label="ذخیره" disabled={!currentKey.trim()} onClick={() => {
-        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim()); setAgentName(name.trim());
+        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim()); setAvalaiKey(aKey.trim()); setAvalaiModel(aModel); setAgentName(name.trim());
         notify("تنظیمات هوش مصنوعی ذخیره شد"); onClose();
       }} />
     </SheetShell>
@@ -3931,7 +4150,14 @@ function CustomerForm({ ctx, onClose }) {
       <Field c={c} label="شماره موبایل"><input style={inputStyle(c)} dir="ltr" value={f.phone} inputMode="tel" onChange={set("phone")} /></Field>
       <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={set("need")} placeholder="مثلاً خرید آپارتمان ۲ خواب" /></Field>
       <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.budget} onChange={set("budget")} /></Field>
-      <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget) }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
+      <Field c={c} label="مرحله مشتری">
+        <div className="flex flex-wrap" style={{ gap: SP.sm }}>
+          {CUSTOMER_STAGES.map((st) => { const active = f.stage === st; return (
+            <button key={st} type="button" onClick={() => setF({ ...f, stage: st })} className="press rounded-full" style={{ padding: `6px ${SP.md}px`, fontSize: FS.caption, fontWeight: FW.bold, background: active ? c.primary : c.surface2, color: active ? "#fff" : c.muted }}>{st}</button>
+          ); })}
+        </div>
+      </Field>
+      <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget), stage: f.stage || "در حال بررسی" }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
     </SheetShell>
   );
 }
