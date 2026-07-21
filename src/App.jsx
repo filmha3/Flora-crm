@@ -6,11 +6,11 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -574,6 +574,8 @@ export default function FloraCRM() {
         .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) both; }
         .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) both; }
         .flora-pop { animation: floraPop .2s ease both; }
+        .nba-blob { position:absolute; top:-30px; left:-20px; width:200px; height:200px; border-radius:50%; filter: blur(30px); opacity:.32; pointer-events:none; animation: liquidMove 4s ease-in-out infinite; }
+        @keyframes liquidMove { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(60px,20px) scale(1.25);} 66% { transform: translate(20px,45px) scale(.85);} }
         .flora-pulse { animation: floraPulse 1.6s ease-in-out infinite; }
         @keyframes floraRipple { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
         @keyframes floraOrb { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(20px,-16px) scale(1.05);} 66% { transform: translate(-14px,18px) scale(.95);} }
@@ -991,6 +993,193 @@ function MarketWidget({ c }) {
   );
 }
 
+// ── Deal Coach: Next Best Action ────────────────────────────
+// Scores concrete, revenue-driving actions from the real data (no invented stats).
+// Each action carries a title, a reason, and one execute button. Top 3 only.
+function computeNextActions(ctx) {
+  const { properties, customers, calls, appointments, deals } = ctx;
+  const actions = [];
+  const now = Date.now();
+
+  // Overdue call follow-ups: — someone we said we'd call and haven't closed out.
+  calls.filter((cl) => cl.status !== "انجام‌شد").forEach((cl) => {
+    const d = daysSince(cl.date);
+    actions.push({
+      key: `call-${cl.id}`, icon: "phone", tint: "attn",
+      title: `تماس با ${cl.customerName}`,
+      reason: d > 0 ? `${faDigits(d)} روز پیگیری نشده${cl.notes ? ` · ${cl.notes}` : ""}` : `پیگیری امروز${cl.notes ? ` · ${cl.notes}` : ""}`,
+      score: 60 + d * 4,
+      action: cl.customerPhone ? { type: "call", phone: cl.customerPhone } : { type: "goCalls" },
+    });
+  });
+
+  // Match a fresh listing to a customer whose need/budget fits.
+  customers.forEach((cu) => {
+    const budget = Number(cu.budget) || 0;
+    const match = properties.find((p) => p.stage !== "فروخته شد" && budget > 0 && p.price <= budget * 1.05 && p.price >= budget * 0.6);
+    if (match) {
+      actions.push({
+        key: `match-${cu.id}-${match.id}`, icon: "home", tint: "primary",
+        title: `ارسال «${match.title}» به ${cu.name}`,
+        reason: `قیمت با بودجه‌ی مشتری می‌خواند${cu.need ? ` · نیاز: ${cu.need}` : ""}`,
+        score: 55,
+        action: cu.phone ? { type: "wa", phone: cu.phone, text: `سلام، یک فایل مناسب پیدا کردم:\n${match.title}\n${fmtToman(match.price)}\n${match.area} متر` } : { type: "goCustomer", id: cu.id },
+      });
+    }
+  });
+
+  // Stale listings: — active for a while with no movement → suggest a price review.
+  properties.filter((p) => p.stage === "فعال").forEach((p) => {
+    const age = daysSince(p.createdAt);
+    if (age >= 14) {
+      actions.push({
+        key: `stale-${p.id}`, icon: "tag", tint: "purple",
+        title: `بازنگری قیمت «${p.title}»`,
+        reason: `${faDigits(age)} روز فعال بوده و هنوز نفروخته — شاید وقت پیشنهاد قیمت جدید به مالک باشد`,
+        score: 30 + age,
+        action: { type: "goProperty", id: p.id },
+      });
+    }
+  });
+
+  // Deals awaiting payment: — chase the commission.
+  deals.filter((d) => d.status === "در انتظار پرداخت").forEach((d) => {
+    actions.push({
+      key: `pay-${d.id}`, icon: "coin", tint: "success",
+      title: `پیگیری کمیسیون «${d.propertyTitle}»`,
+      reason: "قرارداد بسته شده ولی کمیسیونش کامل وصول نشده",
+      score: 80,
+      action: { type: "goFinance" },
+    });
+  });
+
+  return actions.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+function NextBestActionCard({ ctx }) {
+  const { c, setDetail, setTab, hasAiKey, callAI, notify } = ctx;
+  const actions = useMemo(() => computeNextActions(ctx), [ctx.properties, ctx.customers, ctx.calls, ctx.appointments, ctx.deals]);
+  const ICONS = { phone: PhoneCall, home: Home, tag: Tag, coin: Landmark };
+  const [outcomes, setOutcomes] = useState({}); // { [key]: { result, note, next, loading } }
+  const [openKey, setOpenKey] = useState(null); // which action's outcome panel is open
+
+  useEffect(() => {
+    (async () => { try { const saved = await dbGet(NBA_KEY); if (saved?.date === todayISO()) setOutcomes(saved.map || {}); } catch (e) {} })();
+  }, []);
+  const persist = (map) => { setOutcomes(map); dbSet(NBA_KEY, { date: todayISO(), map }).catch(() => {}); };
+
+  const OUTCOMES = ["جواب داد و علاقه‌مند بود", "جواب داد ولی فعلاً نه", "جواب نداد", "بازدید هماهنگ شد", "رد کرد"];
+
+  const run = (a) => {
+    const act = a.action;
+    if (act.type === "call") window.location.href = `tel:${act.phone}`;
+    else if (act.type === "wa") window.open(waLink(act.phone, act.text), "_blank");
+    else if (act.type === "goCalls") setDetail({ type: "calls" });
+    else if (act.type === "goCustomer") setDetail({ type: "customer", id: act.id });
+    else if (act.type === "goProperty") setDetail({ type: "property", id: act.id });
+    else if (act.type === "goFinance") setTab("finance");
+    setOpenKey(a.key); // ask for the result right after acting
+  };
+
+  const askNext = async (a, result, note) => {
+    const base = { ...outcomes, [a.key]: { result, note: note || "", loading: hasAiKey, next: "" } };
+    persist(base);
+    if (!hasAiKey) { notify("برای مرحله‌ی بعدی، کلید هوش مصنوعی را در تنظیمات وارد کن"); return; }
+    try {
+      const prompt = `تو یک مدیر فروش باتجربه‌ی املاک در ایران هستی. یک مشاور این اقدام را انجام داد:
+اقدام: «${a.title}» (${a.reason})
+نتیجه‌ای که گزارش داد: «${result}»${note ? `\nتوضیح بیشتر مشاور: «${note}»` : ""}
+حالا در یک تا دو جمله‌ی کوتاه و عملی، بگو بهترین «مرحله‌ی بعدی» چیست. مستقیم و بدون مقدمه. فقط خود پیشنهاد.`;
+      const text = await callAI(prompt);
+      const done = { ...base, [a.key]: { result, note: note || "", loading: false, next: text.trim() } };
+      persist(done);
+    } catch (e) {
+      const done = { ...base, [a.key]: { result, note: note || "", loading: false, next: `خطا در دریافت پیشنهاد: ${e.message || "نامشخص"}` } };
+      persist(done);
+    }
+  };
+
+  if (actions.length === 0) return null;
+  const accent = c.primary;
+
+  return (
+    <div style={{ marginTop: SP.md }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.md, paddingRight: 2 }}>
+        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>بهترین اقدام امروز</h2>
+        <span style={{ fontSize: FS.caption, color: c.muted }}>{faDigits(actions.length)} پیشنهاد</span>
+      </div>
+      <div className="relative overflow-hidden" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        <span className="nba-blob" style={{ background: `radial-gradient(circle, #22d3ee, transparent)` }} />
+        <div className="flex flex-col relative" style={{ gap: SP.md }}>
+          {actions.map((a, i) => {
+            const Icon = ICONS[a.icon] || Sparkles;
+            const oc = outcomes[a.key];
+            const panelOpen = openKey === a.key;
+            return (
+              <div key={a.key} style={{ paddingTop: i === 0 ? 0 : SP.md, borderTop: i === 0 ? "none" : `1px solid ${c.border}` }}>
+                <div className="flex items-center" style={{ gap: SP.md }}>
+                  <div className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: RAD.md, background: oc?.result ? c.successSoft : c.primarySoft }}>
+                    {oc?.result ? <CheckCircle2 size={19} color={c.success} /> : <Icon size={19} color={accent} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, lineHeight: 1.4, textDecoration: oc?.result ? "line-through" : "none", opacity: oc?.result ? 0.7 : 1 }}>{a.title}</p>
+                    <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.7 }}>{oc?.result || a.reason}</p>
+                  </div>
+                  <button onClick={() => run(a)} className="press shrink-0" style={{ paddingInline: SP.lg, paddingBlock: 8, borderRadius: RAD.md, background: oc?.result ? c.surface2 : accent, color: oc?.result ? c.muted : "#fff", fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "انجام شد" : "اجرا"}</button>
+                </div>
+
+                {/* outcome panel — asks what happened, then AI gives next step */}
+                {(panelOpen || oc) && (
+                  <div className="relative flora-rise" style={{ marginTop: SP.md, marginRight: 52, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+                    {!oc?.result ? (
+                      <NbaOutcomePicker c={c} options={OUTCOMES} onSubmit={(res, note) => { setOpenKey(null); askNext(a, res, note); }} onCancel={() => setOpenKey(null)} />
+                    ) : (
+                      <div>
+                        {oc.loading ? (
+                          <div className="flex items-center" style={{ gap: SP.sm }}><Loader2 size={14} className="animate-spin" color={c.primary} /><span style={{ fontSize: FS.caption, color: c.muted }}>مدیر فروش در حال فکر کردن...</span></div>
+                        ) : oc.next ? (
+                          <div className="flex items-start" style={{ gap: SP.sm }}>
+                            <Sparkles size={14} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
+                            <div className="flex-1">
+                              <p style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold, marginBottom: 3 }}>مرحله‌ی بعدی</p>
+                              <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}>{oc.next}</p>
+                            </div>
+                            <button onClick={() => { const m = { ...outcomes }; delete m[a.key]; persist(m); setOpenKey(null); }} className="press shrink-0" style={{ fontSize: FS.caption, color: c.muted }}>↺</button>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NbaOutcomePicker({ c, options, onSubmit, onCancel }) {
+  const [sel, setSel] = useState("");
+  const [note, setNote] = useState("");
+  return (
+    <div>
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.sm }}>
+        <p style={{ fontSize: FS.caption, fontWeight: FW.bold }}>نتیجه چه شد؟</p>
+        <button onClick={onCancel} style={{ fontSize: FS.caption, color: c.muted }}>بعداً</button>
+      </div>
+      <div className="flex flex-wrap" style={{ gap: SP.xs, marginBottom: SP.sm }}>
+        {options.map((o) => { const active = sel === o; return (
+          <button key={o} onClick={() => setSel(o)} className="press rounded-full" style={{ padding: `5px ${SP.md - 2}px`, fontSize: FS.caption, fontWeight: FW.medium, background: active ? c.primary : c.surface, color: active ? "#fff" : c.muted, border: `1px solid ${active ? c.primary : c.border}` }}>{o}</button>
+        ); })}
+      </div>
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="توضیح بیشتر (اختیاری)..." style={{ ...inputStyle(c), fontSize: FS.caption + 1, paddingBlock: 8, marginBottom: SP.sm }} />
+      <button onClick={() => sel && onSubmit(sel, note)} disabled={!sel} className="press w-full" style={{ paddingBlock: 9, borderRadius: RAD.md, background: sel ? c.primary : c.surface, color: sel ? "#fff" : c.muted, fontSize: FS.caption + 1, fontWeight: FW.bold }}>ثبت و دریافت مرحله‌ی بعدی</button>
+    </div>
+  );
+}
+
 function HomeTab({ ctx }) {
   const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName, agencyName, agencyCity, simpleMode, setSheet } = ctx;
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
@@ -1039,6 +1228,9 @@ function HomeTab({ ctx }) {
       )}
 
       {!simpleMode && <PortfolioValueCard c={c} properties={properties} />}
+
+      {/* Deal Coach — the 3 highest-value actions for today */}
+      <NextBestActionCard ctx={ctx} />
 
       {/* Today's focus — quiet action cards */}
       {(todayAppts.length > 0 || pendingCalls > 0) && (
