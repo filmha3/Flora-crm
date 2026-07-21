@@ -679,7 +679,7 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail, setT
       <div>
         {tab !== "home" && (
           <>
-            <p style={{ fontSize: 12, color: c.muted }}>خوش آمدی 👋</p>
+            <p style={{ fontSize: 12, color: c.muted }}>خوش آمدی</p>
             <h1 style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.015em" }}>{titles[tab] || "Flora"}</h1>
           </>
         )}
@@ -1077,7 +1077,8 @@ function NextBestActionCard({ ctx }) {
     else if (act.type === "goCalls") setDetail({ type: "calls" });
     else if (act.type === "goCustomer") setDetail({ type: "customer", id: act.id });
     else if (act.type === "goProperty") setDetail({ type: "property", id: act.id });
-    else if (act.type === "goFinance") setTab("finance");
+    // goFinance deliberately does NOT navigate away — the follow-up often happens
+    // in person or by phone, so we stay on Home and just ask what happened.
     setOpenKey(a.key); // ask for the result right after acting
   };
 
@@ -1755,7 +1756,7 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
     notify("مشخصات دفتر ذخیره شد");
   };
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
+    <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
       <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
       <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
       {!editing ? (
@@ -2302,7 +2303,7 @@ function greetingPhrase() {
   if (h < 20) return "عصر بخیر";
   return "شب بخیر";
 }
-const HEAT_STYLE = { hot: { label: "🔥 داغ", }, warm: { label: "🟡 متوسط" }, cold: { label: "❄️ سرد" } };
+const HEAT_STYLE = { hot: { label: "داغ" }, warm: { label: "متوسط" }, cold: { label: "سرد" } };
 
 // The daily targets a real-estate agent works toward. Editable, and progress is
 // saved per-day so ticking things off survives closing the app.
@@ -2435,7 +2436,7 @@ function MissionOfTheDay({ ctx }) {
 
       {/* AI coach message */}
       {mission.coach && (
-        <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)" }}>
+        <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}>
           <Bot size={16} color="#fff" className="shrink-0" style={{ marginTop: 1 }} />
           <p style={{ fontSize: 11.5, color: "#fff", lineHeight: 1.85, fontWeight: 500 }}>{mission.coach}</p>
         </div>
@@ -2545,7 +2546,7 @@ function CallsView({ ctx, onBack }) {
   return (
     <div className="pt-3 pb-6">
       <BackHeader c={c} title="پیگیری تماس‌ها" onBack={onBack} />
-      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)" }}>
+      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}>
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><PhoneCall size={20} color="#fff" /></div>
         <div>
           <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار پیگیری` : "همه پیگیری شده"}</p>
@@ -2715,7 +2716,7 @@ ${recentNotes || "موردی ثبت نشده"}`;
         {overdue.slice(0, 6).map(({ cu, days }) => (
           <QuickContactRow key={cu.id} c={c} name={cu.name} phone={cu.phone} note={days === null ? "هنوز هیچ تماسی ثبت نشده" : `${faDigits(days)} روز از آخرین تماس گذشته`} />
         ))}
-        {overdue.length === 0 && <EmptyLine c={c} text="همه‌ی مشتریان اخیراً پیگیری شده‌اند 👌" />}
+        {overdue.length === 0 && <EmptyLine c={c} text="همه‌ی مشتریان اخیراً پیگیری شده‌اند" />}
       </div>
 
       <button onClick={generatePlan} disabled={loading} className="press w-full rounded-xl py-3 my-4 flex items-center justify-center gap-2" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
@@ -2814,7 +2815,7 @@ ${transcript}
       const reply = await callAI(prompt);
       setMessages((prev) => [...prev, { role: "assistant", text: reply.trim() }]);
     } catch (e) {
-      setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ خطا: ${e.message || "نامشخص"}` }]);
+      setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}` }]);
     }
     setSending(false);
   };
@@ -3003,7 +3004,7 @@ function FinanceCenterView({ ctx, onBack }) {
       {tab === "overview" && (
         <div>
           {/* Banknote-styled hero: guilloche lines, gold seal, engraved figures */}
-          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)", boxShadow: "0 14px 34px rgba(30,58,138,.4)" }}>
+          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)", boxShadow: "0 14px 34px rgba(30,58,138,.4)" }}>
             {/* Engraved guilloche lines, like the back of a banknote */}
             <svg width="100%" height="100%" viewBox="0 0 320 160" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, opacity: 0.14, pointerEvents: "none" }}>
               {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -3209,7 +3210,7 @@ function FinanceCenterView({ ctx, onBack }) {
                 </div>
               </div>
             ))}
-            {debtors.length === 0 && <EmptyLine c={c} text="بدهکاری وجود ندارد 👌" />}
+            {debtors.length === 0 && <EmptyLine c={c} text="بدهکاری وجود ندارد" />}
           </div>
         </div>
       )}
@@ -3429,7 +3430,7 @@ function SplitTab({ ctx, deals, payments }) {
 
   return (
     <div>
-      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2563eb 0%,#4f46e5 50%,#7c3aed 100%)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
         <span style={{ position: "absolute", top: "-45%", left: "-20%", width: 190, height: 190, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
         <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>کمیسیون دریافت‌شده (قابل تقسیم)</p>
@@ -3865,16 +3866,16 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
   }, []);
   return (
     <div className="absolute inset-0 z-[70] flex items-end justify-center flora-pop" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ background: "#fff", borderRadius: "24px 24px 0 0", overflow: "hidden" }}>
-        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #E3E7EF" }}>
-          <h3 style={{ fontSize: 14.5, fontWeight: 800, fontFamily: "'Vazirmatn', sans-serif" }}>انتخاب آدرس از نقشه سرعین</h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#F0F2F7" }}><X size={14} /></button>
+      <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ ...glass(c, RAD.lg), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, overflow: "hidden" }}>
+        <div className="flex items-center justify-between" style={{ paddingInline: SP.xl, paddingBlock: SP.md, borderBottom: `1px solid ${c.border}` }}>
+          <h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>انتخاب آدرس از نقشه سرعین</h3>
+          <button onClick={onClose} className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button>
         </div>
-        <div ref={mapRef} style={{ width: "100%", height: 300, background: "#eee" }} />
-        <div className="p-4" style={{ fontFamily: "'Vazirmatn', sans-serif" }} dir="rtl">
-          <p style={{ fontSize: 11.5, color: "#6B7386", marginBottom: 4 }}>روی نقشه لمس کن یا نشانگر را جابه‌جا کن</p>
-          <p style={{ fontSize: 13, fontWeight: 600, minHeight: 20 }}>{loadingAddr ? "در حال یافتن آدرس..." : address}</p>
-          <button onClick={() => onPick({ address, lat: coords[0], lng: coords[1] })} disabled={!address || loadingAddr} className="press w-full mt-3 rounded-xl py-3" style={{ background: !address || loadingAddr ? "#F0F2F7" : "#0B84FF", color: !address || loadingAddr ? "#6B7386" : "#fff", fontWeight: 700, fontSize: 13.5 }}>تایید این آدرس</button>
+        <div ref={mapRef} style={{ width: "100%", height: 300, background: c.surface2 }} />
+        <div style={{ padding: SP.lg }} dir="rtl">
+          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.xs }}>روی نقشه لمس کن یا نشانگر را جابه‌جا کن</p>
+          <p style={{ fontSize: FS.body, fontWeight: FW.medium, minHeight: 20, color: c.ink }}>{loadingAddr ? "در حال یافتن آدرس..." : address}</p>
+          <button onClick={() => onPick({ address, lat: coords[0], lng: coords[1] })} disabled={!address || loadingAddr} className="press w-full" style={{ marginTop: SP.md, borderRadius: RAD.md, paddingBlock: SP.md, background: !address || loadingAddr ? c.surface2 : c.primary, color: !address || loadingAddr ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>تایید این آدرس</button>
         </div>
       </div>
     </div>
@@ -4659,7 +4660,7 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
         <Row c={c} label="مبلغ کمیسیون" value={fmtToman(commission)} />
         <Row c={c} label="پرداخت شده" value={fmtToman(paid)} color={c.success} />
         <Row c={c} label="مانده بدهی" value={fmtToman(remaining)} color={done ? c.ink : c.attn} />
-        <Row c={c} label="وضعیت" value={done ? "✅ تسویه کامل" : "⏳ در انتظار تسویه"} color={done ? c.success : c.attn} />
+        <Row c={c} label="وضعیت" value={done ? "تسویه کامل" : "در انتظار تسویه"} color={done ? c.success : c.attn} />
       </div>
     );
   };
