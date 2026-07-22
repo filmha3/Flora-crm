@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -137,13 +137,34 @@ const compressImage = (file) => new Promise((resolve) => {
       const canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
       canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      try { resolve(canvas.toDataURL("image/jpeg", IMAGE_QUALITY)); }
+      try {
+        const webp = canvas.toDataURL("image/webp", IMAGE_QUALITY);
+        // Some old browsers silently return a PNG data URL if webp isn't supported — detect and fall back.
+        resolve(webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
+      }
       catch { resolve(reader.result); }
     };
     img.onerror = () => resolve(reader.result);
     img.src = reader.result;
   };
   reader.readAsDataURL(file);
+});
+// Re-encodes an image already stored as a data URL (jpeg/png) into WebP —
+// used to bulk-shrink photos uploaded before WebP was the default.
+const reencodeToWebp = (dataUrl) => new Promise((resolve) => {
+  if (!dataUrl || dataUrl.startsWith("data:image/webp")) return resolve(dataUrl);
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width; canvas.height = img.height;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    try {
+      const webp = canvas.toDataURL("image/webp", IMAGE_QUALITY);
+      resolve(webp.startsWith("data:image/webp") ? webp : dataUrl);
+    } catch { resolve(dataUrl); }
+  };
+  img.onerror = () => resolve(dataUrl);
+  img.src = dataUrl;
 });
 const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (file) => {
   const isVideo = file.type.startsWith("video");
@@ -1619,6 +1640,12 @@ function CustomersTab({ ctx, search, setSearch }) {
             <span className="rounded-full" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: stageColor, background: stageColor + "1f", padding: `4px ${SP.md}px` }}>{stage}</span>
             <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.muted }}>مشاهده <ChevronLeft size={14} color={c.muted} /></span>
           </div>
+          {cu.lastCallNote && (
+            <div className="flex items-start" style={{ gap: SP.xs, marginTop: SP.sm }}>
+              <StickyNote size={12} color={c.attn} style={{ marginTop: 2, flexShrink: 0 }} />
+              <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.lastCallNote}</p>
+            </div>
+          )}
         </button>
       ); })}
       {filtered.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
@@ -1700,6 +1727,47 @@ function CalendarTab({ ctx }) {
 // ---------- More tab ----------
 // Lets the agent download the whole Sarein area once, while online, so the maps
 // then work with no connection at all.
+// Re-encodes every photo already stored (properties' media) to WebP, in place —
+// no re-upload needed. Runs one image at a time so the UI stays responsive.
+function PhotoOptimizeButton({ ctx }) {
+  const { c, properties, setProperties, notify } = ctx;
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(null); // { done, total }
+
+  const totalImages = properties.reduce((n, p) => n + (p.media || []).filter((m) => m.type === "image" && !m.url.startsWith("data:image/webp")).length, 0);
+
+  const run = async () => {
+    if (totalImages === 0) { notify("همه‌ی عکس‌ها همین الان WebP هستند"); return; }
+    setBusy(true);
+    let done = 0;
+    const next = [];
+    for (const p of properties) {
+      if (!p.media || p.media.length === 0) { next.push(p); continue; }
+      const media = [];
+      for (const m of p.media) {
+        if (m.type === "image" && !m.url.startsWith("data:image/webp")) {
+          const url = await reencodeToWebp(m.url);
+          media.push({ ...m, url });
+          done++; setProgress({ done, total: totalImages });
+        } else media.push(m);
+      }
+      next.push({ ...p, media });
+    }
+    setProperties(next);
+    setBusy(false); setProgress(null);
+    notify(`${faDigits(done)} عکس به WebP تبدیل شد — حجم کمتر شد`);
+  };
+
+  return (
+    <button onClick={run} disabled={busy} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.attnSoft }}>
+      {busy ? <Loader2 size={14} className="animate-spin" color={c.attn} /> : <ImageIcon size={14} color={c.attn} />}
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: c.attn }}>
+        {busy ? `در حال بهینه‌سازی... ${progress ? `${faDigits(progress.done)}/${faDigits(progress.total)}` : ""}` : totalImages > 0 ? `بهینه‌سازی ${faDigits(totalImages)} عکس قدیمی به WebP` : "همه‌ی عکس‌ها WebP هستند"}
+      </span>
+    </button>
+  );
+}
+
 function OfflineMapButton({ c, notify }) {
   const [state, setState] = useState("idle"); // idle | working | done
   const [pct, setPct] = useState(0);
@@ -1931,6 +1999,7 @@ function MoreTab({ ctx }) {
           <Sparkles size={14} color={c.purple} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.purple }}>تنظیمات هوش مصنوعی</span>
         </button>
         <OfflineMapButton c={c} notify={notify} />
+        <PhotoOptimizeButton ctx={ctx} />
       </CollapsibleCard>
 
       <div style={{ height: 12 }} />
@@ -2228,6 +2297,30 @@ function PropertyDetail({ id, ctx, onBack }) {
   );
 }
 
+function CustomerNoteBox({ c, note, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(note || "");
+  return (
+    <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c, 24), border: `1px solid ${c.attn}33` }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.sm }}>
+        <div className="flex items-center" style={{ gap: SP.xs }}><StickyNote size={14} color={c.attn} /><p style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.attn }}>یادداشت آخرین تماس</p></div>
+        {!editing && <button onClick={() => { setVal(note || ""); setEditing(true); }} style={{ fontSize: FS.caption, color: c.muted }}>ویرایش</button>}
+      </div>
+      {editing ? (
+        <>
+          <textarea value={val} onChange={(e) => setVal(e.target.value)} placeholder="آخرین بار چی بهش گفتیم..." style={{ ...inputStyle(c), minHeight: 70, resize: "none", lineHeight: 1.8 }} />
+          <div className="flex" style={{ gap: SP.sm, marginTop: SP.sm }}>
+            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: 8, background: c.surface2, fontSize: FS.caption, fontWeight: FW.bold, color: c.muted }}>لغو</button>
+            <button onClick={() => { onSave(val.trim()); setEditing(false); }} className="press flex-1 rounded-xl" style={{ paddingBlock: 8, background: c.attn, fontSize: FS.caption, fontWeight: FW.bold, color: "#fff" }}>ذخیره</button>
+          </div>
+        </>
+      ) : (
+        <p style={{ fontSize: FS.body, color: note ? c.ink : c.muted, lineHeight: 1.8 }}>{note || "یادداشتی ثبت نشده — بزن «ویرایش»"}</p>
+      )}
+    </div>
+  );
+}
+
 function CustomerDetail({ id, ctx, onBack }) {
   const { c, customers, calls, appointments, setSheet } = ctx;
   const cu = customers.find((x) => x.id === id);
@@ -2257,6 +2350,7 @@ function CustomerDetail({ id, ctx, onBack }) {
       <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press w-full rounded-xl p-3.5 mb-3 flex items-center gap-2.5" style={{ background: c.primarySoft }}>
         <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
       </button>
+      <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text } : x))} />
       <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
         <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need}</p>
         <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
