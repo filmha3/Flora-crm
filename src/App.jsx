@@ -6,11 +6,11 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -126,21 +126,35 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 // Phone photos are 3-8MB each. Storing them raw made IndexedDB huge and every save slow,
 // so images are downscaled to <=1280px and re-encoded as JPEG before they're ever saved.
 const MAX_IMAGE_DIM = 1280, IMAGE_QUALITY = 0.72;
+// iOS Safari accepts canvas.toDataURL("image/webp",...) without throwing, but silently
+// returns a PNG instead of encoding — so testing once here is the only reliable way to
+// know if WebP will actually work. When it won't, fall back to a tighter JPEG so photos
+// still shrink instead of silently staying full-size.
+let _webpOk = null;
+const supportsWebp = () => {
+  if (_webpOk !== null) return _webpOk;
+  try {
+    const c = document.createElement("canvas"); c.width = 1; c.height = 1;
+    _webpOk = c.toDataURL("image/webp").startsWith("data:image/webp");
+  } catch { _webpOk = false; }
+  return _webpOk;
+};
+const FALLBACK_DIM = 1280, FALLBACK_QUALITY = 0.78; // used only when WebP isn't actually supported
 const compressImage = (file) => new Promise((resolve) => {
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
     img.onload = () => {
+      const webpOk = supportsWebp();
+      const maxDim = webpOk ? MAX_IMAGE_DIM : FALLBACK_DIM;
       let { width, height } = img;
-      const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(width, height));
+      const scale = Math.min(1, maxDim / Math.max(width, height));
       width = Math.round(width * scale); height = Math.round(height * scale);
       const canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
       canvas.getContext("2d").drawImage(img, 0, 0, width, height);
       try {
-        const webp = canvas.toDataURL("image/webp", IMAGE_QUALITY);
-        // Some old browsers silently return a PNG data URL if webp isn't supported — detect and fall back.
-        resolve(webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
+        resolve(webpOk ? canvas.toDataURL("image/webp", IMAGE_QUALITY) : canvas.toDataURL("image/jpeg", FALLBACK_QUALITY));
       }
       catch { resolve(reader.result); }
     };
@@ -151,16 +165,23 @@ const compressImage = (file) => new Promise((resolve) => {
 });
 // Re-encodes an image already stored as a data URL (jpeg/png) into WebP —
 // used to bulk-shrink photos uploaded before WebP was the default.
+// Re-shrinks a photo already stored as a data URL. Where WebP encoding actually
+// works, it re-encodes to WebP. Where it doesn't (iOS Safari silently no-ops),
+// it recompresses to a smaller, tighter JPEG instead — so the size drops either way.
 const reencodeToWebp = (dataUrl) => new Promise((resolve) => {
-  if (!dataUrl || dataUrl.startsWith("data:image/webp")) return resolve(dataUrl);
+  if (!dataUrl) return resolve(dataUrl);
+  const webpOk = supportsWebp();
+  if (webpOk && dataUrl.startsWith("data:image/webp")) return resolve(dataUrl); // already optimal
   const img = new Image();
   img.onload = () => {
+    const maxDim = webpOk ? MAX_IMAGE_DIM : FALLBACK_DIM;
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
     const canvas = document.createElement("canvas");
-    canvas.width = img.width; canvas.height = img.height;
-    canvas.getContext("2d").drawImage(img, 0, 0);
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
     try {
-      const webp = canvas.toDataURL("image/webp", IMAGE_QUALITY);
-      resolve(webp.startsWith("data:image/webp") ? webp : dataUrl);
+      resolve(webpOk ? canvas.toDataURL("image/webp", IMAGE_QUALITY) : canvas.toDataURL("image/jpeg", FALLBACK_QUALITY));
     } catch { resolve(dataUrl); }
   };
   img.onerror = () => resolve(dataUrl);
@@ -319,6 +340,7 @@ export default function FloraCRM() {
   const [detail, setDetail] = useState(null); // full-screen property/customer detail
   const [search, setSearch] = useState("");
   const [lightbox, setLightbox] = useState(null);
+  const [focusQueue, setFocusQueue] = useState(null); // { actions, index } — Deal Coach focus mode
   const [mapPicker, setMapPicker] = useState(null); // separate overlay so it never closes the form underneath
   const [propStageHint, setPropStageHint] = useState("همه");
 
@@ -557,7 +579,7 @@ export default function FloraCRM() {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
-    notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, geminiKey, setGeminiKey,
+    notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance,
   };
@@ -663,7 +685,7 @@ export default function FloraCRM() {
           </div>
         </div>
 
-        {!detail && (
+        {!detail && !focusQueue && (
           <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
             style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 18, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
             <span style={{ position: "absolute", inset: -8, borderRadius: 22, border: "2px solid rgba(47,124,246,0.35)", animation: "floraRipple 2.2s infinite" }} />
@@ -671,7 +693,9 @@ export default function FloraCRM() {
           </button>
         )}
 
-        {!detail && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} simpleMode={simpleMode} />}
+        {!detail && !focusQueue && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} simpleMode={simpleMode} />}
+
+        {focusQueue && <FocusMode ctx={ctx} />}
 
         {sheet === "add" && <QuickAddSheet ctx={ctx} onClose={() => setSheet(null)} />}
         {sheet && sheet !== "add" && <FormSheet sheetVal={sheet} ctx={ctx} onClose={() => setSheet(null)} />}
@@ -1077,49 +1101,150 @@ function computeNextActions(ctx) {
   return actions.sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
-function NextBestActionCard({ ctx }) {
-  const { c, setDetail, setTab, hasAiKey, callAI, notify } = ctx;
-  const actions = useMemo(() => computeNextActions(ctx), [ctx.properties, ctx.customers, ctx.calls, ctx.appointments, ctx.deals]);
+// Focus Mode — launched from "اجرا" on the Deal Coach card. Hides all navigation
+// and shows exactly one task at a time. Complete it, log the result, get the AI's
+// next step, and it auto-advances to the next task — like clearing levels in a game.
+function FocusMode({ ctx }) {
+  const { c, focusQueue, setFocusQueue, hasAiKey, callAI, notify } = ctx;
+  const { actions, index } = focusQueue;
+  const a = actions[index];
+  const [step, setStep] = useState("act"); // act | outcome | result
+  const [nextTip, setNextTip] = useState("");
+  const [loading, setLoading] = useState(false);
   const ICONS = { phone: PhoneCall, home: Home, tag: Tag, coin: Landmark };
-  const [outcomes, setOutcomes] = useState({}); // { [key]: { result, note, next, loading } }
-  const [openKey, setOpenKey] = useState(null); // which action's outcome panel is open
+  const Icon = ICONS[a.icon] || Sparkles;
 
-  useEffect(() => {
-    (async () => { try { const saved = await dbGet(NBA_KEY); if (saved?.date === todayISO()) setOutcomes(saved.map || {}); } catch (e) {} })();
-  }, []);
-  const persist = (map) => { setOutcomes(map); dbSet(NBA_KEY, { date: todayISO(), map }).catch(() => {}); };
+  useEffect(() => { setStep("act"); setNextTip(""); }, [index]); // eslint-disable-line
 
-  const OUTCOMES = ["جواب داد و علاقه‌مند بود", "جواب داد ولی فعلاً نه", "جواب نداد", "بازدید هماهنگ شد", "رد کرد"];
+  const doCall = () => { if (a.action.type === "call") window.location.href = `tel:${a.action.phone}`; };
+  const doWa = () => { if (a.action.type === "wa") window.open(waLink(a.action.phone, a.action.text), "_blank"); };
 
-  const run = (a) => {
-    const act = a.action;
-    if (act.type === "call") window.location.href = `tel:${act.phone}`;
-    else if (act.type === "wa") window.open(waLink(act.phone, act.text), "_blank");
-    else if (act.type === "goCalls") setDetail({ type: "calls" });
-    else if (act.type === "goCustomer") setDetail({ type: "customer", id: act.id });
-    else if (act.type === "goProperty") setDetail({ type: "property", id: act.id });
-    // goFinance deliberately does NOT navigate away — the follow-up often happens
-    // in person or by phone, so we stay on Home and just ask what happened.
-    setOpenKey(a.key); // ask for the result right after acting
-  };
-
-  const askNext = async (a, result, note) => {
-    const base = { ...outcomes, [a.key]: { result, note: note || "", loading: hasAiKey, next: "" } };
-    persist(base);
-    if (!hasAiKey) { notify("برای مرحله‌ی بعدی، کلید هوش مصنوعی را در تنظیمات وارد کن"); return; }
+  const submitOutcome = async (result, note) => {
+    setStep("result"); setLoading(true);
+    const saveOutcome = async (next) => {
+      try {
+        const existing = await dbGet(NBA_KEY);
+        const map = existing?.date === todayISO() ? { ...existing.map } : {};
+        map[a.key] = { result, next };
+        await dbSet(NBA_KEY, { date: todayISO(), map });
+      } catch (e) {}
+    };
+    await saveOutcome("");
+    if (!hasAiKey) { setNextTip("برای مرحله‌ی بعدی، کلید هوش مصنوعی را در تنظیمات وارد کن."); setLoading(false); return; }
     try {
       const prompt = `تو یک مدیر فروش باتجربه‌ی املاک در ایران هستی. یک مشاور این اقدام را انجام داد:
 اقدام: «${a.title}» (${a.reason})
 نتیجه‌ای که گزارش داد: «${result}»${note ? `\nتوضیح بیشتر مشاور: «${note}»` : ""}
-حالا در یک تا دو جمله‌ی کوتاه و عملی، بگو بهترین «مرحله‌ی بعدی» چیست. مستقیم و بدون مقدمه. فقط خود پیشنهاد.`;
+در یک تا دو جمله‌ی کوتاه، بهترین «مرحله‌ی بعدی» را بگو. مستقیم، بدون مقدمه.`;
       const text = await callAI(prompt);
-      const done = { ...base, [a.key]: { result, note: note || "", loading: false, next: text.trim() } };
-      persist(done);
+      setNextTip(text.trim());
+      await saveOutcome(text.trim());
     } catch (e) {
-      const done = { ...base, [a.key]: { result, note: note || "", loading: false, next: `خطا در دریافت پیشنهاد: ${e.message || "نامشخص"}` } };
-      persist(done);
+      const msg = `خطا در دریافت پیشنهاد: ${e.message || "نامشخص"}`;
+      setNextTip(msg); await saveOutcome(msg);
     }
+    setLoading(false);
   };
+
+  const advance = () => {
+    if (index + 1 < actions.length) setFocusQueue({ actions, index: index + 1 });
+    else setFocusQueue(null);
+  };
+
+  const accent = "#22d3ee";
+
+  return (
+    <div className="fixed inset-0 z-[95] flex flex-col flora-pop" style={{ background: c.bg }}>
+      {/* ambient depth glow, echoes the Deal Coach card it came from */}
+      <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
+        <span style={{ position: "absolute", top: "-15%", left: "50%", transform: "translateX(-50%)", width: 340, height: 340, borderRadius: "50%", background: `radial-gradient(circle, ${accent}22, transparent 70%)`, filter: "blur(10px)" }} />
+      </div>
+
+      {/* top: close + segmented progress (stories-style, not just a fraction) */}
+      <div className="flex items-center shrink-0 relative" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
+        <button onClick={() => setFocusQueue(null)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <div className="flex-1 flex" style={{ gap: SP.xs }}>
+          {actions.map((_, i) => (
+            <div key={i} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: c.surface2, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: i < index ? "100%" : i === index ? (step === "result" && !loading ? "100%" : "55%") : "0%", borderRadius: RAD.pill, background: i <= index ? c.primary : "transparent", transition: "width .5s cubic-bezier(.34,1.2,.5,1)" }} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col items-center justify-center relative" style={{ padding: SP.xl }}>
+        {step !== "result" ? (
+          <div key={`${index}-${step}`} className="w-full flora-rise" style={{ maxWidth: 340 }}>
+            <div className="relative mx-auto" style={{ width: 84, height: 84, marginBottom: SP.xl }}>
+              <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: RAD.lg, background: c.primarySoft }} />
+              <div className="flex items-center justify-center" style={{ position: "relative", width: 84, height: 84, borderRadius: RAD.lg, background: c.primarySoft, border: `1px solid ${c.primary}33` }}><Icon size={34} color={c.primary} /></div>
+            </div>
+            <h1 style={{ fontSize: FS.hero, fontWeight: FW.heavy, textAlign: "center", lineHeight: 1.3, letterSpacing: "-0.01em" }}>{a.title}</h1>
+            <p style={{ fontSize: FS.body, color: c.muted, textAlign: "center", marginTop: SP.md, lineHeight: 1.8 }}>{a.reason}</p>
+
+            {step === "act" && (
+              <div style={{ marginTop: SP.xxl }}>
+                {a.action.type === "call" && (
+                  <button onClick={doCall} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
+                    <PhoneCall size={18} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>تماس بگیر</span>
+                  </button>
+                )}
+                {a.action.type === "wa" && (
+                  <button onClick={doWa} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
+                    <MessageCircle size={18} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>ارسال واتساپ</span>
+                  </button>
+                )}
+                <button onClick={() => setStep("outcome")} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: c.surface2, color: c.ink, fontWeight: FW.bold, fontSize: FS.body + 1 }}>
+                  {a.action.type === "call" || a.action.type === "wa" ? "انجام دادم، نتیجه رو بگو" : "انجامش دادم"}<ChevronLeft size={15} color={c.muted} />
+                </button>
+              </div>
+            )}
+
+            {step === "outcome" && (
+              <div style={{ marginTop: SP.xxl, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+                <NbaOutcomePicker c={c} options={["جواب داد و علاقه‌مند بود", "جواب داد ولی فعلاً نه", "جواب نداد", "بازدید هماهنگ شد", "رد کرد"]} onSubmit={(res, note) => submitOutcome(res, note)} onCancel={() => setStep("act")} />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div key="result" className="w-full flora-rise" style={{ maxWidth: 340 }}>
+            {loading ? (
+              <div className="flex flex-col items-center">
+                <div className="relative" style={{ width: 56, height: 56, marginBottom: SP.lg }}>
+                  <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
+                  <div className="flex items-center justify-center" style={{ position: "relative", width: 56, height: 56 }}><Loader2 size={26} className="animate-spin" color={c.primary} /></div>
+                </div>
+                <p style={{ fontSize: FS.body, color: c.muted }}>مدیر فروش در حال فکر کردن...</p>
+              </div>
+            ) : (
+              <>
+                <div className="relative mx-auto" style={{ width: 72, height: 72, marginBottom: SP.lg }}>
+                  <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${c.success}44`, animation: "floraRipple 1.6s ease-out 1" }} />
+                  <div className="flex items-center justify-center flora-pop" style={{ width: 72, height: 72, borderRadius: "50%", background: c.successSoft }}><CheckCircle2 size={34} color={c.success} /></div>
+                </div>
+                <p style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold, textAlign: "center", marginBottom: SP.sm, letterSpacing: "0.02em" }}>مرحله‌ی بعدی</p>
+                <p style={{ fontSize: FS.subtitle, color: c.ink, textAlign: "center", lineHeight: 1.8, fontWeight: FW.medium }}>{nextTip}</p>
+                <button onClick={advance} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xxl, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
+                  {index + 1 < actions.length ? "بعدی" : "تمام برای امروز"}{index + 1 < actions.length && <ChevronLeft size={16} color="#fff" />}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NextBestActionCard({ ctx }) {
+  const { c, setFocusQueue } = ctx;
+  const actions = useMemo(() => computeNextActions(ctx), [ctx.properties, ctx.customers, ctx.calls, ctx.appointments, ctx.deals]);
+  const ICONS = { phone: PhoneCall, home: Home, tag: Tag, coin: Landmark };
+  const [outcomes, setOutcomes] = useState({}); // { [key]: { result, next } } — read-only display here; Focus Mode writes it
+
+  useEffect(() => {
+    (async () => { try { const saved = await dbGet(NBA_KEY); if (saved?.date === todayISO()) setOutcomes(saved.map || {}); } catch (e) {} })();
+  }, [ctx.focusQueue]); // reload whenever focus mode closes, to reflect what was just logged
 
   if (actions.length === 0) return null;
   const accent = c.primary;
@@ -1136,7 +1261,6 @@ function NextBestActionCard({ ctx }) {
           {actions.map((a, i) => {
             const Icon = ICONS[a.icon] || Sparkles;
             const oc = outcomes[a.key];
-            const panelOpen = openKey === a.key;
             return (
               <div key={a.key} style={{ paddingTop: i === 0 ? 0 : SP.md, borderTop: i === 0 ? "none" : `1px solid ${c.border}` }}>
                 <div className="flex items-center" style={{ gap: SP.md }}>
@@ -1147,30 +1271,12 @@ function NextBestActionCard({ ctx }) {
                     <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, lineHeight: 1.4, textDecoration: oc?.result ? "line-through" : "none", opacity: oc?.result ? 0.7 : 1 }}>{a.title}</p>
                     <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.7 }}>{oc?.result || a.reason}</p>
                   </div>
-                  <button onClick={() => run(a)} className="press shrink-0" style={{ paddingInline: SP.lg, paddingBlock: 8, borderRadius: RAD.md, background: oc?.result ? c.surface2 : accent, color: oc?.result ? c.muted : "#fff", fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "انجام شد" : "اجرا"}</button>
+                  <button onClick={() => setFocusQueue({ actions, index: i })} className="press shrink-0" style={{ paddingInline: SP.lg, paddingBlock: 8, borderRadius: RAD.md, background: oc?.result ? c.surface2 : accent, color: oc?.result ? c.muted : "#fff", fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "دوباره" : "اجرا"}</button>
                 </div>
-
-                {/* outcome panel — asks what happened, then AI gives next step */}
-                {(panelOpen || oc) && (
-                  <div className="relative flora-rise" style={{ marginTop: SP.md, marginRight: 52, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
-                    {!oc?.result ? (
-                      <NbaOutcomePicker c={c} options={OUTCOMES} onSubmit={(res, note) => { setOpenKey(null); askNext(a, res, note); }} onCancel={() => setOpenKey(null)} />
-                    ) : (
-                      <div>
-                        {oc.loading ? (
-                          <div className="flex items-center" style={{ gap: SP.sm }}><Loader2 size={14} className="animate-spin" color={c.primary} /><span style={{ fontSize: FS.caption, color: c.muted }}>مدیر فروش در حال فکر کردن...</span></div>
-                        ) : oc.next ? (
-                          <div className="flex items-start" style={{ gap: SP.sm }}>
-                            <Sparkles size={14} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
-                            <div className="flex-1">
-                              <p style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold, marginBottom: 3 }}>مرحله‌ی بعدی</p>
-                              <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}>{oc.next}</p>
-                            </div>
-                            <button onClick={() => { const m = { ...outcomes }; delete m[a.key]; persist(m); setOpenKey(null); }} className="press shrink-0" style={{ fontSize: FS.caption, color: c.muted }}>↺</button>
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
+                {oc?.next && (
+                  <div className="flex items-start" style={{ gap: SP.sm, marginTop: SP.sm, marginRight: 52 }}>
+                    <Sparkles size={13} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <p style={{ fontSize: FS.caption, color: c.ink, lineHeight: 1.8 }}>{oc.next}</p>
                   </div>
                 )}
               </div>
@@ -1623,8 +1729,13 @@ function CustomersTab({ ctx, search, setSearch }) {
       {filtered.map((cu) => {
         const stage = cu.stage || "در حال بررسی";
         const stageColor = CUSTOMER_STAGE_COLOR(c)[stage] || c.primary;
+        // Neglect decay — a customer nobody has touched in a while visibly fades,
+        // like a plant wilting. Closed-won customers never decay (no need to chase them).
+        const idleDays = cu.lastContactAt ? daysSince(cu.lastContactAt) : 99; // never logged → treat as long overdue
+        const decaying = stage !== "خرید کرد" && idleDays >= 2;
+        const decay = decaying ? Math.min(1, (idleDays - 1) / 7) : 0; // full grey by ~day 8
         return (
-        <button key={cu.id} onClick={() => setDetail({ type: "customer", id: cu.id })} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+        <button key={cu.id} onClick={() => setDetail({ type: "customer", id: cu.id })} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22), filter: decay > 0 ? `grayscale(${decay})` : "none", opacity: 1 - decay * 0.32, transition: "filter .6s ease, opacity .6s ease" }}>
           <div className="flex items-center" style={{ gap: SP.md }}>
             <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 48, height: 48, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
             <div className="flex-1 min-w-0">
@@ -1638,7 +1749,11 @@ function CustomersTab({ ctx, search, setSearch }) {
           </div>
           <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
             <span className="rounded-full" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: stageColor, background: stageColor + "1f", padding: `4px ${SP.md}px` }}>{stage}</span>
-            <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.muted }}>مشاهده <ChevronLeft size={14} color={c.muted} /></span>
+            {decaying ? (
+              <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}><AlertTriangle size={12} color={c.attn} />{faDigits(idleDays)} روز بدون پیگیری</span>
+            ) : (
+              <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.muted }}>مشاهده <ChevronLeft size={14} color={c.muted} /></span>
+            )}
           </div>
           {cu.lastCallNote && (
             <div className="flex items-start" style={{ gap: SP.xs, marginTop: SP.sm }}>
@@ -1734,19 +1849,24 @@ function PhotoOptimizeButton({ ctx }) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null); // { done, total }
 
-  const totalImages = properties.reduce((n, p) => n + (p.media || []).filter((m) => m.type === "image" && !m.url.startsWith("data:image/webp")).length, 0);
+  const dataUrlBytes = (u) => (u ? Math.round((u.length - u.indexOf(",") - 1) * 0.75) : 0);
+  const totalImages = properties.reduce((n, p) => n + (p.media || []).filter((m) => m.type === "image").length, 0);
 
   const run = async () => {
-    if (totalImages === 0) { notify("همه‌ی عکس‌ها همین الان WebP هستند"); return; }
+    if (totalImages === 0) { notify("فایلی با عکس پیدا نشد"); return; }
     setBusy(true);
-    let done = 0;
+    let done = 0, beforeBytes = 0, afterBytes = 0;
     const next = [];
     for (const p of properties) {
       if (!p.media || p.media.length === 0) { next.push(p); continue; }
       const media = [];
       for (const m of p.media) {
-        if (m.type === "image" && !m.url.startsWith("data:image/webp")) {
-          const url = await reencodeToWebp(m.url);
+        if (m.type === "image") {
+          const before = dataUrlBytes(m.url);
+          const candidate = await reencodeToWebp(m.url);
+          const after = dataUrlBytes(candidate);
+          const url = after < before ? candidate : m.url; // keep original if re-encode didn't actually help
+          beforeBytes += before; afterBytes += Math.min(before, after);
           media.push({ ...m, url });
           done++; setProgress({ done, total: totalImages });
         } else media.push(m);
@@ -1755,14 +1875,16 @@ function PhotoOptimizeButton({ ctx }) {
     }
     setProperties(next);
     setBusy(false); setProgress(null);
-    notify(`${faDigits(done)} عکس به WebP تبدیل شد — حجم کمتر شد`);
+    const savedMb = ((beforeBytes - afterBytes) / (1024 * 1024)).toFixed(1);
+    const method = supportsWebp() ? "WebP" : "JPEG فشرده‌تر (مرورگرت WebP را واقعاً پشتیبانی نمی‌کند)";
+    notify(afterBytes < beforeBytes ? `${faDigits(done)} عکس با ${method} بازفشرده شد — ${savedMb} مگابایت کمتر شد` : `${faDigits(done)} عکس بررسی شد — حجمشان از قبل کم بود`);
   };
 
   return (
     <button onClick={run} disabled={busy} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.attnSoft }}>
       {busy ? <Loader2 size={14} className="animate-spin" color={c.attn} /> : <ImageIcon size={14} color={c.attn} />}
       <span style={{ fontSize: 11.5, fontWeight: 700, color: c.attn }}>
-        {busy ? `در حال بهینه‌سازی... ${progress ? `${faDigits(progress.done)}/${faDigits(progress.total)}` : ""}` : totalImages > 0 ? `بهینه‌سازی ${faDigits(totalImages)} عکس قدیمی به WebP` : "همه‌ی عکس‌ها WebP هستند"}
+        {busy ? `در حال بهینه‌سازی... ${progress ? `${faDigits(progress.done)}/${faDigits(progress.total)}` : ""}` : totalImages > 0 ? `فشرده‌سازی ${faDigits(totalImages)} عکس موجود` : "عکسی برای فشرده‌سازی نیست"}
       </span>
     </button>
   );
@@ -2334,7 +2456,7 @@ function CustomerDetail({ id, ctx, onBack }) {
         <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
         <div className="flex-1"><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone}</p></div>
         {cu.phone && (
-          <a href={`tel:${cu.phone}`} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
+          <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
         )}
       </div>
 
@@ -2350,7 +2472,7 @@ function CustomerDetail({ id, ctx, onBack }) {
       <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press w-full rounded-xl p-3.5 mb-3 flex items-center gap-2.5" style={{ background: c.primarySoft }}>
         <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
       </button>
-      <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text } : x))} />
+      <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO() } : x))} />
       <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
         <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need}</p>
         <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
@@ -2439,6 +2561,10 @@ function MissionOfTheDay({ ctx }) {
   const [mission, setMission] = useState(null); // { date, items, coach, source }
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [streak, setStreak] = useState({ count: 0, lastDate: "" });
+  const [poppedId, setPoppedId] = useState(null); // brief bounce animation on the item just completed
+
+  useEffect(() => { (async () => { try { const s = await dbGet(STREAK_KEY); if (s) setStreak(s); } catch (e) {} })(); }, []);
 
   useEffect(() => { (async () => {
     try {
@@ -2503,7 +2629,24 @@ function MissionOfTheDay({ ctx }) {
   const totalDone = mission.items.reduce((s, m) => s + Math.min(m.done, m.target), 0);
   const pct = totalTarget ? Math.round((totalDone / totalTarget) * 100) : 0;
 
-  const bump = (id, delta) => persist({ ...mission, items: mission.items.map((m) => m.id === id ? { ...m, done: Math.max(0, Math.min(m.target, m.done + delta)) } : m) });
+  const bump = (id, delta) => {
+    const nextItems = mission.items.map((m) => m.id === id ? { ...m, done: Math.max(0, Math.min(m.target, m.done + delta)) } : m);
+    persist({ ...mission, items: nextItems });
+    const item = nextItems.find((m) => m.id === id);
+    if (delta > 0) {
+      setPoppedId(id); setTimeout(() => setPoppedId(null), 420);
+      if (item.done >= item.target) notify(`${item.label} تکمیل شد`);
+    }
+    // whole-mission streak — counts once per day, only when every target is hit
+    const allDone = nextItems.every((m) => m.done >= m.target);
+    if (allDone && streak.lastDate !== todayISO()) {
+      const yesterday = daysAgoISO(1).slice(0, 10);
+      const nextCount = streak.lastDate === yesterday ? streak.count + 1 : 1;
+      const next = { count: nextCount, lastDate: todayISO() };
+      setStreak(next); dbSet(STREAK_KEY, next).catch(() => {});
+      notify(nextCount > 1 ? `${faDigits(nextCount)} روز متوالی — همه‌ی اهداف زده شد` : "همه‌ی اهداف امروز زده شد");
+    }
+  };
   const setTarget = (id, t) => persist({ ...mission, items: mission.items.map((m) => m.id === id ? { ...m, target: Math.max(1, Number(toEnDigits(String(t))) || 1) } : m) });
 
   return (
@@ -2513,6 +2656,11 @@ function MissionOfTheDay({ ctx }) {
         <div className="flex items-center gap-2">
           <span style={{ width: 9, height: 9, borderRadius: 99, background: pct >= 100 ? c.success : c.primary }} className={pct < 100 ? "flora-pulse" : ""} />
           <p style={{ fontSize: 14, fontWeight: 800 }}>ماموریت امروز</p>
+          {streak.count > 1 && (
+            <span className="flex items-center" style={{ gap: 3, fontSize: 10.5, fontWeight: 800, color: c.attn, background: c.attnSoft, padding: "2px 8px", borderRadius: RAD.pill }}>
+              <Flame size={11} color={c.attn} />{faDigits(streak.count)} روز
+            </span>
+          )}
         </div>
         <button onClick={() => setEditing((e) => !e)} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1" style={{ background: c.surface2 }}>
           <Edit3 size={11} color={c.muted} /><span style={{ fontSize: 10, fontWeight: 700, color: c.muted }}>{editing ? "تمام" : "اهداف"}</span>
@@ -2546,7 +2694,7 @@ function MissionOfTheDay({ ctx }) {
         {mission.items.map((m) => {
           const complete = m.done >= m.target;
           return (
-            <div key={m.id} className="rounded-xl p-3 flex items-center gap-3" style={{ background: c.surface2 }}>
+            <div key={m.id} className={`rounded-xl p-3 flex items-center gap-3 ${poppedId === m.id ? "flora-pop" : ""}`} style={{ background: complete ? c.successSoft : c.surface2, transition: "background .4s ease" }}>
               <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: complete ? c.successSoft : c.primarySoft }}>
                 {floraIcon(m.icon, { size: 20, color: complete ? c.success : c.primary })}
               </div>
@@ -4440,7 +4588,7 @@ function CustomerForm({ ctx, onClose }) {
           ); })}
         </div>
       </Field>
-      <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget), stage: f.stage || "در حال بررسی" }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
+      <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget), stage: f.stage || "در حال بررسی", lastContactAt: todayISO() }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
     </SheetShell>
   );
 }
