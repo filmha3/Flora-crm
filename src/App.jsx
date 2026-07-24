@@ -634,6 +634,8 @@ export default function FloraCRM() {
         .flora-pop { animation: floraPop .2s ease both; }
         .nba-blob { position:absolute; top:-30px; left:-20px; width:200px; height:200px; border-radius:50%; filter: blur(30px); opacity:.32; pointer-events:none; animation: liquidMove 4s ease-in-out infinite; }
         @keyframes liquidMove { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(60px,20px) scale(1.25);} 66% { transform: translate(20px,45px) scale(.85);} }
+        .flora-orb-breathe { animation: floraOrbBreathe 2.6s ease-in-out infinite; }
+        @keyframes floraOrbBreathe { 0%,100% { transform: scale(1);} 50% { transform: scale(1.07);} }
         .flora-pulse { animation: floraPulse 1.6s ease-in-out infinite; }
         @keyframes floraRipple { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
         @keyframes floraOrb { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(20px,-16px) scale(1.05);} 66% { transform: translate(-14px,18px) scale(.95);} }
@@ -1284,6 +1286,49 @@ function VoiceHintRotator({ c }) {
   );
 }
 
+// A soft, liquid, breathing orb — the ChatGPT-voice-mode look. Two blurred,
+// organically-morphing gradient layers plus a crisp glass core with the state icon.
+// In "listening" state it visibly swells with the live mic level; otherwise it just
+// breathes gently on its own so it never feels static.
+const ORB_SHAPES = [
+  "62% 38% 55% 45% / 55% 45% 55% 45%",
+  "45% 55% 65% 35% / 40% 60% 40% 60%",
+  "55% 45% 40% 60% / 60% 40% 65% 35%",
+  "40% 60% 55% 45% / 45% 55% 40% 60%",
+];
+function VoiceOrb({ c, level = 0, state = "listening" }) {
+  const [shapeIdx, setShapeIdx] = useState(0);
+  useEffect(() => { const t = setInterval(() => setShapeIdx((i) => (i + 1) % ORB_SHAPES.length), 1700); return () => clearInterval(t); }, []);
+  const palette = state === "thinking" ? [c.purple, "#22d3ee"] : state === "success" ? [c.success, "#22d3ee"] : [c.primary, "#22d3ee"];
+  const reactive = state === "listening";
+  const scale = reactive ? 1 + Math.min(0.45, level * 0.55) : 1;
+  return (
+    <div className="relative flex items-center justify-center" style={{ width: 168, height: 168 }}>
+      <div className={reactive ? "" : "flora-orb-breathe"} style={{
+        position: "absolute", inset: 8, borderRadius: ORB_SHAPES[shapeIdx],
+        background: `linear-gradient(135deg, ${palette[0]}, ${palette[1]})`, opacity: 0.4, filter: "blur(20px)",
+        transform: `scale(${scale})`, transition: "border-radius 1.7s ease-in-out, transform .12s ease-out, background 1s ease",
+      }} />
+      <div className={reactive ? "" : "flora-orb-breathe"} style={{
+        position: "absolute", inset: 28, borderRadius: ORB_SHAPES[(shapeIdx + 2) % ORB_SHAPES.length],
+        background: `linear-gradient(135deg, ${palette[1]}, ${palette[0]})`, opacity: 0.32, filter: "blur(14px)",
+        transform: `scale(${reactive ? scale * 0.9 : 1})`, transition: "border-radius 2.1s ease-in-out, transform .12s ease-out, background 1s ease",
+        animationDelay: "-1.2s",
+      }} />
+      <div className="flex items-center justify-center" style={{
+        position: "relative", width: 88, height: 88, borderRadius: "50%", background: c.surface,
+        backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)",
+        border: `1px solid ${palette[0]}40`, boxShadow: `0 8px 28px -8px ${palette[0]}55`,
+        transform: `scale(${reactive ? 1 + Math.min(0.1, level * 0.14) : 1})`, transition: "transform .1s ease-out",
+      }}>
+        {state === "listening" && <Mic size={30} color={palette[0]} />}
+        {state === "thinking" && <Loader2 size={28} className="animate-spin" color={palette[0]} />}
+        {state === "success" && <CheckCircle2 size={32} color={c.success} />}
+      </div>
+    </div>
+  );
+}
+
 function VoiceNoteSheet({ ctx, onClose }) {
   const { c, canTranscribe, transcribeAudio, hasAiKey, callAI, customers, properties, setCustomers, setCalls, setAppointments, notify, setSheet } = ctx;
   const [phase, setPhase] = useState("idle"); // idle | recording | transcribing | extracting | clarify | review | saving | done
@@ -1292,7 +1337,7 @@ function VoiceNoteSheet({ ctx, onClose }) {
   const [extracted, setExtracted] = useState(null);
   const [clarifyAnswer, setClarifyAnswer] = useState("");
   const [error, setError] = useState("");
-  const [levels, setLevels] = useState(Array(28).fill(4)); // live waveform bar heights
+  const [level, setLevel] = useState(0); // live smoothed 0..1 mic amplitude, drives the orb
   const [showFullEdit, setShowFullEdit] = useState(false);
   const mediaRef = useRef(null);
   const chunksRef = useRef([]);
@@ -1310,6 +1355,7 @@ function VoiceNoteSheet({ ctx, onClose }) {
     cancelAnimationFrame(rafRef.current);
     try { audioCtxRef.current?.close(); } catch (e) {}
     audioCtxRef.current = null; analyserRef.current = null;
+    setLevel(0);
   };
 
   useEffect(() => {
@@ -1327,10 +1373,12 @@ function VoiceNoteSheet({ ctx, onClose }) {
     source.connect(analyser);
     audioCtxRef.current = ctxA; analyserRef.current = analyser;
     const data = new Uint8Array(analyser.frequencyBinCount);
+    let frame = 0;
     const loop = () => {
       analyser.getByteFrequencyData(data);
       const avg = data.reduce((a, b) => a + b, 0) / data.length; // 0..255
-      setLevels((prev) => [...prev.slice(1), Math.max(4, Math.min(46, avg * 1.4))]);
+      frame++;
+      if (frame % 2 === 0) setLevel((prev) => prev + (Math.min(1, avg / 85) - prev) * 0.3); // smoothed, ~30fps
       // silence-based auto-stop: once real speech has happened, a long enough
       // pause means the agent is done talking — stop for them, like a voice memo.
       if (avg > 14) { spokeRef.current = true; silenceRef.current = 0; }
@@ -1490,31 +1538,21 @@ ${activeListings}
         <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
           <p style={{ fontSize: FS.display, fontWeight: FW.heavy, direction: "ltr", letterSpacing: "-0.02em" }}>{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</p>
 
-          {/* live waveform — visible proof it's actually listening */}
-          <div className="flex items-center justify-center" style={{ gap: 3, height: 56, marginTop: SP.lg, marginBottom: SP.lg }}>
-            {levels.map((h, i) => (
-              <span key={i} style={{ width: 3.5, height: h, borderRadius: 3, background: c.primary, opacity: 0.45 + (h / 46) * 0.55, transition: "height .08s linear" }} />
-            ))}
-          </div>
-
-          <button onClick={stopRecording} className="press relative flex items-center justify-center" style={{ width: 84, height: 84, borderRadius: "50%", background: c.danger, boxShadow: `0 12px 28px -8px ${c.danger}88` }}>
-            <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${c.danger}55`, animation: "floraRipple 1.4s ease-out infinite" }} />
-            <div style={{ width: 24, height: 24, borderRadius: RAD.sm, background: "#fff" }} />
+          <button onClick={stopRecording} className="press" style={{ marginTop: SP.lg, marginBottom: SP.lg, background: "none", border: "none", padding: 0 }}>
+            <VoiceOrb c={c} level={level} state="listening" />
           </button>
-          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.lg }}>وقتی حرفت تموم شد، خودش می‌فهمه — یا بزن تا تمومش کنی</p>
+
+          <p style={{ fontSize: FS.caption, color: c.muted }}>وقتی حرفت تموم شد، خودش می‌فهمه — یا روی دایره بزن تا تمومش کنی</p>
           <VoiceHintRotator c={c} />
         </div>
       )}
 
       {(phase === "transcribing" || phase === "extracting" || phase === "saving") && (
-        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xxl }}>
+        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
           {transcript && phase !== "transcribing" && (
-            <p className="flora-rise" style={{ fontSize: FS.body, color: c.ink, textAlign: "center", lineHeight: 1.9, marginBottom: SP.xl, opacity: 0.75 }}>«{transcript}»</p>
+            <p className="flora-rise" style={{ fontSize: FS.body, color: c.ink, textAlign: "center", lineHeight: 1.9, marginBottom: SP.xl, opacity: 0.8 }}>«{transcript}»</p>
           )}
-          <div className="relative" style={{ width: 52, height: 52 }}>
-            <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
-            <div className="flex items-center justify-center" style={{ position: "relative", width: 52, height: 52 }}><Loader2 size={24} className="animate-spin" color={c.primary} /></div>
-          </div>
+          <VoiceOrb c={c} state="thinking" />
           <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg }}>
             {phase === "transcribing" ? "در حال گوش دادن..." : phase === "extracting" ? "در حال فهمیدن منظورت..." : "در حال ذخیره..."}
           </p>
@@ -1597,8 +1635,8 @@ ${activeListings}
 
       {phase === "done" && (
         <div className="flex flex-col items-center flora-rise" style={{ paddingBlock: SP.lg }}>
-          <div className="flex items-center justify-center" style={{ width: 64, height: 64, borderRadius: "50%", background: c.successSoft, marginBottom: SP.lg }}><CheckCircle2 size={30} color={c.success} /></div>
-          <div className="flex flex-col w-full" style={{ gap: SP.sm, marginBottom: SP.xl }}>
+          <VoiceOrb c={c} state="success" />
+          <div className="flex flex-col w-full" style={{ gap: SP.sm, marginTop: SP.xl, marginBottom: SP.xl }}>
             {savedItems.map((it, i) => (
               <div key={i} className="flex items-center" style={{ gap: SP.sm }}>
                 <CheckCircle2 size={14} color={c.success} /><p style={{ fontSize: FS.caption + 0.5, color: c.ink }}>{it}</p>
@@ -1606,7 +1644,10 @@ ${activeListings}
             ))}
             {savedItems.length === 0 && <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center" }}>یادداشت ثبت شد</p>}
           </div>
-          <button onClick={onClose} className="press w-full" style={{ paddingBlock: SP.md, borderRadius: RAD.lg, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>باشه</button>
+          <button onClick={() => { setShowFullEdit(false); setClarifyAnswer(""); startRecording(); }} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, marginBottom: SP.sm }}>
+            <Mic size={16} color="#fff" />ویس بعدی
+          </button>
+          <button onClick={onClose} className="press w-full" style={{ paddingBlock: SP.md, borderRadius: RAD.lg, background: c.surface2, color: c.ink, fontWeight: FW.bold, fontSize: FS.body + 1 }}>تمام، برگرد به خانه</button>
         </div>
       )}
       </div>
