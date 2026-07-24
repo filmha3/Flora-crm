@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -442,6 +442,25 @@ export default function FloraCRM() {
   }, [loaded]); // eslint-disable-line
 
   const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
+  // Voice-to-text uses AvalAI's Whisper proxy specifically — the other providers
+  // aren't wired for audio, so voice notes need an AvalAI key regardless of which
+  // provider is chosen for text (only real Whisper gets Persian numbers/names right).
+  const canTranscribe = !!avalaiKey;
+  const transcribeAudio = async (blob) => {
+    if (!avalaiKey) throw new Error("برای یادداشت صوتی، کلید AvalAI را در تنظیمات وارد کن");
+    const form = new FormData();
+    form.append("file", blob, "voice.webm");
+    form.append("model", "whisper-1");
+    form.append("language", "fa");
+    let res;
+    try {
+      res = await fetch("https://api.avalai.ir/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${avalaiKey}` }, body: form });
+    } catch (netErr) { throw new Error("اتصال برقرار نشد — اینترنت را بررسی کن"); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message || `خطای تبدیل صوت (کد ${res.status})`);
+    if (!data?.text) throw new Error("چیزی شنیده نشد — دوباره امتحان کن");
+    return data.text;
+  };
   const callAI = async (prompt) => {
     // AvalAI — an Iranian gateway that's OpenAI-compatible and reachable from Iran
     // without a VPN, so it sidesteps the Gemini/OpenAI regional blocks.
@@ -580,7 +599,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, geminiKey, setGeminiKey,
-    openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance,
   };
 
@@ -1236,6 +1255,242 @@ function FocusMode({ ctx }) {
   );
 }
 
+// Round mic-icon card on Home — the entry point to the voice assistant.
+function VoiceAssistantCard({ ctx }) {
+  const { c, setSheet } = ctx;
+  return (
+    <button onClick={() => setSheet("voice-note")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginTop: SP.md, ...glass(c, 24) }}>
+      <div className="relative flex items-center justify-center shrink-0" style={{ width: 52, height: 52 }}>
+        <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
+        <div className="flex items-center justify-center" style={{ position: "relative", width: 52, height: 52, borderRadius: "50%", background: c.primarySoft, border: `1px solid ${c.primary}33` }}><Mic size={22} color={c.primary} /></div>
+      </div>
+      <div className="flex-1 text-right min-w-0">
+        <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold }}>یادداشت صوتی</p>
+        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>فقط تعریف کن چی شد — بقیه‌اش با هوش مصنوعی</p>
+      </div>
+      <ChevronLeft size={18} color={c.muted} />
+    </button>
+  );
+}
+
+// Voice → structured CRM entries. Records audio, transcribes with AvalAI's real
+// Whisper proxy (not the browser's unreliable built-in recognizer), then asks the
+// AI to pull out who/what/when as JSON. The agent reviews before anything saves —
+// no silent writes, but no form-filling either.
+function VoiceNoteSheet({ ctx, onClose }) {
+  const { c, canTranscribe, transcribeAudio, hasAiKey, callAI, customers, setCustomers, setCalls, setAppointments, notify, setSheet } = ctx;
+  const [phase, setPhase] = useState("idle"); // idle | recording | transcribing | extracting | clarify | review | saving | done
+  const [seconds, setSeconds] = useState(0);
+  const [transcript, setTranscript] = useState("");
+  const [extracted, setExtracted] = useState(null);
+  const [clarifyAnswer, setClarifyAnswer] = useState("");
+  const [error, setError] = useState("");
+  const mediaRef = useRef(null);
+  const chunksRef = useRef([]);
+  const timerRef = useRef(null);
+
+  useEffect(() => () => { clearInterval(timerRef.current); mediaRef.current?.stream?.getTracks().forEach((t) => t.stop()); }, []);
+
+  const startRecording = async () => {
+    setError("");
+    if (!canTranscribe) { setError("اول کلید AvalAI را در تنظیمات هوش مصنوعی وارد کن — یادداشت صوتی به آن نیاز دارد."); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || "";
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onstop = () => { stream.getTracks().forEach((t) => t.stop()); handleRecordingDone(rec.mimeType || "audio/webm"); };
+      mediaRef.current = rec;
+      rec.start();
+      setPhase("recording"); setSeconds(0);
+      timerRef.current = setInterval(() => setSeconds((s) => { if (s >= 89) { stopRecording(); return s; } return s + 1; }), 1000);
+    } catch (e) { setError("دسترسی به میکروفون داده نشد."); }
+  };
+  const stopRecording = () => { clearInterval(timerRef.current); if (mediaRef.current?.state === "recording") mediaRef.current.stop(); };
+
+  const handleRecordingDone = async (mimeType) => {
+    setPhase("transcribing");
+    const blob = new Blob(chunksRef.current, { type: mimeType });
+    try {
+      const text = await transcribeAudio(blob);
+      setTranscript(text);
+      await extract(text);
+    } catch (e) { setError(e.message || "خطا در تبدیل صوت"); setPhase("idle"); }
+  };
+
+  const extract = async (text, clarifyQA) => {
+    setPhase("extracting");
+    if (!hasAiKey) { setError("برای فهمیدن منظورت، کلید هوش مصنوعی لازم است."); setPhase("idle"); return; }
+    const now = new Date();
+    const [jy, jm, jd] = isoToJalali(todayISO());
+    try {
+      const prompt = `تو دستیار یک مشاور املاک ایرانی هستی. مشاور این جمله را با صدا گفته (متن پیاده‌شده از صوت، ممکن است غلط تایپی داشته باشد):
+«${text}»
+${clarifyQA ? `\nسوال قبلی تو: «${clarifyQA.q}» — جواب مشاور: «${clarifyQA.a}»\n` : ""}
+امروز میلادی ${todayISO()} و شمسی ${faDigits(jd)} ${MONTHS_FA[jm - 1]} ${faDigits(jy)} است (روز هفته: ${["یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه","شنبه"][now.getDay()]}).
+اطلاعات را استخراج کن و دقیقاً همین JSON خام را برگردان (بدون توضیح، بدون markdown):
+{
+  "customerName": "اسم مشتری یا خالی",
+  "phone": "شماره اگر گفته شده یا خالی",
+  "callHappened": true,
+  "meetingDate": "تاریخ میلادی YYYY-MM-DD قرار بازدید اگر گفته شده، وگرنه خالی — تاریخ‌های نسبی مثل سه‌روزدیگر یا شنبه را خودت با توجه به امروز حساب کن",
+  "meetingTime": "HH:MM اگر گفته شده وگرنه خالی",
+  "need": "خلاصه‌ی نیاز مشتری (نوع ملک، منطقه) یا خالی",
+  "budget": 0,
+  "area": "منطقه/محله اگر گفته شده یا خالی",
+  "note": "خلاصه‌ی یک یا دو خطی از کل مکالمه به فارسی روان",
+  "reminder": "اگر مشاور خواسته یادش بیفتد کاری بکند اینجا بنویس، وگرنه خالی",
+  "nextAction": "یک پیشنهاد کوتاه برای قدم بعدی، فقط توصیه",
+  "clarify": "فقط اگر یک نکته‌ی مهم و مبهم هست که باید از مشاور بپرسی، یک سوال کوتاه اینجا بنویس؛ وگرنه خالی بگذار"
+}`;
+      const raw = await callAI(prompt);
+      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      setExtracted(parsed);
+      if (parsed.clarify && !clarifyQA) setPhase("clarify");
+      else setPhase("review");
+    } catch (e) {
+      setError(e instanceof SyntaxError ? "پاسخ هوش مصنوعی قابل‌خواندن نبود — دوباره امتحان کن" : (e.message || "خطای نامشخص"));
+      setPhase("idle");
+    }
+  };
+
+  const confirmClarify = () => { extract(transcript, { q: extracted.clarify, a: clarifyAnswer }); };
+
+  const save = () => {
+    setPhase("saving");
+    const name = (extracted.customerName || "").trim();
+    let customerId = "";
+    if (name) {
+      const match = customers.find((cu) => cu.name.trim() === name || cu.name.includes(name) || name.includes(cu.name.trim()));
+      if (match) {
+        customerId = match.id;
+        setCustomers((prev) => prev.map((x) => x.id === match.id ? {
+          ...x,
+          need: extracted.need || x.need,
+          budget: extracted.budget > 0 ? extracted.budget : x.budget,
+          lastCallNote: extracted.note || x.lastCallNote,
+          lastContactAt: todayISO(),
+        } : x));
+      } else {
+        customerId = uid();
+        setCustomers((prev) => [{ id: customerId, name, phone: extracted.phone || "", need: extracted.need || "", budget: extracted.budget || 0, stage: "در حال بررسی", lastContactAt: todayISO(), lastCallNote: extracted.note || "" }, ...prev]);
+      }
+    }
+    if (extracted.callHappened) {
+      setCalls((prev) => [{ id: uid(), customerId, customerName: name || "بدون نام", customerPhone: extracted.phone || "", date: todayISO(), status: "انجام‌شد", notes: extracted.note || transcript }, ...prev]);
+    }
+    if (extracted.meetingDate) {
+      setAppointments((prev) => [{ id: uid(), propertyId: "", customerId, customerName: name || "بدون نام", date: extracted.meetingDate, time: extracted.meetingTime || "10:00", notes: extracted.note || "" }, ...prev]);
+    }
+    notify("یادداشت صوتی ذخیره شد");
+    setPhase("done");
+  };
+
+  const savedItems = extracted ? [
+    extracted.callHappened && "تماس در تاریخچه ثبت شد",
+    extracted.meetingDate && `بازدید در تقویم — ${fmtJalali(extracted.meetingDate)}`,
+    (extracted.need || extracted.budget > 0) && "پروفایل مشتری به‌روزرسانی شد",
+    extracted.reminder && `یادآوری: ${extracted.reminder}`,
+  ].filter(Boolean) : [];
+
+  return (
+    <SheetShell c={c} title="یادداشت صوتی" onClose={onClose}>
+      {error && <p style={{ fontSize: FS.caption, color: c.danger, background: c.dangerSoft, padding: SP.md, borderRadius: RAD.md, marginBottom: SP.md, lineHeight: 1.8 }}>{error}</p>}
+
+      {phase === "idle" && (
+        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
+          <button onClick={startRecording} className="press relative flex items-center justify-center" style={{ width: 96, height: 96, borderRadius: "50%", background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5)" }}>
+            <Mic size={36} color="#fff" />
+          </button>
+          <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg, textAlign: "center", lineHeight: 1.8 }}>بزن و تعریف کن — مثلاً «با آقای محمودی صحبت کردم، سه روز دیگه ساعت ۵ بازدید داریم...»</p>
+        </div>
+      )}
+
+      {phase === "recording" && (
+        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
+          <button onClick={stopRecording} className="press relative flex items-center justify-center" style={{ width: 96, height: 96, borderRadius: "50%", background: c.danger }}>
+            <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${c.danger}55`, animation: "floraRipple 1.4s ease-out infinite" }} />
+            <div style={{ width: 26, height: 26, borderRadius: RAD.sm, background: "#fff" }} />
+          </button>
+          <p style={{ fontSize: FS.title, fontWeight: FW.heavy, marginTop: SP.lg, direction: "ltr" }}>{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.xs }}>در حال ضبط — برای پایان بزن</p>
+        </div>
+      )}
+
+      {(phase === "transcribing" || phase === "extracting" || phase === "saving") && (
+        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xxl }}>
+          <Loader2 size={30} className="animate-spin" color={c.primary} />
+          <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg }}>
+            {phase === "transcribing" ? "در حال گوش دادن..." : phase === "extracting" ? "در حال فهمیدن منظورت..." : "در حال ذخیره..."}
+          </p>
+        </div>
+      )}
+
+      {phase === "clarify" && extracted && (
+        <div className="flora-rise">
+          <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.attnSoft, marginBottom: SP.md }}>
+            <Sparkles size={15} color={c.attn} style={{ marginTop: 2, flexShrink: 0 }} />
+            <p style={{ fontSize: FS.body, color: c.ink, lineHeight: 1.8 }}>{extracted.clarify}</p>
+          </div>
+          <input style={inputStyle(c)} value={clarifyAnswer} onChange={(e) => setClarifyAnswer(e.target.value)} placeholder="جواب کوتاه بده..." />
+          <SubmitBtn c={c} label="تایید و ادامه" disabled={!clarifyAnswer.trim()} onClick={confirmClarify} />
+        </div>
+      )}
+
+      {phase === "review" && extracted && (
+        <div className="flora-rise">
+          <p style={{ fontSize: FS.caption, color: c.muted, background: c.surface2, padding: SP.md, borderRadius: RAD.md, marginBottom: SP.lg, lineHeight: 1.9 }}>{transcript}</p>
+
+          <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={extracted.customerName || ""} onChange={(e) => setExtracted({ ...extracted, customerName: e.target.value })} /></Field>
+          <Field c={c} label="شماره تماس (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={extracted.phone || ""} onChange={(e) => setExtracted({ ...extracted, phone: e.target.value })} /></Field>
+
+          <div className="flex" style={{ gap: SP.sm, marginBottom: SP.md }}>
+            <button onClick={() => setExtracted({ ...extracted, callHappened: !extracted.callHappened })} className="press flex-1 rounded-xl flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.sm, background: extracted.callHappened ? c.primarySoft : c.surface2 }}>
+              <PhoneCall size={13} color={extracted.callHappened ? c.primary : c.muted} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: extracted.callHappened ? c.primary : c.muted }}>تماس ثبت شود</span>
+            </button>
+          </div>
+
+          {(extracted.meetingDate || extracted.meetingTime) && (
+            <div className="flex" style={{ gap: SP.sm }}>
+              <div style={{ flex: 1 }}><Field c={c} label="تاریخ بازدید"><JalaliDatePicker c={c} value={extracted.meetingDate || todayISO()} onChange={(iso) => setExtracted({ ...extracted, meetingDate: iso })} /></Field></div>
+              <div style={{ width: 110 }}><Field c={c} label="ساعت"><input type="time" style={inputStyle(c)} value={extracted.meetingTime || "10:00"} onChange={(e) => setExtracted({ ...extracted, meetingTime: e.target.value })} /></Field></div>
+            </div>
+          )}
+
+          <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={extracted.need || ""} onChange={(e) => setExtracted({ ...extracted, need: e.target.value })} /></Field>
+          <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={extracted.budget || ""} onChange={(e) => setExtracted({ ...extracted, budget: toNum(e.target.value) })} /></Field>
+          <Field c={c} label="یادداشت"><textarea style={{ ...inputStyle(c), minHeight: 70, resize: "none", lineHeight: 1.8 }} value={extracted.note || ""} onChange={(e) => setExtracted({ ...extracted, note: e.target.value })} /></Field>
+
+          {extracted.nextAction && (
+            <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}>
+              <Sparkles size={14} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
+              <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}><b style={{ color: c.primary }}>پیشنهاد:</b> {extracted.nextAction}</p>
+            </div>
+          )}
+
+          <SubmitBtn c={c} label="تایید و ذخیره" onClick={save} />
+        </div>
+      )}
+
+      {phase === "done" && (
+        <div className="flex flex-col items-center flora-rise" style={{ paddingBlock: SP.lg }}>
+          <div className="flex items-center justify-center" style={{ width: 64, height: 64, borderRadius: "50%", background: c.successSoft, marginBottom: SP.lg }}><CheckCircle2 size={30} color={c.success} /></div>
+          <div className="flex flex-col w-full" style={{ gap: SP.sm, marginBottom: SP.xl }}>
+            {savedItems.map((it, i) => (
+              <div key={i} className="flex items-center" style={{ gap: SP.sm }}>
+                <CheckCircle2 size={14} color={c.success} /><p style={{ fontSize: FS.caption + 0.5, color: c.ink }}>{it}</p>
+              </div>
+            ))}
+            {savedItems.length === 0 && <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center" }}>یادداشت ثبت شد</p>}
+          </div>
+          <button onClick={onClose} className="press w-full" style={{ paddingBlock: SP.md, borderRadius: RAD.lg, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>باشه</button>
+        </div>
+      )}
+    </SheetShell>
+  );
+}
+
 function NextBestActionCard({ ctx }) {
   const { c, setFocusQueue } = ctx;
   const actions = useMemo(() => computeNextActions(ctx), [ctx.properties, ctx.customers, ctx.calls, ctx.appointments, ctx.deals]);
@@ -1356,6 +1611,9 @@ function HomeTab({ ctx }) {
       )}
 
       {!simpleMode && <PortfolioValueCard c={c} properties={properties} />}
+
+      {/* Voice note — talk instead of filling a form; AI files it where it belongs */}
+      <VoiceAssistantCard ctx={ctx} />
 
       {/* Deal Coach — the 3 highest-value actions for today */}
       <NextBestActionCard ctx={ctx} />
@@ -4136,6 +4394,7 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "builder-broadcast") return <BuilderBroadcastSheet ctx={ctx} onClose={onClose} />;
+  if (kind === "voice-note") return <VoiceNoteSheet ctx={ctx} onClose={onClose} />;
   if (kind === "appointment") return <AppointmentForm ctx={ctx} onClose={onClose} />;
   if (kind === "call") return <CallForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "ai-settings") return <AiSettingsSheet ctx={ctx} onClose={onClose} />;
