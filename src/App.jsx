@@ -636,6 +636,13 @@ export default function FloraCRM() {
         @keyframes liquidMove { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(60px,20px) scale(1.25);} 66% { transform: translate(20px,45px) scale(.85);} }
         .flora-orb-breathe { animation: floraOrbBreathe 2.6s ease-in-out infinite; }
         @keyframes floraOrbBreathe { 0%,100% { transform: scale(1);} 50% { transform: scale(1.07);} }
+        .flora-blob { position: absolute; border-radius: 50%; opacity: .9; }
+        .flora-blob-a { width: 62px; height: 62px; top: 24px; left: 24px; animation: floraBlobA 5.2s ease-in-out infinite; }
+        .flora-blob-b { width: 50px; height: 50px; top: 44px; left: 54px; animation: floraBlobB 6.4s ease-in-out infinite; }
+        .flora-blob-c { width: 46px; height: 46px; top: 50px; left: 20px; animation: floraBlobC 7.1s ease-in-out infinite; }
+        @keyframes floraBlobA { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(14px,-12px) scale(1.15);} }
+        @keyframes floraBlobB { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(-14px,14px) scale(.88);} }
+        @keyframes floraBlobC { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(10px,16px) scale(1.1);} }
         .flora-pulse { animation: floraPulse 1.6s ease-in-out infinite; }
         @keyframes floraRipple { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
         @keyframes floraOrb { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(20px,-16px) scale(1.05);} 66% { transform: translate(-14px,18px) scale(.95);} }
@@ -1286,35 +1293,31 @@ function VoiceHintRotator({ c }) {
   );
 }
 
-// A soft, liquid, breathing orb — the ChatGPT-voice-mode look. Two blurred,
-// organically-morphing gradient layers plus a crisp glass core with the state icon.
-// In "listening" state it visibly swells with the live mic level; otherwise it just
-// breathes gently on its own so it never feels static.
-const ORB_SHAPES = [
-  "62% 38% 55% 45% / 55% 45% 55% 45%",
-  "45% 55% 65% 35% / 40% 60% 40% 60%",
-  "55% 45% 40% 60% / 60% 40% 65% 35%",
-  "40% 60% 55% 45% / 45% 55% 40% 60%",
-];
+// A soft, liquid, breathing orb — the ChatGPT-voice-mode look. This uses the actual
+// "gooey" technique (independent circles + an SVG blur/threshold filter that fuses
+// them into one smooth liquid shape) rather than blur-on-border-radius, which just
+// smears into a soft square once the blur is strong enough to read as "liquid".
 function VoiceOrb({ c, level = 0, state = "listening" }) {
-  const [shapeIdx, setShapeIdx] = useState(0);
-  useEffect(() => { const t = setInterval(() => setShapeIdx((i) => (i + 1) % ORB_SHAPES.length), 1700); return () => clearInterval(t); }, []);
-  const palette = state === "thinking" ? [c.purple, "#22d3ee"] : state === "success" ? [c.success, "#22d3ee"] : [c.primary, "#22d3ee"];
+  const palette = state === "thinking" ? [c.purple, "#22d3ee", c.purple] : state === "success" ? [c.success, "#22d3ee", c.success] : [c.primary, "#22d3ee", c.primary];
   const reactive = state === "listening";
-  const scale = reactive ? 1 + Math.min(0.45, level * 0.55) : 1;
+  const boost = reactive ? 1 + Math.min(0.5, level * 0.6) : 1;
   return (
-    <div className="relative flex items-center justify-center" style={{ width: 168, height: 168 }}>
-      <div className={reactive ? "" : "flora-orb-breathe"} style={{
-        position: "absolute", inset: 8, borderRadius: ORB_SHAPES[shapeIdx],
-        background: `linear-gradient(135deg, ${palette[0]}, ${palette[1]})`, opacity: 0.4, filter: "blur(20px)",
-        transform: `scale(${scale})`, transition: "border-radius 1.7s ease-in-out, transform .12s ease-out, background 1s ease",
-      }} />
-      <div className={reactive ? "" : "flora-orb-breathe"} style={{
-        position: "absolute", inset: 28, borderRadius: ORB_SHAPES[(shapeIdx + 2) % ORB_SHAPES.length],
-        background: `linear-gradient(135deg, ${palette[1]}, ${palette[0]})`, opacity: 0.32, filter: "blur(14px)",
-        transform: `scale(${reactive ? scale * 0.9 : 1})`, transition: "border-radius 2.1s ease-in-out, transform .12s ease-out, background 1s ease",
-        animationDelay: "-1.2s",
-      }} />
+    <div className="relative flex items-center justify-center" style={{ width: 176, height: 176 }}>
+      <svg width="0" height="0" style={{ position: "absolute" }}>
+        <filter id="flora-goo">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blur" />
+          <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9" result="goo" />
+        </filter>
+      </svg>
+      {/* soft ambient halo behind the liquid shape */}
+      <span className="flora-orb-breathe" style={{ position: "absolute", width: 150, height: 150, borderRadius: "50%", background: `radial-gradient(circle, ${palette[0]}33, transparent 70%)`, filter: "blur(6px)", transform: `scale(${boost})`, transition: "transform .15s ease-out, background 1s ease" }} />
+      {/* the fused liquid blob — three circles, independently drifting, merged by the goo filter */}
+      <div style={{ position: "absolute", width: 110, height: 110, filter: "url(#flora-goo)", transform: `scale(${boost})`, transition: "transform .12s ease-out" }}>
+        <span className="flora-blob flora-blob-a" style={{ background: palette[0] }} />
+        <span className="flora-blob flora-blob-b" style={{ background: palette[1] }} />
+        <span className="flora-blob flora-blob-c" style={{ background: palette[2] }} />
+      </div>
+      {/* crisp glass core with the state icon */}
       <div className="flex items-center justify-center" style={{
         position: "relative", width: 88, height: 88, borderRadius: "50%", background: c.surface,
         backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)",
@@ -2851,19 +2854,41 @@ function CustomerNoteBox({ c, note, onSave }) {
 function CustomerDetail({ id, ctx, onBack }) {
   const { c, customers, calls, appointments, setSheet } = ctx;
   const cu = customers.find((x) => x.id === id);
+  const [editing, setEditing] = useState(false);
+  const [f, setF] = useState(null);
   if (!cu) return null;
+  const startEdit = () => { setF({ name: cu.name || "", phone: cu.phone || "", need: cu.need || "", budget: String(cu.budget || "") }); setEditing(true); };
+  const save = () => {
+    ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, name: f.name.trim() || x.name, phone: f.phone.trim(), need: f.need.trim(), budget: toNum(f.budget) } : x));
+    setEditing(false); ctx.notify("مشخصات مشتری ذخیره شد");
+  };
   const custCalls = calls.filter((cl) => cl.customerId === id || cl.customerName === cu.name);
   const custAppts = appointments.filter((a) => a.customerId === id || a.customerName === cu.name);
   return (
     <div className="pt-2">
       <BackHeader c={c} title="جزئیات مشتری" onBack={onBack} onDelete={() => { ctx.setCustomers((prev) => prev.filter((x) => x.id !== id)); onBack(); ctx.notify("مشتری حذف شد"); }} />
-      <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 24)}>
-        <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
-        <div className="flex-1"><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone}</p></div>
-        {cu.phone && (
-          <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
-        )}
-      </div>
+
+      {!editing ? (
+        <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 24)}>
+          <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
+          <div className="flex-1"><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone || "بدون شماره"}</p></div>
+          <button onClick={startEdit} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={14} color={c.muted} /></button>
+          {cu.phone && (
+            <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
+          <Field c={c} label="نام"><input style={inputStyle(c)} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+          <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
+          <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={(e) => setF({ ...f, need: e.target.value })} /></Field>
+          <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.budget} onChange={(e) => setF({ ...f, budget: e.target.value })} /></Field>
+          <div className="flex" style={{ gap: SP.sm }}>
+            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.surface2, color: c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.caption + 1 }}>ذخیره</button>
+          </div>
+        </div>
+      )}
 
       {/* Stage — tap to change */}
       <div className="mb-3">
@@ -2878,10 +2903,15 @@ function CustomerDetail({ id, ctx, onBack }) {
         <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
       </button>
       <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO() } : x))} />
-      <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
-        <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need}</p>
-        <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
-      </div>
+      {!editing && (
+        <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
+          <div className="flex items-center justify-between">
+            <div><p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need || "—"}</p></div>
+            <button onClick={startEdit} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={11} color={c.muted} /></button>
+          </div>
+          <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
+        </div>
+      )}
       <SectionHeader c={c} title="تاریخچه تماس" />
       <div className="flex flex-col gap-2 mb-4">
         {custCalls.map((cl) => <div key={cl.id} className="rounded-lg p-3 flex items-center justify-between" style={glass(c, 20)}><span style={{ fontSize: 12 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
