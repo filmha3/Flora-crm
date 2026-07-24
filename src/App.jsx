@@ -1268,6 +1268,22 @@ function VoiceAssistantCard({ ctx }) {
 // Whisper proxy (not the browser's unreliable built-in recognizer), then asks the
 // AI to pull out who/what/when as JSON. The agent reviews before anything saves —
 // no silent writes, but no form-filling either.
+// Rotates through example phrases while recording, so an agent who's never used
+// this before knows what "just talk" actually sounds like.
+function VoiceHintRotator({ c }) {
+  const hints = [
+    "با آقای محمودی صحبت کردم، سه روز دیگه ساعت ۵ بازدید داریم",
+    "دنبال آپارتمان تک‌واحدی تا ۱۲ میلیارد توی سعادت‌آباد هست",
+    "اگه فایل مناسب پیدا شد سریع بهش خبر بده",
+    "فایل ۸۲ رو به رضایی نشون دادم، خوشش اومد ولی قیمتش زیاد بود",
+  ];
+  const [i, setI] = useState(0);
+  useEffect(() => { const t = setInterval(() => setI((x) => (x + 1) % hints.length), 3200); return () => clearInterval(t); }, []);
+  return (
+    <p key={i} className="flora-rise" style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.lg, textAlign: "center", lineHeight: 1.8, maxWidth: 280 }}>مثلاً: «{hints[i]}»</p>
+  );
+}
+
 function VoiceNoteSheet({ ctx, onClose }) {
   const { c, canTranscribe, transcribeAudio, hasAiKey, callAI, customers, properties, setCustomers, setCalls, setAppointments, notify, setSheet } = ctx;
   const [phase, setPhase] = useState("idle"); // idle | recording | transcribing | extracting | clarify | review | saving | done
@@ -1276,14 +1292,57 @@ function VoiceNoteSheet({ ctx, onClose }) {
   const [extracted, setExtracted] = useState(null);
   const [clarifyAnswer, setClarifyAnswer] = useState("");
   const [error, setError] = useState("");
+  const [levels, setLevels] = useState(Array(28).fill(4)); // live waveform bar heights
+  const [showFullEdit, setShowFullEdit] = useState(false);
   const mediaRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const rafRef = useRef(null);
+  const silenceRef = useRef(0); // consecutive low-volume frames, for auto-stop
+  const spokeRef = useRef(false); // has real speech been heard yet this take
+  const secondsRef = useRef(0); // mirrors `seconds` for the rAF loop (avoids a stale closure)
 
-  useEffect(() => () => { clearInterval(timerRef.current); mediaRef.current?.stream?.getTracks().forEach((t) => t.stop()); }, []);
+  const vibrate = (ms) => { try { navigator.vibrate?.(ms); } catch (e) {} };
+
+  const cleanupAudioGraph = () => {
+    cancelAnimationFrame(rafRef.current);
+    try { audioCtxRef.current?.close(); } catch (e) {}
+    audioCtxRef.current = null; analyserRef.current = null;
+  };
+
+  useEffect(() => {
+    startRecording(); // one voice note = tap and talk immediately, no extra step
+    return () => { clearInterval(timerRef.current); cleanupAudioGraph(); mediaRef.current?.stream?.getTracks().forEach((t) => t.stop()); };
+  }, []); // eslint-disable-line
+
+  const watchLevels = (stream) => {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctxA = new AC();
+    const source = ctxA.createMediaStreamSource(stream);
+    const analyser = ctxA.createAnalyser();
+    analyser.fftSize = 64;
+    source.connect(analyser);
+    audioCtxRef.current = ctxA; analyserRef.current = analyser;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const loop = () => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length; // 0..255
+      setLevels((prev) => [...prev.slice(1), Math.max(4, Math.min(46, avg * 1.4))]);
+      // silence-based auto-stop: once real speech has happened, a long enough
+      // pause means the agent is done talking — stop for them, like a voice memo.
+      if (avg > 14) { spokeRef.current = true; silenceRef.current = 0; }
+      else if (spokeRef.current) silenceRef.current += 1;
+      if (silenceRef.current > 70 && secondsRef.current > 2) stopRecording(); // ~1.8s of quiet after speech
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    loop();
+  };
 
   const startRecording = async () => {
-    setError("");
+    setError(""); setTranscript(""); setExtracted(null); spokeRef.current = false; silenceRef.current = 0;
     if (!canTranscribe) { setError("اول کلید AvalAI را در تنظیمات هوش مصنوعی وارد کن — یادداشت صوتی به آن نیاز دارد."); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1291,14 +1350,16 @@ function VoiceNoteSheet({ ctx, onClose }) {
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      rec.onstop = () => { stream.getTracks().forEach((t) => t.stop()); handleRecordingDone(rec.mimeType || "audio/webm"); };
+      rec.onstop = () => { cleanupAudioGraph(); stream.getTracks().forEach((t) => t.stop()); handleRecordingDone(rec.mimeType || "audio/webm"); };
       mediaRef.current = rec;
       rec.start();
-      setPhase("recording"); setSeconds(0);
-      timerRef.current = setInterval(() => setSeconds((s) => { if (s >= 89) { stopRecording(); return s; } return s + 1; }), 1000);
+      watchLevels(stream);
+      vibrate(20);
+      setPhase("recording"); setSeconds(0); secondsRef.current = 0;
+      timerRef.current = setInterval(() => setSeconds((s) => { const next = s + 1; secondsRef.current = next; if (next >= 90) { stopRecording(); return next; } return next; }), 1000);
     } catch (e) { setError("دسترسی به میکروفون داده نشد."); }
   };
-  const stopRecording = () => { clearInterval(timerRef.current); if (mediaRef.current?.state === "recording") mediaRef.current.stop(); };
+  const stopRecording = () => { clearInterval(timerRef.current); if (mediaRef.current?.state === "recording") { vibrate(15); mediaRef.current.stop(); } };
 
   const handleRecordingDone = async (mimeType) => {
     setPhase("transcribing");
@@ -1410,29 +1471,50 @@ ${activeListings}
       <div className="flex-1 overflow-y-auto relative" style={{ padding: SP.xl }}>
       {error && <p style={{ fontSize: FS.caption, color: c.danger, background: c.dangerSoft, padding: SP.md, borderRadius: RAD.md, marginBottom: SP.md, lineHeight: 1.8 }}>{error}</p>}
 
-      {phase === "idle" && (
+      {phase === "idle" && !error && (
+        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xxl }}>
+          <Loader2 size={26} className="animate-spin" color={c.primary} />
+          <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg }}>در حال آماده‌سازی میکروفون...</p>
+        </div>
+      )}
+      {phase === "idle" && error && (
         <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
-          <button onClick={startRecording} className="press relative flex items-center justify-center" style={{ width: 96, height: 96, borderRadius: "50%", background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5)" }}>
-            <Mic size={36} color="#fff" />
+          <button onClick={startRecording} className="press relative flex items-center justify-center" style={{ width: 88, height: 88, borderRadius: "50%", background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5)" }}>
+            <Mic size={34} color="#fff" />
           </button>
-          <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg, textAlign: "center", lineHeight: 1.8 }}>بزن و تعریف کن — مثلاً «با آقای محمودی صحبت کردم، سه روز دیگه ساعت ۵ بازدید داریم...»</p>
+          <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg, textAlign: "center" }}>بزن تا دوباره امتحان کنیم</p>
         </div>
       )}
 
       {phase === "recording" && (
         <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
-          <button onClick={stopRecording} className="press relative flex items-center justify-center" style={{ width: 96, height: 96, borderRadius: "50%", background: c.danger }}>
+          <p style={{ fontSize: FS.display, fontWeight: FW.heavy, direction: "ltr", letterSpacing: "-0.02em" }}>{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</p>
+
+          {/* live waveform — visible proof it's actually listening */}
+          <div className="flex items-center justify-center" style={{ gap: 3, height: 56, marginTop: SP.lg, marginBottom: SP.lg }}>
+            {levels.map((h, i) => (
+              <span key={i} style={{ width: 3.5, height: h, borderRadius: 3, background: c.primary, opacity: 0.45 + (h / 46) * 0.55, transition: "height .08s linear" }} />
+            ))}
+          </div>
+
+          <button onClick={stopRecording} className="press relative flex items-center justify-center" style={{ width: 84, height: 84, borderRadius: "50%", background: c.danger, boxShadow: `0 12px 28px -8px ${c.danger}88` }}>
             <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${c.danger}55`, animation: "floraRipple 1.4s ease-out infinite" }} />
-            <div style={{ width: 26, height: 26, borderRadius: RAD.sm, background: "#fff" }} />
+            <div style={{ width: 24, height: 24, borderRadius: RAD.sm, background: "#fff" }} />
           </button>
-          <p style={{ fontSize: FS.title, fontWeight: FW.heavy, marginTop: SP.lg, direction: "ltr" }}>{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</p>
-          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.xs }}>در حال ضبط — برای پایان بزن</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.lg }}>وقتی حرفت تموم شد، خودش می‌فهمه — یا بزن تا تمومش کنی</p>
+          <VoiceHintRotator c={c} />
         </div>
       )}
 
       {(phase === "transcribing" || phase === "extracting" || phase === "saving") && (
         <div className="flex flex-col items-center" style={{ paddingBlock: SP.xxl }}>
-          <Loader2 size={30} className="animate-spin" color={c.primary} />
+          {transcript && phase !== "transcribing" && (
+            <p className="flora-rise" style={{ fontSize: FS.body, color: c.ink, textAlign: "center", lineHeight: 1.9, marginBottom: SP.xl, opacity: 0.75 }}>«{transcript}»</p>
+          )}
+          <div className="relative" style={{ width: 52, height: 52 }}>
+            <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
+            <div className="flex items-center justify-center" style={{ position: "relative", width: 52, height: 52 }}><Loader2 size={24} className="animate-spin" color={c.primary} /></div>
+          </div>
           <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg }}>
             {phase === "transcribing" ? "در حال گوش دادن..." : phase === "extracting" ? "در حال فهمیدن منظورت..." : "در حال ذخیره..."}
           </p>
@@ -1452,36 +1534,64 @@ ${activeListings}
 
       {phase === "review" && extracted && (
         <div className="flora-rise">
-          <p style={{ fontSize: FS.caption, color: c.muted, background: c.surface2, padding: SP.md, borderRadius: RAD.md, marginBottom: SP.lg, lineHeight: 1.9 }}>{transcript}</p>
-
-          <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={extracted.customerName || ""} onChange={(e) => setExtracted({ ...extracted, customerName: e.target.value })} /></Field>
-          <Field c={c} label="شماره تماس (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={extracted.phone || ""} onChange={(e) => setExtracted({ ...extracted, phone: e.target.value })} /></Field>
-
-          <div className="flex" style={{ gap: SP.sm, marginBottom: SP.md }}>
-            <button onClick={() => setExtracted({ ...extracted, callHappened: !extracted.callHappened })} className="press flex-1 rounded-xl flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.sm, background: extracted.callHappened ? c.primarySoft : c.surface2 }}>
-              <PhoneCall size={13} color={extracted.callHappened ? c.primary : c.muted} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: extracted.callHappened ? c.primary : c.muted }}>تماس ثبت شود</span>
-            </button>
+          <div className="flex items-start justify-between" style={{ gap: SP.sm, marginBottom: SP.lg }}>
+            <p style={{ fontSize: FS.caption, color: c.muted, background: c.surface2, padding: SP.md, borderRadius: RAD.md, lineHeight: 1.9, flex: 1 }}>«{transcript}»</p>
+            <button onClick={startRecording} className="press shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }} title="دوباره ضبط کن"><Mic size={14} color={c.muted} /></button>
           </div>
 
-          {(extracted.meetingDate || extracted.meetingTime) && (
-            <div className="flex" style={{ gap: SP.sm }}>
-              <div style={{ flex: 1 }}><Field c={c} label="تاریخ بازدید"><JalaliDatePicker c={c} value={extracted.meetingDate || todayISO()} onChange={(iso) => setExtracted({ ...extracted, meetingDate: iso })} /></Field></div>
-              <div style={{ width: 110 }}><Field c={c} label="ساعت"><input type="time" style={inputStyle(c)} value={extracted.meetingTime || "10:00"} onChange={(e) => setExtracted({ ...extracted, meetingTime: e.target.value })} /></Field></div>
+          {/* quick-glance summary — everything at once, no scrolling through a form */}
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22), marginBottom: SP.lg }}>
+            <div className="flex items-center" style={{ gap: SP.md, marginBottom: extracted.need || extracted.budget || extracted.meetingDate ? SP.md : 0 }}>
+              <div className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: "50%", background: c.primarySoft }}><UserCircle2 size={20} color={c.primary} /></div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: FS.subtitle, fontWeight: FW.bold }}>{extracted.customerName || "بدون نام"}</p>
+                {extracted.callHappened && <p style={{ fontSize: FS.caption, color: c.success, marginTop: 1 }}>✓ تماس در تاریخچه ثبت می‌شود</p>}
+              </div>
             </div>
-          )}
-
-          <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={extracted.need || ""} onChange={(e) => setExtracted({ ...extracted, need: e.target.value })} /></Field>
-          <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={extracted.budget || ""} onChange={(e) => setExtracted({ ...extracted, budget: toNum(e.target.value) })} /></Field>
-          <Field c={c} label="یادداشت"><textarea style={{ ...inputStyle(c), minHeight: 70, resize: "none", lineHeight: 1.8 }} value={extracted.note || ""} onChange={(e) => setExtracted({ ...extracted, note: e.target.value })} /></Field>
+            {extracted.meetingDate && (
+              <div className="flex items-center" style={{ gap: SP.sm, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
+                <CalendarDays size={15} color={c.attn} /><p style={{ fontSize: FS.caption + 0.5, color: c.ink }}>بازدید {fmtJalali(extracted.meetingDate)}{extracted.meetingTime ? ` — ساعت ${faDigits(extracted.meetingTime)}` : ""}</p>
+              </div>
+            )}
+            {(extracted.need || extracted.budget > 0) && (
+              <div className="flex items-center" style={{ gap: SP.sm, marginTop: SP.sm, paddingTop: extracted.meetingDate ? 0 : SP.sm, borderTop: extracted.meetingDate ? "none" : `1px solid ${c.border}` }}>
+                <Tag size={15} color={c.purple} /><p style={{ fontSize: FS.caption + 0.5, color: c.ink }}>{[extracted.need, extracted.budget > 0 ? fmtBudgetShort(extracted.budget) : null].filter(Boolean).join(" · ")}</p>
+              </div>
+            )}
+            {extracted.note && (
+              <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.md, lineHeight: 1.8 }}>{extracted.note}</p>
+            )}
+          </div>
 
           {extracted.nextAction && (
-            <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}>
+            <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.lg }}>
               <Sparkles size={14} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
               <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}><b style={{ color: c.primary }}>پیشنهاد:</b> {extracted.nextAction}</p>
             </div>
           )}
 
           <SubmitBtn c={c} label="تایید و ذخیره" onClick={save} />
+          <button onClick={() => setShowFullEdit((v) => !v)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.md, paddingBlock: SP.sm }}>
+            <span style={{ fontSize: FS.caption, color: c.muted, fontWeight: FW.medium }}>{showFullEdit ? "بستن ویرایش" : "چیزی اشتباه شنیده شد؟ ویرایش کن"}</span>
+            <ChevronDown size={14} color={c.muted} style={{ transform: showFullEdit ? "rotate(180deg)" : "none", transition: "transform .3s" }} />
+          </button>
+
+          {showFullEdit && (
+            <div className="flora-rise" style={{ marginTop: SP.md, padding: SP.lg, borderRadius: RAD.lg, background: c.surface2 }}>
+              <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={extracted.customerName || ""} onChange={(e) => setExtracted({ ...extracted, customerName: e.target.value })} /></Field>
+              <Field c={c} label="شماره تماس (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={extracted.phone || ""} onChange={(e) => setExtracted({ ...extracted, phone: e.target.value })} /></Field>
+              <button onClick={() => setExtracted({ ...extracted, callHappened: !extracted.callHappened })} className="press w-full rounded-xl flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.sm, background: extracted.callHappened ? c.primarySoft : c.surface, marginBottom: SP.md }}>
+                <PhoneCall size={13} color={extracted.callHappened ? c.primary : c.muted} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: extracted.callHappened ? c.primary : c.muted }}>تماس ثبت شود</span>
+              </button>
+              <div className="flex" style={{ gap: SP.sm }}>
+                <div style={{ flex: 1 }}><Field c={c} label="تاریخ بازدید"><JalaliDatePicker c={c} value={extracted.meetingDate || todayISO()} onChange={(iso) => setExtracted({ ...extracted, meetingDate: iso })} /></Field></div>
+                <div style={{ width: 110 }}><Field c={c} label="ساعت"><input type="time" style={inputStyle(c)} value={extracted.meetingTime || "10:00"} onChange={(e) => setExtracted({ ...extracted, meetingTime: e.target.value })} /></Field></div>
+              </div>
+              <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={extracted.need || ""} onChange={(e) => setExtracted({ ...extracted, need: e.target.value })} /></Field>
+              <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={extracted.budget || ""} onChange={(e) => setExtracted({ ...extracted, budget: toNum(e.target.value) })} /></Field>
+              <Field c={c} label="یادداشت"><textarea style={{ ...inputStyle(c), minHeight: 70, resize: "none", lineHeight: 1.8 }} value={extracted.note || ""} onChange={(e) => setExtracted({ ...extracted, note: e.target.value })} /></Field>
+            </div>
+          )}
         </div>
       )}
 
