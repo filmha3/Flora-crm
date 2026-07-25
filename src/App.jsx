@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak", MARKET_INSIGHT_KEY = "flora-market-insight", DAILY_VIBE_KEY = "flora-daily-vibe";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -1255,20 +1255,27 @@ function FocusMode({ ctx }) {
   );
 }
 
-// Round mic-icon card on Home — the entry point to the voice assistant.
-function VoiceAssistantCard({ ctx }) {
+// Two compact, equal-weight tiles — quick one-tap tools paired side by side.
+function VoiceAssistantTile({ ctx }) {
   const { c, setSheet } = ctx;
   return (
-    <button onClick={() => setSheet("voice-note")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginTop: SP.md, ...glass(c, 24) }}>
-      <div className="relative flex items-center justify-center shrink-0" style={{ width: 52, height: 52 }}>
+    <button onClick={() => setSheet("voice-note")} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div className="relative flex items-center justify-center" style={{ width: 42, height: 42, marginBottom: SP.md }}>
         <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
-        <div className="flex items-center justify-center" style={{ position: "relative", width: 52, height: 52, borderRadius: "50%", background: c.primarySoft, border: `1px solid ${c.primary}33` }}><Mic size={22} color={c.primary} /></div>
+        <div className="flex items-center justify-center" style={{ position: "relative", width: 42, height: 42, borderRadius: "50%", background: c.primarySoft, border: `1px solid ${c.primary}33` }}><Mic size={19} color={c.primary} /></div>
       </div>
-      <div className="flex-1 text-right min-w-0">
-        <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold }}>یادداشت صوتی</p>
-        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>فقط تعریف کن چی شد — بقیه‌اش با هوش مصنوعی</p>
-      </div>
-      <ChevronLeft size={18} color={c.muted} />
+      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>یادداشت صوتی</p>
+      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>فقط حرف بزن</p>
+    </button>
+  );
+}
+function SalesCoachTile({ ctx }) {
+  const { c, setDetail } = ctx;
+  return (
+    <button onClick={() => setDetail({ type: "copilot" })} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Bot size={20} color={c.purple} /></div>
+      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>دستیار فروش</p>
+      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>نگاه مدیر فروش</p>
     </button>
   );
 }
@@ -1672,7 +1679,7 @@ function NextBestActionCard({ ctx }) {
   const accent = c.primary;
 
   return (
-    <div style={{ marginTop: SP.md }}>
+    <div>
       <div className="flex items-center justify-between" style={{ marginBottom: SP.md, paddingRight: 2 }}>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>بهترین اقدام امروز</h2>
         <span style={{ fontSize: FS.caption, color: c.muted }}>{faDigits(actions.length)} پیشنهاد</span>
@@ -1730,6 +1737,57 @@ function NbaOutcomePicker({ c, options, onSubmit, onCancel }) {
   );
 }
 
+// A short, positive line under the greeting — playful daily-astrology energy,
+// not a serious prediction. Generated once a day by AI and cached (never
+// re-called mid-day), with a graceful shimmer/fade entrance. Falls back to a
+// deterministic rotating line if no AI key is set, so it's never empty.
+const VIBE_FALLBACKS = [
+  "امروز روز خوبیه برای شروع یه گفتگوی تازه",
+  "انرژی امروز مناسب تصمیم‌های سریع و قاطعه",
+  "امروز حواست به فرصت‌های کوچیک باشه، بزرگ می‌شن",
+  "امروز روز خوبیه برای پیگیری چیزی که عقب افتاده",
+  "امروز اعتمادبه‌نفست رو تو یه تماس مهم امتحان کن",
+  "امروز صبر و پیگیری نتیجه‌ی خوبی بهت می‌ده",
+  "امروز روز خوبیه برای بستن یه قرار قدیمی",
+];
+function DailyVibeLine({ ctx }) {
+  const { c, hasAiKey, callAI, agentName } = ctx;
+  const [text, setText] = useState("");
+  useEffect(() => {
+    (async () => {
+      try {
+        const cached = await dbGet(DAILY_VIBE_KEY);
+        if (cached?.date === todayISO()) { setText(cached.text); return; }
+      } catch (e) {}
+      const [jy, jm, jd] = isoToJalali(todayISO());
+      if (!hasAiKey) {
+        const startOfYear = new Date(new Date().getFullYear(), 0, 0);
+        const dayOfYear = Math.floor((new Date() - startOfYear) / 86400000);
+        setText(VIBE_FALLBACKS[dayOfYear % VIBE_FALLBACKS.length]);
+        return;
+      }
+      try {
+        const prompt = `امروز ${faDigits(jd)} ${MONTHS_FA[jm - 1]} است. مثل یک طالع‌بین دوستانه و مثبت‌نگر، یک جمله‌ی کوتاه (حداکثر ۱۰ کلمه) با حال‌وهوای انرژی امروز بنویس که به ${agentName || "یک مشاور املاک"} حس خوب برای شروع روز بدهد. سرگرم‌کننده و گرم باشد، نه پیش‌بینی جدی. فقط همان یک جمله را بدون گیومه برگردان.`;
+        const raw = await callAI(prompt);
+        const clean = raw.trim().replace(/^"|"$/g, "");
+        setText(clean);
+        dbSet(DAILY_VIBE_KEY, { date: todayISO(), text: clean }).catch(() => {});
+      } catch (e) {
+        setText(VIBE_FALLBACKS[jd % VIBE_FALLBACKS.length]);
+      }
+    })();
+  }, [hasAiKey]); // eslint-disable-line
+
+  if (!text) return null;
+  return (
+    <div className="flex items-center flora-rise" style={{ gap: 6, marginTop: SP.sm }}>
+      <Sparkles size={13} color="#fbbf24" className="flora-pulse" style={{ flexShrink: 0 }} />
+      <p className="flora-vibe-shimmer" style={{ fontSize: FS.body, lineHeight: 1.6, backgroundImage: "linear-gradient(90deg, currentColor 0%, currentColor 40%, #fbbf24 50%, currentColor 60%, currentColor 100%)", backgroundSize: "200% 100%", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", WebkitTextFillColor: "transparent" }}>{text}</p>
+      <style>{`.flora-vibe-shimmer { animation: floraVibeShimmer 3.5s ease-in-out infinite; } @keyframes floraVibeShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+    </div>
+  );
+}
+
 function HomeTab({ ctx }) {
   const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName, agencyName, agencyCity, simpleMode, setSheet } = ctx;
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
@@ -1741,10 +1799,6 @@ function HomeTab({ ctx }) {
     { label: "تماس در انتظار", value: pendingCalls, icon: PhoneCall, color: c.attn, onClick: () => setTab("more") },
     { label: "بازدید امروز", value: todayAppts.length, icon: CalendarDays, color: c.success, onClick: () => setTab("calendar") },
   ];
-  const feed = [
-    ...appointments.map((a) => ({ type: "appt", date: a.date, ...a })),
-    ...calls.map((cl) => ({ type: "call", date: cl.date, ...cl })),
-  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
 
   return (
     <div style={{ paddingTop: SP.xl }}>
@@ -1754,19 +1808,21 @@ function HomeTab({ ctx }) {
         <h1 style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.02em", marginTop: SP.xs, lineHeight: 1.15 }}>
           {greetingPhrase()}{agentName ? `، ${agentName}` : ""}
         </h1>
-        <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.sm, lineHeight: 1.6 }}>
-          {todayAppts.length > 0 || pendingCalls > 0
-            ? <>امروز {todayAppts.length > 0 ? <b style={{ color: c.ink, fontWeight: FW.bold }}>{faDigits(todayAppts.length)} بازدید</b> : null}{todayAppts.length > 0 && pendingCalls > 0 ? " و " : ""}{pendingCalls > 0 ? <b style={{ color: c.ink, fontWeight: FW.bold }}>{faDigits(pendingCalls)} پیگیری</b> : null} داری</>
-            : "امروز کار فوری‌ای نداری. وقت خوبیه برای گرفتن فایل جدید."}
-        </p>
+        <DailyVibeLine ctx={ctx} />
       </div>
 
       {/* Live market strip */}
       <div style={{ marginBottom: SP.xl }}><MarketWidget c={c} /></div>
 
+      {/* Local stats — right under the dollar/gold strip, same "market pulse" idea */}
+      {!simpleMode && <div style={{ marginBottom: SP.xl }}><MomentumCard ctx={ctx} /></div>}
+
+      {/* Deal Coach — the first actionable thing the agent sees */}
+      <NextBestActionCard ctx={ctx} />
+
       {/* Primary action — the ONLY place the accent gradient appears */}
       {simpleMode && (
-        <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
+        <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, marginTop: SP.xl, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
           <span style={{ position: "absolute", top: "-60%", left: "-10%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%)", pointerEvents: "none" }} />
           <div className="flex items-center justify-center shrink-0" style={{ width: 54, height: 54, borderRadius: RAD.md, background: "rgba(255,255,255,0.22)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)" }}><Plus size={28} color="#fff" strokeWidth={2.5} /></div>
           <div className="text-right flex-1" style={{ position: "relative" }}>
@@ -1777,13 +1833,11 @@ function HomeTab({ ctx }) {
         </button>
       )}
 
-      {!simpleMode && <PortfolioValueCard c={c} properties={properties} />}
-
-      {/* Voice note — talk instead of filling a form; AI files it where it belongs */}
-      <VoiceAssistantCard ctx={ctx} />
-
-      {/* Deal Coach — the 3 highest-value actions for today */}
-      <NextBestActionCard ctx={ctx} />
+      {/* Two quick-launch tools, paired since both are lightweight one-tap entries */}
+      <div className="grid grid-cols-2" style={{ gap: SP.md, marginTop: SP.xl }}>
+        <VoiceAssistantTile ctx={ctx} />
+        {!simpleMode && <SalesCoachTile ctx={ctx} />}
+      </div>
 
       {/* Today's focus — quiet action cards */}
       {(todayAppts.length > 0 || pendingCalls > 0) && (
@@ -1811,18 +1865,6 @@ function HomeTab({ ctx }) {
         </>
       )}
 
-      {/* AI copilot — neutral surface, not a competing gradient */}
-      {!simpleMode && (
-      <button onClick={() => setDetail({ type: "copilot" })} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.lg, marginTop: SP.md, borderRadius: RAD.lg, ...glass(c, 24) }}>
-        <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: c.primarySoft }}><Bot size={21} color={c.primary} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>دستیار مدیر فروش</p>
-          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>ماموریت امروز و اولویت‌ها</p>
-        </div>
-        <ChevronLeft size={18} color={c.muted} />
-      </button>
-      )}
-
       {/* Stats */}
       {!simpleMode && <>
       <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em", marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>یک نگاه</h2>
@@ -1834,15 +1876,6 @@ function HomeTab({ ctx }) {
             <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{s.label}</p>
           </button>
         ))}
-      </div>
-      </>}
-
-      {/* Activity */}
-      {!simpleMode && <>
-      <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em", marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>فعالیت‌های اخیر</h2>
-      <div className="flex flex-col" style={{ gap: SP.sm }}>
-        {feed.map((f, i) => f.type === "appt" ? <ActivityApptRow key={i} a={f} ctx={ctx} /> : <ActivityCallRow key={i} cl={f} c={c} />)}
-        {feed.length === 0 && <EmptyLine c={c} text="فعالیتی ثبت نشده" />}
       </div>
       </>}
 
@@ -1859,35 +1892,180 @@ function HomeTab({ ctx }) {
   );
 }
 
-function PortfolioValueCard({ c, properties }) {
-  const active = properties.filter((p) => p.stage !== "فروخته شد");
-  const total = active.reduce((sum, p) => sum + (p.price || 0), 0);
-  const addedThisWeek = properties.filter((p) => p.createdAt && daysSince(p.createdAt) <= 7).length;
+// Compact, auto-rotating stat widget. Every face is either a live number from
+// real data or a genuinely computed trend (own-portfolio price change, most-active
+// streets) — never an invented market figure. A short AI caption is generated once
+// a day (cached, not re-called on every rotation) to add color to the real numbers.
+function MomentumCard({ ctx }) {
+  const { c, properties, appointments, calls, agencyCity, hasAiKey, callAI } = ctx;
+  const [streak, setStreak] = useState({ count: 0, lastDate: "" });
+  const [face, setFace] = useState(0);
+  const [aiCaption, setAiCaption] = useState("");
+  useEffect(() => { (async () => { try { const s = await dbGet(STREAK_KEY); if (s) setStreak(s); } catch (e) {} })(); }, []);
+  useEffect(() => { const t = setInterval(() => setFace((f) => (f + 1) % 4), 4500); return () => clearInterval(t); }, []);
+
+  const countFor = (iso) =>
+    appointments.filter((a) => a.date === iso).length +
+    calls.filter((cl) => cl.date === iso).length +
+    properties.filter((p) => p.createdAt && p.createdAt.slice(0, 10) === iso).length;
+  const dayCounts = Array.from({ length: 7 }, (_, i) => countFor(daysAgoISO(6 - i).slice(0, 10)));
+  const thisWeekTotal = dayCounts.reduce((a, b) => a + b, 0);
+  const prevWeekTotal = Array.from({ length: 7 }, (_, i) => daysAgoISO(13 - i).slice(0, 10)).reduce((sum, iso) => sum + countFor(iso), 0);
+  const maxCount = Math.max(1, ...dayCounts);
+  const pct = prevWeekTotal > 0 ? Math.round(((thisWeekTotal - prevWeekTotal) / prevWeekTotal) * 100) : (thisWeekTotal > 0 ? 100 : 0);
+  const weekTone = thisWeekTotal === 0 ? c.attn : pct >= 0 ? c.success : c.primary;
+
+  const activeList = properties.filter((p) => p.stage !== "فروخته شد");
+  const totalValue = activeList.reduce((s, p) => s + (p.price || 0), 0);
+
+  // Real 3-month price trend from the agent's OWN listing history (not an
+  // invented market index) — average price/m² of recently-added files vs files
+  // added around three months ago.
+  const priced = (from, to) => properties.filter((p) => p.pricePerMeter > 0 && p.createdAt && daysSince(p.createdAt) >= from && daysSince(p.createdAt) <= to);
+  const recentSet = priced(0, 30), pastSet = priced(75, 120);
+  const avg = (arr) => arr.length ? arr.reduce((s, p) => s + p.pricePerMeter, 0) / arr.length : 0;
+  const recentAvg = avg(recentSet), pastAvg = avg(pastSet);
+  const growthPct = pastAvg > 0 ? Math.round(((recentAvg - pastAvg) / pastAvg) * 100) : null;
+  const growthTone = growthPct === null ? c.muted : growthPct >= 0 ? c.success : c.danger;
+
+  // Which street/area has the most active listings right now — parsed from the
+  // free-text address field, so it's a real read on where the agent's own
+  // inventory is concentrated.
+  const streetCounts = {};
+  activeList.forEach((p) => {
+    const seg = (p.address || "").split(/[،,]/)[0].trim();
+    if (seg && seg.length > 2) streetCounts[seg] = (streetCounts[seg] || 0) + 1;
+  });
+  const topStreets = Object.entries(streetCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const maxStreet = Math.max(1, ...topStreets.map((s) => s[1]));
+
+  // One AI caption per day, grounded in the real numbers above — cached so the
+  // auto-rotating widget never fires repeated API calls on its own.
+  useEffect(() => {
+    (async () => {
+      if (!hasAiKey) return;
+      try {
+        const cached = await dbGet(MARKET_INSIGHT_KEY);
+        if (cached?.date === todayISO()) { setAiCaption(cached.text); return; }
+      } catch (e) {}
+      try {
+        const prompt = `تو دستیار یک مشاور املاک در ${agencyCity || "سرعین"} هستی. بر اساس این داده‌ی واقعی از فایل‌های خودِ مشاور، یک جمله‌ی کوتاه (حداکثر ۱۲ کلمه)، طبیعی و مفید بنویس — نه تبلیغاتی:
+تغییر میانگین قیمت هر متر نسبت به ۳ ماه پیش: ${growthPct === null ? "داده‌ی کافی نیست" : `${growthPct}%`}
+پرتقاضاترین محله بر اساس تعداد فایل فعال: ${topStreets[0] ? topStreets[0][0] : "نامشخص"}
+فقط همان یک جمله را برگردان، بدون گیومه و بدون توضیح اضافه.`;
+        const text = await callAI(prompt);
+        const clean = text.trim().replace(/^"|"$/g, "");
+        setAiCaption(clean);
+        dbSet(MARKET_INSIGHT_KEY, { date: todayISO(), text: clean }).catch(() => {});
+      } catch (e) {}
+    })();
+  }, [hasAiKey]); // eslint-disable-line
+
+  const FACES = [
+    { label: "روند این هفته", icon: TrendingUp, tone: weekTone },
+    { label: "ارزش فایل‌های فعال", icon: Building2, tone: c.purple },
+    { label: `رشد قیمت ${agencyCity || "سرعین"} — ۳ ماه`, icon: growthTone === c.danger ? TrendingDown : TrendingUp, tone: growthTone },
+    { label: "خیابان‌های داغ", icon: MapPin, tone: c.attn },
+  ];
+  const f = FACES[face];
+
+  // compact sparkline geometry for face 0
+  const W = 280, H = 32, PAD = 4;
+  const pts = dayCounts.map((n, i) => [(i / 6) * W, H - PAD - (n / maxCount) * (H - PAD * 2)]);
+  let linePath = `M ${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i]; linePath += ` Q ${x0} ${y0}, ${(x0 + x1) / 2} ${(y0 + y1) / 2}`; }
+  linePath += ` T ${pts[6][0]} ${pts[6][1]}`;
+  const areaPath = `${linePath} L ${W} ${H} L 0 ${H} Z`;
+
+  // ring gauge geometry for the growth face
+  const R = 22, CIRC = 2 * Math.PI * R;
+  const ringFrac = growthPct === null ? 0 : Math.min(1, Math.abs(growthPct) / 20); // 20%+ reads as "full"
+
   return (
-    <div className="rounded-2xl p-5" style={{ ...glass(c, 24), background: `linear-gradient(160deg, ${c.primarySoft}, ${c.surface} 55%)` }}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 5, letterSpacing: ".02em" }}>ارزش کل فایل‌های فعال</p>
-          <CountUpToman value={total} className="flora-money" style={{ fontSize: 22, fontWeight: 800, direction: "ltr", textAlign: "right", letterSpacing: "-0.02em", color: c.ink, display: "inline-block" }} />
+    <div className="rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c, 22), background: `linear-gradient(160deg, ${f.tone}1a, ${c.surface} 60%)` }}>
+      <span style={{ position: "absolute", top: "-40%", left: "-15%", width: 140, height: 140, borderRadius: "50%", background: `radial-gradient(circle, ${f.tone}22, transparent 70%)`, pointerEvents: "none" }} />
+      <div className="flex items-center justify-between relative" style={{ marginBottom: 10 }}>
+        <div className="flex items-center" style={{ gap: 6 }}>
+          <f.icon size={13} color={f.tone} />
+          <span style={{ fontSize: 11, color: c.muted, letterSpacing: ".02em" }}>{f.label}</span>
         </div>
-        <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.successSoft, color: c.success, fontSize: 11.5, fontWeight: 700 }}>
-          <TrendingUp size={13} /> {addedThisWeek > 0 ? `+${faDigits(addedThisWeek)} این هفته` : "به‌روز"}
-        </div>
+        {streak.count > 1 && (
+          <div className="flex items-center" style={{ gap: 3, background: c.attnSoft, padding: "3px 8px", borderRadius: RAD.pill }}>
+            <Flame size={11} color={c.attn} /><span style={{ fontSize: 10.5, fontWeight: FW.heavy, color: c.attn }}>{faDigits(streak.count)}</span>
+          </div>
+        )}
       </div>
-      <div style={{ height: 64, marginTop: 12 }}>
-        <svg viewBox="0 0 300 80" preserveAspectRatio="none" width="100%" height="100%">
-          <defs>
-            <linearGradient id="floraChartGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#7c6ff5" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#7c6ff5" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d="M0,60 C40,50 60,30 100,35 C140,40 160,15 200,20 C240,25 270,10 300,15 L300,80 L0,80 Z" fill="url(#floraChartGrad)" style={{ opacity: 0, animation: "floraChartFade 1s ease forwards 1.2s" }} />
-          <path d="M0,60 C40,50 60,30 100,35 C140,40 160,15 200,20 C240,25 270,10 300,15" fill="none" stroke="#7c6ff5" strokeWidth="3" strokeLinecap="round"
-            style={{ strokeDasharray: 600, strokeDashoffset: 600, animation: "floraChartDraw 1.8s ease forwards .4s" }} />
-        </svg>
+
+      <div key={face} className="relative flora-rise" style={{ minHeight: 44 }}>
+        {face === 0 && (
+          <>
+            <div className="flex items-baseline" style={{ gap: 6, marginBottom: 6 }}>
+              <CountUpNum value={thisWeekTotal} style={{ fontSize: 22, fontWeight: FW.heavy, color: c.ink }} />
+              <span style={{ fontSize: 11, color: c.muted }}>فعالیت</span>
+              {prevWeekTotal > 0 && <span style={{ fontSize: 10.5, fontWeight: FW.bold, color: weekTone }}>{pct >= 0 ? "↑" : "↓"} {faDigits(Math.abs(pct))}٪</span>}
+            </div>
+            <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none">
+              <defs><linearGradient id="momentumFillMini" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={weekTone} stopOpacity="0.3" /><stop offset="100%" stopColor={weekTone} stopOpacity="0" /></linearGradient></defs>
+              <path d={areaPath} fill="url(#momentumFillMini)" style={{ opacity: 0, animation: "floraChartFade .9s ease forwards .5s" }} />
+              <path d={linePath} fill="none" stroke={weekTone} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ strokeDasharray: 400, strokeDashoffset: 400, animation: "floraChartDraw 1s cubic-bezier(.22,1,.36,1) forwards .1s" }} />
+              <circle cx={pts[6][0]} cy={pts[6][1]} r="3.5" fill={weekTone} stroke={c.bg} strokeWidth="1.5" style={{ opacity: 0, animation: "floraChartFade .4s ease forwards 1s" }} />
+            </svg>
+          </>
+        )}
+
+        {face === 1 && (
+          <div>
+            <CountUpToman value={totalValue} style={{ fontSize: 19, fontWeight: FW.heavy, color: c.ink, direction: "ltr", display: "block", textAlign: "right" }} />
+            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 4 }}>{faDigits(activeList.length)} فایل فعال</p>
+          </div>
+        )}
+
+        {face === 2 && (
+          <div className="flex items-center" style={{ gap: 14 }}>
+            <div className="relative shrink-0" style={{ width: 56, height: 56 }}>
+              <svg width="56" height="56" viewBox="0 0 56 56">
+                <circle cx="28" cy="28" r={R} fill="none" stroke={c.border} strokeWidth="5" />
+                <circle cx="28" cy="28" r={R} fill="none" stroke={growthTone} strokeWidth="5" strokeLinecap="round"
+                  strokeDasharray={CIRC} strokeDashoffset={CIRC} transform="rotate(-90 28 28)"
+                  style={{ animation: `floraRingFill 1.2s cubic-bezier(.22,1,.36,1) forwards .1s`, "--ring-target": CIRC * (1 - ringFrac) }} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                {growthPct === null ? <span style={{ fontSize: 9, color: c.muted }}>—</span> : <span style={{ fontSize: 12.5, fontWeight: FW.heavy, color: growthTone }}>{growthPct >= 0 ? "+" : ""}{faDigits(growthPct)}٪</span>}
+              </div>
+            </div>
+            <p style={{ fontSize: 11, color: c.ink, lineHeight: 1.8, flex: 1 }}>{growthPct === null ? "هنوز داده‌ی سه‌ماه‌قبل کافی نیست" : aiCaption || `نسبت به ۳ ماه پیش، میانگین قیمت هر متر در فایل‌های تو ${growthPct >= 0 ? "رشد" : "افت"} کرده`}</p>
+          </div>
+        )}
+
+        {face === 3 && (
+          <div>
+            {topStreets.length === 0 && <p style={{ fontSize: 11, color: c.muted }}>هنوز آدرسی برای مقایسه ثبت نشده</p>}
+            <div className="flex flex-col" style={{ gap: 6 }}>
+              {topStreets.map(([name, n], i) => (
+                <div key={name} className="flex items-center" style={{ gap: 8 }}>
+                  <span style={{ fontSize: 10.5, color: c.ink, width: 74, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0 }}>{name}</span>
+                  <div style={{ flex: 1, height: 6, borderRadius: 99, background: c.surface2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", borderRadius: 99, background: c.attn, width: `${(n / maxStreet) * 100}%`, transform: "scaleX(0)", transformOrigin: "right", animation: `floraBarGrowX .6s cubic-bezier(.22,1,.36,1) forwards ${0.1 * i}s` }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: c.muted, flexShrink: 0 }}>{faDigits(n)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-      <style>{`@keyframes floraChartDraw { to { stroke-dashoffset: 0; } } @keyframes floraChartFade { to { opacity: 1; } }`}</style>
+
+      <div className="flex items-center justify-center relative" style={{ gap: 5, marginTop: 12 }}>
+        {FACES.map((_, i) => (
+          <button key={i} onClick={() => setFace(i)} style={{ width: i === face ? 14 : 5, height: 5, borderRadius: 99, background: i === face ? f.tone : c.border, transition: "all .3s ease" }} />
+        ))}
+      </div>
+      <style>{`
+        @keyframes floraChartDraw { to { stroke-dashoffset: 0; } }
+        @keyframes floraChartFade { to { opacity: 1; } }
+        @keyframes floraRingFill { to { stroke-dashoffset: var(--ring-target); } }
+        @keyframes floraBarGrowX { to { transform: scaleX(1); } }
+      `}</style>
     </div>
   );
 }
@@ -3393,72 +3571,39 @@ function CopilotView({ ctx, onBack }) {
     try { const cached = await dbGet(COPILOT_KEY); if (cached?.date === todayISO()) setPlan(cached.data); } catch (e) {}
   })(); }, []);
 
-  const overdue = useMemo(() => {
-    return customers.map((cu) => {
-      const lastCall = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
-      const days = lastCall ? daysSince(lastCall.date) : null;
-      return { cu, days };
-    }).filter((x) => x.days === null || x.days >= 5).sort((a, b) => (b.days ?? 999) - (a.days ?? 999));
-  }, [customers, calls]);
-
-  const sleeping = useMemo(() => {
-    return properties.filter((p) => p.stage !== "فروخته شد" && p.createdAt && daysSince(p.createdAt) >= 30).sort((a, b) => daysSince(b.createdAt) - daysSince(a.createdAt));
-  }, [properties]);
-
-  const todayTimeline = useMemo(() => {
-    const items = [
-      ...appointments.filter((a) => a.date === todayISO()).map((a) => ({ time: a.time, label: `بازدید: ${properties.find((p) => p.id === a.propertyId)?.title || a.customerName || ""}`, sub: a.customerName })),
-    ];
-    return items.sort((a, b) => a.time.localeCompare(b.time));
-  }, [appointments, properties]);
+  // Real signals still feed the AI's synthesis — they're just not dumped on
+  // screen as raw lists anymore. One coach reads them and writes one paragraph.
+  const overdueCount = useMemo(() => customers.filter((cu) => {
+    const lastCall = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
+    const days = lastCall ? daysSince(lastCall.date) : null;
+    return days === null || days >= 5;
+  }).length, [customers, calls]);
+  const sleepingCount = useMemo(() => properties.filter((p) => p.stage !== "فروخته شد" && p.createdAt && daysSince(p.createdAt) >= 30).length, [properties]);
 
   const generatePlan = async () => {
     if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
     setLoading(true);
     try {
-      const custSummary = customers.slice(0, 30).map((cu) => {
-        const lastCall = calls.filter((cl) => cl.customerId === cu.id || cl.customerName === cu.name).sort((a, b) => b.date.localeCompare(a.date))[0];
-        return `- ${cu.name} | نیاز: ${cu.need || "-"} | بودجه: ${cu.budget || 0} تومان | آخرین تماس: ${lastCall ? `${lastCall.date} (${lastCall.status}) یادداشت: ${lastCall.notes || "-"}` : "هرگز"}`;
-      }).join("\n");
-      const propSummary = properties.filter((p) => p.stage !== "فروخته شد").slice(0, 30).map((p) => `- ${p.title} | ${p.deal} | ${p.price} تومان | ${p.area} متر | ${p.createdAt ? `${daysSince(p.createdAt)} روز از ثبتش گذشته` : "تاریخ ثبت نامشخص"}`).join("\n");
-      const recentNotes = calls.slice(0, 8).map((cl) => `- ${cl.customerName}: ${cl.notes || "-"}`).join("\n");
-      const newTodayCount = properties.filter((p) => (p.createdAt || "").slice(0, 10) === todayISO()).length;
-      const weekStart = daysAgoISO(new Date().getDay());
+      const weekStart = daysAgoISO(new Date().getDay()).slice(0, 10);
       const dealsThisWeek = (ctx.deals || []).filter((d) => (d.createdAt || "") >= weekStart).length;
       const filesThisWeek = properties.filter((p) => (p.createdAt || "") >= weekStart).length;
-      const perfLine = `این هفته تا الان: ${filesThisWeek} فایل جدید، ${dealsThisWeek} قرارداد. امروز ${newTodayCount} فایل ثبت شده.`;
-      const prompt = `تو دستیار و مربی فروش شخصی یک مشاور املاک ایرانی به اسم ${agentName || "مشاور"} هستی — مثل یک مدیر فروش باتجربه که هم برنامه می‌دهد هم انگیزه. لحنت صمیمی و مستقیم است، نه رسمی و رباتیک. بر اساس اطلاعات زیر یک برنامه‌ی عملیاتی امروز بساز و دقیقاً به‌صورت JSON خام (بدون توضیح، بدون markdown fence) با این ساختار برگردان:
-{"greeting":"یک جمله‌ی کوتاه و انگیزشی درباره‌ی وضعیت امروز و این هفته، خطاب به ${agentName || "مشاور"}","biggestRisk":"مهم‌ترین ریسک امروز در یک جمله، یا خالی","priorities":[{"rank":1,"customer":"نام دقیق از لیست","action":"چیکار بکنه","reason":"چرا","suggestedTime":"HH:MM","message":"پیام پیشنهادی کوتاه فارسی"}],"sleepingSuggestions":[{"property":"عنوان دقیق از لیست","suggestion":"چه کاری بکنه"}],"hotLeads":[{"customer":"نام","heat":"hot یا warm","reason":"چرا"}],"atRiskLeads":[{"customer":"نام","reason":"چرا"}],"coachTip":"یک نکته‌ی مربی‌گری کوتاه؛ اگر عملکرد این هفته از میانگین کمتر است، با لحن انگیزشی تشویق به جبران کن"}
-هر آرایه حداکثر ۴ مورد. اعداد بازدید/ذخیره/احتمال دقیق اختراع نکن (این داده‌ها را نداری). نام مشتری/عنوان فایل را دقیقاً از لیست‌های زیر انتخاب کن.
+      const perfLine = `این هفته: ${faDigits(filesThisWeek)} فایل جدید، ${faDigits(dealsThisWeek)} قرارداد. ${faDigits(overdueCount)} مشتری بیش از ۵ روزه پیگیری نشده. ${faDigits(sleepingCount)} فایل بیش از یک ماهه فعاله و نفروخته.`;
+      const insightLines = insights.map((it) => it.text).join(" | ") || "چیز خاصی نیست";
+      const prompt = `تو مدیر فروش باتجربه و صمیمی یک مشاور املاک ایرانی به اسم ${agentName || "مشاور"} هستی. بر اساس این وضعیت واقعی، یک نگاه کوتاه و انسانی بده — نه گزارش رسمی، نه لیست بلند. دقیقاً همین JSON خام را برگردان (بدون توضیح، بدون markdown):
+{"summary":"یک پاراگراف کوتاه (۲-۳ جمله) با لحن گرم و مستقیم، خطاب به ${agentName || "مشاور"}، درباره‌ی وضعیت کلی این هفته","risk":"مهم‌ترین نکته‌ای که باید مراقبش باشد، در یک جمله‌ی کوتاه، یا خالی اگر چیز نگران‌کننده‌ای نیست","tip":"یک توصیه‌ی عملی و مشخص برای همین امروز، در یک جمله"}
 
-عملکرد: ${perfLine}
-
-مشتریان:
-${custSummary || "موردی ثبت نشده"}
-
-فایل‌های فعال:
-${propSummary || "موردی ثبت نشده"}
-
-یادداشت‌های چند تماس اخیر:
-${recentNotes || "موردی ثبت نشده"}`;
+وضعیت واقعی:
+${perfLine}
+نکات دیگر: ${insightLines}`;
       const text = await callAI(prompt);
-      const cleaned = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(cleaned);
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
       setPlan(parsed);
       dbSet(COPILOT_KEY, { date: todayISO(), data: parsed }).catch(() => {});
     } catch (e) {
-      if (e instanceof SyntaxError) notify("پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن");
-      else notify(`خطا: ${e.message || "نامشخص"}`);
+      notify(e instanceof SyntaxError ? "پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن" : `خطا: ${e.message || "نامشخص"}`);
     }
     setLoading(false);
   };
-
-  const Section = ({ icon: Icon, color, title, items, render }) => items && items.length > 0 && (
-    <div className="mb-4">
-      <div className="flex items-center gap-2 mb-2"><Icon size={15} color={color} /><p style={{ fontSize: 13, fontWeight: 700 }}>{title}</p></div>
-      <div className="flex flex-col gap-2">{items.map((it, i) => render(it, i))}</div>
-    </div>
-  );
 
   return (
     <div className="pt-2">
@@ -3466,118 +3611,49 @@ ${recentNotes || "موردی ثبت نشده"}`;
 
       <div style={{ marginBottom: SP.lg, paddingInline: SP.xs }}>
         <h1 style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.02em", lineHeight: 1.15 }}>{greetingPhrase()}{agentName ? `، ${agentName}` : ""}</h1>
-        <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.sm, lineHeight: 1.6 }}>
-          {plan?.greeting || `${faDigits(overdue.length)} پیگیری و ${faDigits(sleeping.length)} فایل خواب‌رفته داری.`}
-        </p>
       </div>
 
       <MissionOfTheDay ctx={ctx} />
 
-      {insights.length > 0 && (
-        <div style={{ marginBottom: SP.lg }}>
-          <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em", marginBottom: SP.md, paddingRight: 2 }}>نگاه مدیر فروش</h2>
-          <div className="flex flex-col flora-stagger" style={{ gap: SP.sm }}>
-            {insights.map((it, i) => {
-              const tint = it.tone === "warn" ? c.attn : it.tone === "good" ? c.success : c.primary;
-              const soft = it.tone === "warn" ? c.attnSoft : it.tone === "good" ? c.successSoft : c.primarySoft;
-              return (
-                <div key={i} className="flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
-                  <div className="flex items-center justify-center shrink-0" style={{ width: 36, height: 36, borderRadius: RAD.sm, background: soft }}>
-                    {floraIcon(it.icon, { size: 19, color: tint })}
-                  </div>
-                  <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8, fontWeight: FW.regular }}>{it.text}</p>
-                </div>
-              );
-            })}
+      {/* One consolidated coach card — replaces the old sprawl of separate sections */}
+      <div style={{ marginTop: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        {!plan && !loading && (
+          <div className="flex items-center" style={{ gap: SP.md }}>
+            <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: c.purpleSoft }}><Bot size={21} color={c.purple} /></div>
+            <div className="flex-1 min-w-0">
+              <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>نگاه مدیر فروش</p>
+              <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>یک تحلیل کوتاه از وضعیت این هفته</p>
+            </div>
+            <button onClick={generatePlan} className="press shrink-0 rounded-full" style={{ padding: `8px ${SP.md}px`, background: c.purple, color: "#fff", fontSize: FS.caption, fontWeight: FW.bold }}>بگیر</button>
           </div>
-        </div>
-      )}
+        )}
 
-      {plan?.biggestRisk && (
-        <div className="rounded-xl p-3.5 mb-4 flex items-center gap-2.5" style={{ background: c.dangerSoft }}>
-          <AlertTriangle size={16} color={c.danger} className="shrink-0" />
-          <p style={{ fontSize: 12, color: c.danger, fontWeight: 600, lineHeight: 1.8 }}>{plan.biggestRisk}</p>
-        </div>
-      )}
+        {loading && (
+          <div className="flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md }}>
+            <Loader2 size={17} className="animate-spin" color={c.purple} /><span style={{ fontSize: FS.caption, color: c.muted }}>در حال فکر کردن...</span>
+          </div>
+        )}
 
-      {todayTimeline.length > 0 && (
-        <>
-          <SectionHeader c={c} title="برنامه‌ی زمانی امروز" />
-          <div className="flex flex-col gap-2 mb-2">
-            {todayTimeline.map((it, i) => (
-              <div key={i} className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
-                <div className="rounded-lg flex items-center justify-center shrink-0" style={{ width: 44, height: 32, background: c.primarySoft }}><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>{it.time}</span></div>
-                <p style={{ fontSize: 12, fontWeight: 600 }}>{it.label}</p>
+        {plan && !loading && (
+          <div className="flora-rise">
+            <div className="flex items-center justify-between" style={{ marginBottom: SP.md }}>
+              <div className="flex items-center" style={{ gap: SP.sm }}><Bot size={16} color={c.purple} /><p style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.purple }}>نگاه مدیر فروش</p></div>
+              <button onClick={generatePlan} className="press" style={{ fontSize: FS.caption, color: c.muted }}>به‌روزرسانی</button>
+            </div>
+            <p style={{ fontSize: FS.body, color: c.ink, lineHeight: 1.9 }}>{plan.summary}</p>
+            {plan.risk && (
+              <div className="flex items-start" style={{ gap: SP.sm, marginTop: SP.md, padding: SP.md, borderRadius: RAD.md, background: c.dangerSoft }}>
+                <AlertTriangle size={14} color={c.danger} style={{ marginTop: 2, flexShrink: 0 }} /><p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}>{plan.risk}</p>
               </div>
-            ))}
+            )}
+            {plan.tip && (
+              <div className="flex items-start" style={{ gap: SP.sm, marginTop: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft }}>
+                <Sparkles size={14} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} /><p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}>{plan.tip}</p>
+              </div>
+            )}
           </div>
-        </>
-      )}
-
-      <SectionHeader c={c} title="پیگیری‌های عقب‌افتاده" />
-      <div className="flex flex-col gap-2 mb-2">
-        {overdue.slice(0, 6).map(({ cu, days }) => (
-          <QuickContactRow key={cu.id} c={c} name={cu.name} phone={cu.phone} note={days === null ? "هنوز هیچ تماسی ثبت نشده" : `${faDigits(days)} روز از آخرین تماس گذشته`} />
-        ))}
-        {overdue.length === 0 && <EmptyLine c={c} text="همه‌ی مشتریان اخیراً پیگیری شده‌اند" />}
+        )}
       </div>
-
-      <button onClick={generatePlan} disabled={loading} className="press w-full rounded-xl py-3 my-4 flex items-center justify-center gap-2" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
-        {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} {loading ? "در حال تحلیل..." : plan ? "به‌روزرسانی برنامه" : "ساخت برنامه‌ی امروز با AI"}
-      </button>
-
-      {plan && (
-        <>
-          <Section icon={TrendingUp} color={c.primary} title="اولویت‌های امروز" items={plan.priorities} render={(it, i) => {
-            const phone = phoneOf(customers, it.customer);
-            return (
-              <div key={i} className="rounded-lg p-3" style={glass(c, 22)}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span style={{ width: 20, height: 20, borderRadius: 999, background: c.primary, color: "#fff", fontSize: 10.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{faDigits(it.rank || i + 1)}</span>
-                  <p style={{ fontSize: 12.5, fontWeight: 700 }}>{it.customer}</p>
-                  {it.suggestedTime && <span style={{ fontSize: 10, color: c.muted, marginRight: "auto" }}>⏱ {it.suggestedTime}</span>}
-                </div>
-                <p style={{ fontSize: 11.5, color: c.ink, marginBottom: 2 }}>{it.action}</p>
-                <p style={{ fontSize: 10.5, color: c.muted, marginBottom: 8 }}>{it.reason}</p>
-                {phone && (
-                  <div className="flex gap-2">
-                    <a href={`tel:${phone}`} className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /><span style={{ fontSize: 11, fontWeight: 700, color: c.success }}>تماس</span></a>
-                    <a href={waLink(phone, it.message) || "#"} target="_blank" rel="noreferrer" className="press flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft }}><Send size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>پیام</span></a>
-                  </div>
-                )}
-              </div>
-            );
-          }} />
-
-          <Section icon={Building2} color={c.attn} title="فایل‌های خواب‌رفته" items={sleeping.slice(0, 6)} render={(p, i) => {
-            const sug = plan.sleepingSuggestions?.find((s) => s.property === p.title);
-            return (
-              <div key={p.id} className="rounded-lg p-3" style={glass(c, 22)}>
-                <p style={{ fontSize: 12.5, fontWeight: 700 }}>{p.title}</p>
-                <p style={{ fontSize: 10.5, color: c.attn, fontWeight: 700, marginTop: 2 }}>{faDigits(daysSince(p.createdAt))} روز است فروش/اجاره نرفته</p>
-                {sug && <p style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>{sug.suggestion}</p>}
-              </div>
-            );
-          }} />
-
-          <Section icon={TrendingUp} color={c.success} title="مشتریان داغ" items={plan.hotLeads} render={(it, i) => (
-            <div key={i} className="rounded-lg p-3 flex items-center justify-between" style={glass(c, 22)}>
-              <div><p style={{ fontSize: 12.5, fontWeight: 700 }}>{it.customer}</p><p style={{ fontSize: 10.5, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: c.success, background: c.successSoft, padding: "3px 8px", borderRadius: 999, whiteSpace: "nowrap" }}>{HEAT_STYLE[it.heat]?.label || HEAT_STYLE.warm.label}</span>
-            </div>
-          )} />
-          <Section icon={AlertTriangle} color={c.danger} title="در خطر از دست رفتن" items={plan.atRiskLeads} render={(it, i) => (
-            <div key={i} className="rounded-lg p-3" style={glass(c, 22)}><p style={{ fontSize: 12.5, fontWeight: 700, color: c.danger }}>{it.customer}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{it.reason}</p></div>
-          )} />
-
-          {plan.coachTip && (
-            <div className="rounded-xl p-3.5 mb-4" style={{ background: c.primarySoft }}>
-              <div className="flex items-center gap-2 mb-1.5"><Bot size={14} color={c.primary} /><p style={{ fontSize: 12, fontWeight: 700, color: c.primary }}>نکته‌ی مربی فروش</p></div>
-              <p style={{ fontSize: 11.5, color: c.ink, lineHeight: 1.9 }}>{plan.coachTip}</p>
-            </div>
-          )}
-        </>
-      )}
       <div style={{ height: 20 }} />
     </div>
   );
