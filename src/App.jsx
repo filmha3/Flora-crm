@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -2716,6 +2716,130 @@ function PropertyMiniMap({ c, lat, lng, title }) {
   );
 }
 
+// AI ad-copywriter for Divar/Sheypoor wall ads. Encodes the exact rules given:
+// banned cliché headlines, mandatory headline structure, AIDA (luxury/new) and PAS
+// (pre-sale/investment) body formulas, 5 sales-psychology principles, and a clear
+// call to action. Produces 3 ready-to-paste variants as a swipeable cover carousel.
+function DivarAdCard({ ctx, p }) {
+  const { c, hasAiKey, callAI, notify, builders, agencyCity } = ctx;
+  const [variants, setVariants] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [active, setActive] = useState(0);
+  const scrollRef = useRef(null);
+
+  const generate = async () => {
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); return; }
+    setLoading(true);
+    try {
+      const builderName = builders.find((b) => b.id === p.builderId)?.name || "";
+      const isPre = p.deal === "پیش‌فروش";
+      const condition = isPre ? `پیش‌فروش — ${p.buildStage || "در حال ساخت"}` : (p.furnished || "کلید نخورده");
+      const payment = isPre
+        ? `پیش‌پرداخت ${fmtToman(p.preDown || 0)}، ${faDigits(p.preMonths || 0)} ماه قسط، تحویل ${faDigits(p.preDelivery || 0)} ماه دیگر`
+        : "نقد و توافقی";
+      const prompt = `تو برترین آگهی‌نویس ملک در دنیا هستی. هدف تو ساخت آگهی‌هایی است که بالاترین نرخ کلیک (View) و بیشترین زنگ‌خور (Call) را در پلتفرم‌هایی مثل دیوار و شیپور ایجاد کنند. برای این ملک باید یک آگهی بی‌نظیر بسازی — دقیقاً طبق این قوانین:
+
+قوانین تیتر (Headline — ۸۰٪ موفقیت آگهی):
+- ممنوعیت‌ها: کلمات شاعرانه، مبهم و کلیشه‌ای مثل «جلال و آرامش» یا «بهترین فایل منطقه» اکیداً ممنوع است.
+- اجزای الزامی: تیتر باید شامل یک قلاب روانی + مشخصات فنی اصلی (متراژ یا طبقه یا لوکیشن) + یک برگ‌برنده‌ی مالی یا تفریحی باشد.
+- کلمات کلیدی جذاب که در جای مناسب استفاده کن: اقساط بلندمدت، زیر فی، کلاب تفریحی، بدون ۱ ریال خرج، معاوضه، تحویل نزدیک، ویو ابدی، کلید نخورده.
+
+قوانین بدنه (Body Text) — بسته به نوع ملک یکی از این دو فرمول را استفاده کن:
+فرمول AIDA (برای املاک لوکس، نوساز و فرنیش‌شده): Attention با یک جمله‌ی چالش‌برانگیز یا حل یک دردسر بزرگ؛ Interest با مشخصات کلیدی (متراژ، خواب، طبقه، برند سازنده)؛ Desire با تصویرسازی ذهنی از کیفیت زندگی و امکانات خاص؛ Action با دعوت مستقیم به تماس با حس فوریت.
+فرمول PAS (برای پیش‌فروش، سرمایه‌گذاری و شرایط بحرانی): Problem با دغدغه‌ی خریدار (تورم، کمبود نقدینگی)؛ Agitation با هشدار درباره‌ی سخت‌تر شدن خرید در آینده؛ Solution با معرفی ملک و شرایط پرداخت به‌عنوان تنها راه‌حل.
+
+۵ اصل روان‌شناسی فروش که باید در متن رعایت شود:
+۱. حذف اصطکاک: اگر فول‌فرنیش است روی «بدون ۱ ریال خرج» و «فقط با چمدان بیاورید» مانور بده.
+۲. اعتمادسازی: به سوابق سازنده، واقعی‌بودن آگهی، یا درصد پیشرفت کار اشاره کن.
+۳. مزیت مالی واضح: اعداد اقساط، پیش‌پرداخت یا درصد تخفیف را شفاف بنویس.
+۴. حس فوریت و کمیابی: عباراتی مثل «تنها ۲ بازدید تا فروش» یا «فقط یک واحد باقی‌مانده» بگنجان.
+۵. دعوت به اقدام مشخص: در پایان دقیقاً بگو برای چه کاری تماس بگیرند (دریافت فیلم کامل، جدول اقساط، هماهنگی بازدید) و ساعت پاسخگویی را ذکر کن.
+
+مشخصات این ملک:
+نوع ملک: ${p.type}
+متراژ و طبقه: ${faDigits(p.area)} متر، طبقه ${faDigits(p.floor || 1)}
+تعداد خواب: ${faDigits(p.rooms || 0)} خواب
+لوکیشن: ${p.address || agencyCity || "نامشخص"}
+وضعیت ملک: ${condition}
+شرایط پرداخت: ${payment}
+${builderName ? `نام سازنده: ${builderName}` : ""}
+قیمت کل: ${fmtToman(p.price)}
+
+سه مدل آگهی متفاوت بساز و دقیقاً همین JSON خام را برگردان (بدون توضیح، بدون markdown):
+{"variants":[
+{"label":"بمب زنگ‌خور","headline":"...","body":"..."},
+{"label":"وی‌آی‌پی و احساسی","headline":"...","body":"..."},
+{"label":"چکشی و کوتاه","headline":"...","body":"..."}
+]}
+گزینه‌ی اول با فرمول PAS روی شرایط پرداخت و اقساط تمرکز کند، گزینه‌ی دوم با فرمول AIDA روی پرستیژ و کیفیت زندگی، گزینه‌ی سوم کوتاه و پرقدرت برای خوانش سریع در دیوار یا استوری باشد. body هر کدام حداکثر ۶۰۰ کاراکتر و شامل پاراگراف‌بندی طبیعی با \\n باشد.`;
+      const raw = await callAI(prompt);
+      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      setVariants(parsed.variants || []);
+      setActive(0);
+    } catch (e) {
+      notify(e instanceof SyntaxError ? "پاسخ هوش مصنوعی قابل‌خواندن نبود — دوباره امتحان کن" : `خطا: ${e.message || "نامشخص"}`);
+    }
+    setLoading(false);
+  };
+
+  const copyVariant = (v) => {
+    const text = `${v.headline}\n\n${v.body}`;
+    navigator.clipboard?.writeText(text).then(() => notify("متن آگهی کپی شد — آماده‌ی پیست در دیوار")).catch(() => notify("کپی نشد — دستی انتخاب کن"));
+  };
+
+  const onScroll = () => {
+    const el = scrollRef.current; if (!el) return;
+    const idx = Math.round(el.scrollLeft / el.clientWidth);
+    setActive(idx);
+  };
+
+  return (
+    <div style={{ marginBottom: SP.lg }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.md, paddingRight: 2 }}>
+        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>آگهی برای دیوار</h2>
+        {variants && !loading && (
+          <button onClick={generate} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}><Sparkles size={12} color={c.primary} />دوباره بساز</button>
+        )}
+      </div>
+
+      {!variants && !loading && (
+        <button onClick={generate} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 14px 30px -10px rgba(47,124,246,0.45)" }}>
+          <Sparkles size={17} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>ساخت آگهی حرفه‌ای با هوش مصنوعی</span>
+        </button>
+      )}
+
+      {loading && (
+        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl, borderRadius: RAD.lg, ...glass(c, 24) }}>
+          <Loader2 size={26} className="animate-spin" color={c.primary} />
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.md }}>در حال نوشتن ۳ مدل آگهی حرفه‌ای...</p>
+        </div>
+      )}
+
+      {variants && !loading && (
+        <div>
+          {/* swipeable cover carousel — each card is a ready-to-paste Divar cover */}
+          <div ref={scrollRef} onScroll={onScroll} className="flex" style={{ gap: SP.md, overflowX: "auto", scrollSnapType: "x mandatory", paddingBottom: SP.sm, marginInline: -SP.xl, paddingInline: SP.xl }}>
+            {variants.map((v, i) => (
+              <div key={i} style={{ minWidth: "88%", scrollSnapAlign: "center", borderRadius: RAD.lg, padding: SP.lg, ...glass(c, 24), position: "relative", overflow: "hidden" }}>
+                <span style={{ position: "absolute", top: "-40%", left: "-20%", width: 180, height: 180, borderRadius: "50%", background: `radial-gradient(circle, ${c.primary}22, transparent 70%)`, pointerEvents: "none" }} />
+                <span className="rounded-full" style={{ fontSize: 10, fontWeight: FW.bold, color: c.primary, background: c.primarySoft, padding: "3px 10px", position: "relative" }}>{v.label}</span>
+                <p style={{ fontSize: FS.title, fontWeight: FW.heavy, marginTop: SP.md, lineHeight: 1.4, position: "relative" }}>{v.headline}</p>
+                <p style={{ fontSize: FS.caption + 0.5, color: c.muted, marginTop: SP.md, lineHeight: 2, whiteSpace: "pre-line", position: "relative" }}>{v.body}</p>
+                <button onClick={() => copyVariant(v)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.lg, paddingBlock: SP.sm + 2, borderRadius: RAD.md, background: c.primarySoft, position: "relative" }}>
+                  <Copy size={13} color={c.primary} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.primary }}>کپی متن آگهی</span>
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-center" style={{ gap: 5, marginTop: SP.md }}>
+            {variants.map((_, i) => <span key={i} style={{ width: i === active ? 16 : 6, height: 6, borderRadius: 99, background: i === active ? c.primary : c.border, transition: "all .3s ease" }} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PropertyDetail({ id, ctx, onBack }) {
   const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, hasAiKey, callAI, setSheet } = ctx;
   const p = properties.find((x) => x.id === id);
@@ -2817,6 +2941,8 @@ function PropertyDetail({ id, ctx, onBack }) {
       )}
 
       {p.lat && p.lng && <PropertyMiniMap c={c} lat={p.lat} lng={p.lng} title={p.title} />}
+
+      <DivarAdCard ctx={ctx} p={p} />
 
       <SectionHeader c={c} title="بازدیدهای این فایل" />
       <div className="flex flex-col gap-2 mb-6">
