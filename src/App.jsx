@@ -1737,18 +1737,18 @@ function NbaOutcomePicker({ c, options, onSubmit, onCancel }) {
   );
 }
 
-// A short, positive line under the greeting — playful daily-astrology energy,
-// not a serious prediction. Generated once a day by AI and cached (never
-// re-called mid-day), with a graceful shimmer/fade entrance. Falls back to a
-// deterministic rotating line if no AI key is set, so it's never empty.
+// A daily-horoscope-style reading under the greeting — for a good-morning mood
+// lift, presented as a calm, professional card (not a novelty effect). Generated
+// once a day by AI and cached; falls back to a rotating deterministic reading if
+// no AI key is set, so it's never empty.
 const VIBE_FALLBACKS = [
-  "امروز روز خوبیه برای شروع یه گفتگوی تازه",
-  "انرژی امروز مناسب تصمیم‌های سریع و قاطعه",
-  "امروز حواست به فرصت‌های کوچیک باشه، بزرگ می‌شن",
-  "امروز روز خوبیه برای پیگیری چیزی که عقب افتاده",
-  "امروز اعتمادبه‌نفست رو تو یه تماس مهم امتحان کن",
-  "امروز صبر و پیگیری نتیجه‌ی خوبی بهت می‌ده",
-  "امروز روز خوبیه برای بستن یه قرار قدیمی",
+  "امروز روزیه که پیگیری‌های نیمه‌کاره سرانجام جواب می‌دن. یک تماس قدیمی را دوباره امتحان کن.",
+  "انرژی امروز برای مذاکره و بستن قرارها مساعده. با اعتمادبه‌نفس جلو برو.",
+  "امروز فرصت‌های کوچیک، بزرگ می‌شن. به یک سرنخ ساده بیشتر توجه کن.",
+  "امروز روز خوبیه برای شفاف‌حرف‌زدن با یک مشتری مردد — صداقت جواب می‌ده.",
+  "امروز صبر و پیگیری، بیشتر از عجله جواب می‌ده. آروم و پیوسته پیش برو.",
+  "امروز یک ارتباط قدیمی می‌تواند به یک فرصت تازه تبدیل شود.",
+  "امروز روز مناسبیه برای بستن یک قرارداد معلق — دنبالش کن.",
 ];
 function DailyVibeLine({ ctx }) {
   const { c, hasAiKey, callAI, agentName } = ctx;
@@ -1767,7 +1767,7 @@ function DailyVibeLine({ ctx }) {
         return;
       }
       try {
-        const prompt = `امروز ${faDigits(jd)} ${MONTHS_FA[jm - 1]} است. مثل یک طالع‌بین دوستانه و مثبت‌نگر، یک جمله‌ی کوتاه (حداکثر ۱۰ کلمه) با حال‌وهوای انرژی امروز بنویس که به ${agentName || "یک مشاور املاک"} حس خوب برای شروع روز بدهد. سرگرم‌کننده و گرم باشد، نه پیش‌بینی جدی. فقط همان یک جمله را بدون گیومه برگردان.`;
+        const prompt = `امروز ${faDigits(jd)} ${MONTHS_FA[jm - 1]} است. مثل یک طالع‌بین حرفه‌ای، یک فال روزانه‌ی کوتاه (۱۵ تا ۲۵ کلمه، یک یا دو جمله) برای ${agentName || "یک مشاور املاک"} بنویس — با لحن جدی و دلگرم‌کننده، نه شوخی. می‌تواند به مذاکره، معامله، پیگیری یا فرصت‌های امروز اشاره کند. فقط همان متن را بدون گیومه برگردان.`;
         const raw = await callAI(prompt);
         const clean = raw.trim().replace(/^"|"$/g, "");
         setText(clean);
@@ -1780,10 +1780,15 @@ function DailyVibeLine({ ctx }) {
 
   if (!text) return null;
   return (
-    <div className="flex items-center flora-rise" style={{ gap: 6, marginTop: SP.sm }}>
-      <Sparkles size={13} color="#fbbf24" className="flora-pulse" style={{ flexShrink: 0 }} />
-      <p className="flora-vibe-shimmer" style={{ fontSize: FS.body, lineHeight: 1.6, backgroundImage: "linear-gradient(90deg, currentColor 0%, currentColor 40%, #fbbf24 50%, currentColor 60%, currentColor 100%)", backgroundSize: "200% 100%", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", WebkitTextFillColor: "transparent" }}>{text}</p>
-      <style>{`.flora-vibe-shimmer { animation: floraVibeShimmer 3.5s ease-in-out infinite; } @keyframes floraVibeShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+    <div className="relative overflow-hidden flora-rise" style={{ marginTop: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c, 18) }}>
+      <span style={{ position: "absolute", top: "-50%", left: "-10%", width: 100, height: 100, borderRadius: "50%", background: `radial-gradient(circle, ${c.purple}1f, transparent 70%)`, pointerEvents: "none" }} />
+      <div className="flex items-start relative" style={{ gap: SP.sm }}>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: RAD.sm, background: c.purpleSoft }}><Moon size={13} color={c.purple} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 10.5, color: c.muted, fontWeight: FW.bold, letterSpacing: ".02em", marginBottom: 3 }}>طالع امروز</p>
+          <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}>{text}</p>
+        </div>
+      </div>
     </div>
   );
 }
