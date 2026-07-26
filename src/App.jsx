@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -198,12 +198,13 @@ const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (f
 
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
 // Where a buyer is in their journey — cleaned-up, agent-friendly labels.
-const CUSTOMER_STAGES = ["در حال بررسی", "دنبال سرمایه‌گذاری", "دنبال پیش‌فروش", "خرید کرد", "بدون پیگیری"];
+const CUSTOMER_STAGES = ["در حال بررسی", "دنبال سرمایه‌گذاری", "دنبال پیش‌فروش", "خرید کرد", "منصرف شد", "بدون پیگیری"];
 const CUSTOMER_STAGE_COLOR = (c) => ({
   "در حال بررسی": c.primary,
   "دنبال سرمایه‌گذاری": c.purple,
   "دنبال پیش‌فروش": c.attn,
   "خرید کرد": c.success,
+  "منصرف شد": c.danger,
   "بدون پیگیری": c.muted,
 });
 // Compact money for budgets: 10000000000 → "۱۰ میلیارد", 850000000 → "۸۵۰ میلیون".
@@ -341,6 +342,13 @@ export default function FloraCRM() {
   const [search, setSearch] = useState("");
   const [lightbox, setLightbox] = useState(null);
   const [focusQueue, setFocusQueue] = useState(null); // { actions, index } — Deal Coach focus mode
+  const [celebration, setCelebration] = useState(null); // { kind, label } — app-wide win animation
+  const celebrationTimer = useRef(null);
+  const celebrate = (payload) => {
+    clearTimeout(celebrationTimer.current);
+    setCelebration(payload);
+    celebrationTimer.current = setTimeout(() => setCelebration(null), 1600);
+  };
   const [mapPicker, setMapPicker] = useState(null); // separate overlay so it never closes the form underneath
   const [propStageHint, setPropStageHint] = useState("همه");
 
@@ -594,7 +602,7 @@ export default function FloraCRM() {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
-    notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, geminiKey, setGeminiKey,
+    notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance,
   };
@@ -720,6 +728,8 @@ export default function FloraCRM() {
         {!detail && !focusQueue && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} simpleMode={simpleMode} />}
 
         {focusQueue && <FocusMode ctx={ctx} />}
+
+        {celebration && <CelebrationOverlay c={c} celebration={celebration} />}
 
         {sheet === "add" && <QuickAddSheet ctx={ctx} onClose={() => setSheet(null)} />}
         {sheet && sheet !== "add" && <FormSheet sheetVal={sheet} ctx={ctx} onClose={() => setSheet(null)} />}
@@ -1123,6 +1133,46 @@ function computeNextActions(ctx) {
 // Focus Mode — launched from "اجرا" on the Deal Coach card. Hides all navigation
 // and shows exactly one task at a time. Complete it, log the result, get the AI's
 // next step, and it auto-advances to the next task — like clearing levels in a game.
+// One robust, app-wide "win" animation — rendered at the true app root (like
+// FocusMode) so it's never clipped or mispositioned by a screen's own layout.
+// Big wins (deal closed, new file) get a confetti burst; quieter wins (a
+// follow-up logged) get a gentler pulse; a customer walking away gets an
+// acknowledgment, not a celebration.
+function CelebrationOverlay({ c, celebration }) {
+  const { kind, label } = celebration;
+  const CONFIGS = {
+    deal: { icon: Trophy, color: c.success, soft: c.successSoft, confetti: true },
+    followup: { icon: CheckCircle2, color: c.primary, soft: c.primarySoft, confetti: false },
+    file: { icon: Building2, color: c.purple, soft: c.purpleSoft, confetti: true },
+    lost: { icon: UserX, color: c.danger, soft: c.dangerSoft, confetti: false },
+  };
+  const cfg = CONFIGS[kind] || CONFIGS.followup;
+  const Icon = cfg.icon;
+  const particles = cfg.confetti ? Array.from({ length: 10 }, (_, i) => {
+    const angle = (i / 10) * 2 * Math.PI;
+    const dist = 56 + (i % 3) * 12;
+    return { x: Math.round(Math.cos(angle) * dist), y: Math.round(Math.sin(angle) * dist), delay: i * 0.02, color: [c.primary, c.success, c.purple, c.attn][i % 4] };
+  }) : [];
+
+  return (
+    <div className="fixed inset-0 z-[99] flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.55)" }}>
+      <div className="flex flex-col items-center" style={{ padding: SP.xl, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        <div className="relative flex items-center justify-center" style={{ width: 72, height: 72, marginBottom: SP.md }}>
+          {particles.map((p, i) => (
+            <span key={i} style={{ position: "absolute", width: 6, height: 6, borderRadius: "50%", background: p.color, "--px": `${p.x}px`, "--py": `${p.y}px`, animation: `floraConfetti .9s ease-out forwards ${p.delay}s` }} />
+          ))}
+          {cfg.confetti && <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${cfg.color}55`, animation: "floraRipple 1s ease-out 1" }} />}
+          <div className="flex items-center justify-center flora-pop" style={{ width: 72, height: 72, borderRadius: "50%", background: cfg.soft }}>
+            <Icon size={32} color={cfg.color} />
+          </div>
+        </div>
+        <p style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.ink, textAlign: "center" }}>{label}</p>
+      </div>
+      <style>{`@keyframes floraConfetti { from { transform: translate(0,0) scale(1); opacity: 1; } to { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; } }`}</style>
+    </div>
+  );
+}
+
 function FocusMode({ ctx }) {
   const { c, focusQueue, setFocusQueue, hasAiKey, callAI, notify } = ctx;
   const { actions, index } = focusQueue;
@@ -1492,11 +1542,11 @@ ${activeListings}
           need: extracted.need || x.need,
           budget: extracted.budget > 0 ? extracted.budget : x.budget,
           lastCallNote: extracted.note || x.lastCallNote,
-          lastContactAt: todayISO(),
+          lastContactAt: todayISO(), lastContactTs: Date.now(),
         } : x));
       } else {
         customerId = uid();
-        setCustomers((prev) => [{ id: customerId, name, phone: extracted.phone || "", need: extracted.need || "", budget: extracted.budget || 0, stage: "در حال بررسی", lastContactAt: todayISO(), lastCallNote: extracted.note || "" }, ...prev]);
+        setCustomers((prev) => [{ id: customerId, name, phone: extracted.phone || "", need: extracted.need || "", budget: extracted.budget || 0, stage: "در حال بررسی", lastContactAt: todayISO(), lastContactTs: Date.now(), lastCallNote: extracted.note || "" }, ...prev]);
       }
     }
     if (extracted.callHappened) {
@@ -2322,57 +2372,130 @@ function PipelineBoard({ rows, ctx }) {
 }
 
 // ---------- Customers tab ----------
+function CustomerCard({ cu, c, onClick }) {
+  const stage = cu.stage || "در حال بررسی";
+  const stageColor = CUSTOMER_STAGE_COLOR(c)[stage] || c.primary;
+  // Neglect decay — a customer nobody has touched in a while visibly fades,
+  // like a plant wilting. Closed-won customers never decay (no need to chase them).
+  const idleDays = cu.lastContactAt ? daysSince(cu.lastContactAt) : 99; // never logged → treat as long overdue
+  const decaying = stage !== "خرید کرد" && idleDays >= 2;
+  const decay = decaying ? Math.min(1, (idleDays - 1) / 7) : 0; // full grey by ~day 8
+  return (
+    <button onClick={onClick} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22), filter: decay > 0 ? `grayscale(${decay})` : "none", opacity: 1 - decay * 0.32, transition: "filter .6s ease, opacity .6s ease" }}>
+      <div className="flex items-center" style={{ gap: SP.md }}>
+        <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 48, height: 48, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.name}</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.need || "بدون توضیح"}</p>
+        </div>
+        <div className="text-left shrink-0">
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: c.primary, direction: "rtl" }}>{fmtBudgetShort(cu.budget)}</p>
+          <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>بودجه</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
+        <span className="rounded-full" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: stageColor, background: stageColor + "1f", padding: `4px ${SP.md}px` }}>{stage}</span>
+        {decaying ? (
+          <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}><AlertTriangle size={12} color={c.attn} />{faDigits(idleDays)} روز بدون پیگیری</span>
+        ) : (
+          <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.muted }}>مشاهده <ChevronLeft size={14} color={c.muted} /></span>
+        )}
+      </div>
+      {cu.lastCallNote && (
+        <div className="flex items-start" style={{ gap: SP.xs, marginTop: SP.sm }}>
+          <StickyNote size={12} color={c.attn} style={{ marginTop: 2, flexShrink: 0 }} />
+          <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.lastCallNote}</p>
+        </div>
+      )}
+    </button>
+  );
+}
+
 function CustomersTab({ ctx, search, setSearch }) {
   const { c, customers, setDetail } = ctx;
+  const [showWithdrawn, setShowWithdrawn] = useState(false);
+
+  const withdrawn = useMemo(() => customers.filter((cu) => cu.stage === "منصرف شد"), [customers]);
+  const activeCustomers = useMemo(() => customers.filter((cu) => cu.stage !== "منصرف شد"), [customers]);
+
   const filtered = useMemo(() => {
-    if (!search) return customers;
+    const pool = showWithdrawn ? withdrawn : activeCustomers;
+    if (!search) return pool;
     const q = search.toLowerCase();
-    return customers.filter((cu) => Object.values(cu).some((v) => String(v).toLowerCase().includes(q)));
-  }, [customers, search]);
+    return pool.filter((cu) => Object.values(cu).some((v) => String(v).toLowerCase().includes(q)));
+  }, [activeCustomers, withdrawn, showWithdrawn, search]);
+
+  // Split into meaningful sections instead of one flat list — updated-today
+  // customers float to the top automatically (ordered by exact touch time),
+  // then customers who need attention, then everyone else.
+  const { recent, needsFollowUp, rest } = useMemo(() => {
+    const today = todayISO();
+    const recent = [], needsFollowUp = [], rest = [];
+    filtered.forEach((cu) => {
+      if (cu.lastContactAt === today) recent.push(cu);
+      else {
+        const idleDays = cu.lastContactAt ? daysSince(cu.lastContactAt) : 99;
+        if (cu.stage !== "خرید کرد" && idleDays >= 5) needsFollowUp.push(cu);
+        else rest.push(cu);
+      }
+    });
+    recent.sort((a, b) => (b.lastContactTs || 0) - (a.lastContactTs || 0));
+    needsFollowUp.sort((a, b) => (b.lastContactAt ? daysSince(b.lastContactAt) : 99) - (a.lastContactAt ? daysSince(a.lastContactAt) : 99));
+    return { recent, needsFollowUp, rest };
+  }, [filtered]);
+
+  const SectionLabel = ({ children, color, icon: Icon }) => (
+    <div className="flex items-center" style={{ gap: SP.xs, marginBottom: SP.md, marginTop: SP.lg }}>
+      {Icon && <Icon size={12} color={color || c.muted} />}
+      <p style={{ fontSize: FS.caption, fontWeight: FW.bold, color: color || c.muted, letterSpacing: ".02em" }}>{children}</p>
+    </div>
+  );
+
   return (
     <div style={{ paddingTop: SP.lg }}>
       <SearchBox c={c} value={search} setValue={setSearch} />
-      <div style={{ height: SP.lg }} />
-      <div className="flex flex-col" style={{ gap: SP.md }}>
-      {filtered.map((cu) => {
-        const stage = cu.stage || "در حال بررسی";
-        const stageColor = CUSTOMER_STAGE_COLOR(c)[stage] || c.primary;
-        // Neglect decay — a customer nobody has touched in a while visibly fades,
-        // like a plant wilting. Closed-won customers never decay (no need to chase them).
-        const idleDays = cu.lastContactAt ? daysSince(cu.lastContactAt) : 99; // never logged → treat as long overdue
-        const decaying = stage !== "خرید کرد" && idleDays >= 2;
-        const decay = decaying ? Math.min(1, (idleDays - 1) / 7) : 0; // full grey by ~day 8
-        return (
-        <button key={cu.id} onClick={() => setDetail({ type: "customer", id: cu.id })} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22), filter: decay > 0 ? `grayscale(${decay})` : "none", opacity: 1 - decay * 0.32, transition: "filter .6s ease, opacity .6s ease" }}>
-          <div className="flex items-center" style={{ gap: SP.md }}>
-            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 48, height: 48, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
-            <div className="flex-1 min-w-0">
-              <p style={{ fontSize: FS.subtitle, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.name}</p>
-              <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.need || "بدون توضیح"}</p>
-            </div>
-            <div className="text-left shrink-0">
-              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: c.primary, direction: "rtl" }}>{fmtBudgetShort(cu.budget)}</p>
-              <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>بودجه</p>
-            </div>
+
+      {showWithdrawn ? (
+        <>
+          <div className="flex items-center justify-between" style={{ marginTop: SP.lg }}>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>مشتریان منصرف‌شده</p>
+            <button onClick={() => setShowWithdrawn(false)} className="press" style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>بازگشت</button>
           </div>
-          <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
-            <span className="rounded-full" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: stageColor, background: stageColor + "1f", padding: `4px ${SP.md}px` }}>{stage}</span>
-            {decaying ? (
-              <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}><AlertTriangle size={12} color={c.attn} />{faDigits(idleDays)} روز بدون پیگیری</span>
-            ) : (
-              <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.muted }}>مشاهده <ChevronLeft size={14} color={c.muted} /></span>
-            )}
+          <div className="flex flex-col flora-stagger" style={{ gap: SP.md, marginTop: SP.md }}>
+            {filtered.map((cu) => <CustomerCard key={cu.id} cu={cu} c={c} onClick={() => setDetail({ type: "customer", id: cu.id })} />)}
+            {filtered.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
           </div>
-          {cu.lastCallNote && (
-            <div className="flex items-start" style={{ gap: SP.xs, marginTop: SP.sm }}>
-              <StickyNote size={12} color={c.attn} style={{ marginTop: 2, flexShrink: 0 }} />
-              <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.lastCallNote}</p>
-            </div>
+        </>
+      ) : (
+        <>
+          {recent.length > 0 && (
+            <>
+              <SectionLabel color={c.success} icon={CheckCircle2}>به‌روزرسانی‌شده امروز</SectionLabel>
+              <div className="flex flex-col flora-stagger" style={{ gap: SP.md }}>
+                {recent.map((cu) => <CustomerCard key={cu.id} cu={cu} c={c} onClick={() => setDetail({ type: "customer", id: cu.id })} />)}
+              </div>
+            </>
           )}
-        </button>
-      ); })}
-      {filtered.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
-      </div>
+          {needsFollowUp.length > 0 && (
+            <>
+              <SectionLabel color={c.attn} icon={AlertTriangle}>نیاز به پیگیری ({faDigits(needsFollowUp.length)})</SectionLabel>
+              <div className="flex flex-col flora-stagger" style={{ gap: SP.md }}>
+                {needsFollowUp.map((cu) => <CustomerCard key={cu.id} cu={cu} c={c} onClick={() => setDetail({ type: "customer", id: cu.id })} />)}
+              </div>
+            </>
+          )}
+          <SectionLabel>همه مشتریان ({faDigits(rest.length)})</SectionLabel>
+          <div className="flex flex-col flora-stagger" style={{ gap: SP.md }}>
+            {rest.map((cu) => <CustomerCard key={cu.id} cu={cu} c={c} onClick={() => setDetail({ type: "customer", id: cu.id })} />)}
+            {filtered.length === 0 && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
+          </div>
+          {withdrawn.length > 0 && (
+            <button onClick={() => setShowWithdrawn(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xl, paddingBlock: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+              <UserX size={13} color={c.muted} /><span style={{ fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>{faDigits(withdrawn.length)} مشتری منصرف‌شده — مشاهده</span>
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -3161,7 +3284,7 @@ function CustomerNoteBox({ c, note, onSave }) {
 }
 
 function CustomerDetail({ id, ctx, onBack }) {
-  const { c, customers, calls, appointments, setSheet } = ctx;
+  const { c, customers, calls, appointments, setSheet, celebrate } = ctx;
   const cu = customers.find((x) => x.id === id);
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState(null);
@@ -3170,6 +3293,11 @@ function CustomerDetail({ id, ctx, onBack }) {
   const save = () => {
     ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, name: f.name.trim() || x.name, phone: f.phone.trim(), need: f.need.trim(), budget: toNum(f.budget) } : x));
     setEditing(false); ctx.notify("مشخصات مشتری ذخیره شد");
+  };
+  const changeStage = (st) => {
+    ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, stage: st } : x));
+    if (st === "خرید کرد") { celebrate({ kind: "deal", label: "این معامله بسته شد" }); setTimeout(onBack, 1400); }
+    else if (st === "منصرف شد") { celebrate({ kind: "lost", label: "از لیست فعال مشتریان جدا شد" }); setTimeout(onBack, 1400); }
   };
   const custCalls = calls.filter((cl) => cl.customerId === id || cl.customerName === cu.name);
   const custAppts = appointments.filter((a) => a.customerId === id || a.customerName === cu.name);
@@ -3183,7 +3311,7 @@ function CustomerDetail({ id, ctx, onBack }) {
           <div className="flex-1"><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone || "بدون شماره"}</p></div>
           <button onClick={startEdit} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={14} color={c.muted} /></button>
           {cu.phone && (
-            <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
+            <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO(), lastContactTs: Date.now() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
           )}
         </div>
       ) : (
@@ -3204,14 +3332,14 @@ function CustomerDetail({ id, ctx, onBack }) {
         <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, paddingRight: 2 }}>مرحله مشتری</p>
         <div className="flex flex-wrap" style={{ gap: SP.sm }}>
           {CUSTOMER_STAGES.map((st) => { const active = (cu.stage || "در حال بررسی") === st; const col = CUSTOMER_STAGE_COLOR(c)[st]; return (
-            <button key={st} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, stage: st } : x))} className="press rounded-full" style={{ padding: `6px ${SP.md}px`, fontSize: FS.caption, fontWeight: FW.bold, background: active ? col : c.surface2, color: active ? "#fff" : c.muted }}>{st}</button>
+            <button key={st} onClick={() => changeStage(st)} className="press rounded-full" style={{ padding: `6px ${SP.md}px`, fontSize: FS.caption, fontWeight: FW.bold, background: active ? col : c.surface2, color: active ? "#fff" : c.muted }}>{st}</button>
           ); })}
         </div>
       </div>
       <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press w-full rounded-xl p-3.5 mb-3 flex items-center gap-2.5" style={{ background: c.primarySoft }}>
         <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
       </button>
-      <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO() } : x))} />
+      <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => { ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO(), lastContactTs: Date.now() } : x)); celebrate({ kind: "followup", label: "پیگیری ثبت شد" }); }} />
       {!editing && (
         <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
           <div className="flex items-center justify-between">
@@ -3522,7 +3650,7 @@ function useSalesInsights(ctx) {
 // Full-page call follow-up list, reached from the top-bar badge. Pending calls
 // float to the top so the next action is always first.
 function CallsView({ ctx, onBack }) {
-  const { c, calls, setCalls, setSheet, notify } = ctx;
+  const { c, calls, setCalls, setSheet, notify, celebrate } = ctx;
   const sorted = [...calls].sort((a, b) => {
     const ap = a.status === "انجام‌شد" ? 1 : 0, bp = b.status === "انجام‌شد" ? 1 : 0;
     if (ap !== bp) return ap - bp;
@@ -3544,7 +3672,7 @@ function CallsView({ ctx, onBack }) {
           const done = cl.status === "انجام‌شد";
           return (
             <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 20)}>
-              <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))} className="press shrink-0">
+              <button onClick={() => { setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x)); if (!done) celebrate({ kind: "followup", label: "پیگیری ثبت شد" }); }} className="press shrink-0">
                 <CheckCircle2 size={22} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
               </button>
               <div className="flex-1 min-w-0">
@@ -5042,7 +5170,7 @@ function PreSaleFields({ c, f, setF, total }) {
 }
 
 function PropertyForm({ ctx, onClose, editId }) {
-  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker } = ctx;
+  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate } = ctx;
   const editing = editId ? properties.find((x) => x.id === editId) : null;
   const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
   const [f, setF] = useState(editing ? {
@@ -5099,6 +5227,7 @@ function PropertyForm({ ctx, onClose, editId }) {
     } else {
       setProperties((prev) => [{ id: uid(), stage: "فعال", desc: "", createdAt: new Date().toISOString(), ...payload }, ...prev]);
       notify("فایل با موفقیت ثبت شد");
+      celebrate({ kind: "file", label: "فایل جدید ثبت شد" });
     }
     onClose();
   };
@@ -5243,7 +5372,7 @@ function CustomerForm({ ctx, onClose }) {
           ); })}
         </div>
       </Field>
-      <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget), stage: f.stage || "در حال بررسی", lastContactAt: todayISO() }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
+      <SubmitBtn c={c} label="ذخیره مشتری" disabled={!valid} onClick={() => { setCustomers((prev) => [{ id: uid(), ...f, budget: toNum(f.budget), stage: f.stage || "در حال بررسی", lastContactAt: todayISO(), lastContactTs: Date.now() }, ...prev]); notify("مشتری با موفقیت ثبت شد"); onClose(); }} />
     </SheetShell>
   );
 }
