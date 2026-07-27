@@ -681,6 +681,19 @@ export default function FloraCRM() {
         @keyframes floraRise { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
         .flora-rise { animation: floraRise .5s cubic-bezier(.22,1,.36,1) both; }
 
+        /* A real physical "drop and settle" bounce — several decreasing oscillations,
+           not just a single overshoot — for moments that deserve extra weight
+           (a win landing on screen, a completed checklist item). */
+        @keyframes floraBounceIn {
+          0%   { transform: scale(0.3); opacity: 0; }
+          45%  { transform: scale(1.18); opacity: 1; }
+          65%  { transform: scale(0.90); }
+          80%  { transform: scale(1.06); }
+          92%  { transform: scale(0.98); }
+          100% { transform: scale(1); }
+        }
+        .flora-bounce { animation: floraBounceIn .65s cubic-bezier(.34,1.56,.64,1) both; }
+
         select { -webkit-appearance: none; appearance: none; }
       `}</style>
 
@@ -1162,7 +1175,7 @@ function CelebrationOverlay({ c, celebration }) {
             <span key={i} style={{ position: "absolute", width: 6, height: 6, borderRadius: "50%", background: p.color, "--px": `${p.x}px`, "--py": `${p.y}px`, animation: `floraConfetti .9s ease-out forwards ${p.delay}s` }} />
           ))}
           {cfg.confetti && <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${cfg.color}55`, animation: "floraRipple 1s ease-out 1" }} />}
-          <div className="flex items-center justify-center flora-pop" style={{ width: 72, height: 72, borderRadius: "50%", background: cfg.soft }}>
+          <div className="flex items-center justify-center flora-bounce" style={{ width: 72, height: 72, borderRadius: "50%", background: cfg.soft }}>
             <Icon size={32} color={cfg.color} />
           </div>
         </div>
@@ -1289,7 +1302,7 @@ function FocusMode({ ctx }) {
               <>
                 <div className="relative mx-auto" style={{ width: 72, height: 72, marginBottom: SP.lg }}>
                   <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${c.success}44`, animation: "floraRipple 1.6s ease-out 1" }} />
-                  <div className="flex items-center justify-center flora-pop" style={{ width: 72, height: 72, borderRadius: "50%", background: c.successSoft }}><CheckCircle2 size={34} color={c.success} /></div>
+                  <div className="flex items-center justify-center flora-bounce" style={{ width: 72, height: 72, borderRadius: "50%", background: c.successSoft }}><CheckCircle2 size={34} color={c.success} /></div>
                 </div>
                 <p style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold, textAlign: "center", marginBottom: SP.sm, letterSpacing: "0.02em" }}>مرحله‌ی بعدی</p>
                 <p style={{ fontSize: FS.subtitle, color: c.ink, textAlign: "center", lineHeight: 1.8, fontWeight: FW.medium }}>{nextTip}</p>
@@ -3567,7 +3580,7 @@ function MissionOfTheDay({ ctx }) {
           const complete = m.done >= m.target;
           return (
             <div key={m.id} className={`rounded-xl p-3 flex items-center gap-3 ${poppedId === m.id ? "flora-pop" : ""}`} style={{ background: complete ? c.successSoft : c.surface2, transition: "background .4s ease" }}>
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: complete ? c.successSoft : c.primarySoft }}>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${poppedId === m.id ? "flora-bounce" : ""}`} style={{ background: complete ? c.successSoft : c.primarySoft }}>
                 {floraIcon(m.icon, { size: 20, color: complete ? c.success : c.primary })}
               </div>
               <div className="flex-1 min-w-0">
