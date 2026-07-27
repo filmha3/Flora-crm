@@ -269,6 +269,19 @@ function CountUpToman({ value, className, style }) {
   return <span className={className} style={style}>{fmtToman(v)}</span>;
 }
 
+// Same animated count, but "تومان" renders small and light gray, separate from
+// the number — and the whole thing is pinned to one line so it never wraps.
+function CountUpTomanSplit({ value, size = 18, weight = 800, color = "#fff", tomanColor = "rgba(255,255,255,.45)", tomanSize }) {
+  const v = useCountUp(value);
+  const ts = tomanSize || Math.max(9, Math.round(size * 0.42));
+  return (
+    <span style={{ whiteSpace: "nowrap", direction: "ltr", display: "inline-flex", alignItems: "baseline", gap: 4 }}>
+      <span style={{ fontSize: size, fontWeight: weight, color, fontVariantNumeric: "tabular-nums" }}>{Math.round(v).toLocaleString("en-US")}</span>
+      <span style={{ fontSize: ts, fontWeight: 500, color: tomanColor }}>تومان</span>
+    </span>
+  );
+}
+
 function CountUpNum({ value, style }) {
   const v = useCountUp(value, 700);
   return <span style={style}>{faDigits(v)}</span>;
@@ -289,6 +302,16 @@ const glass = (c) => ({
   border: `1px solid ${c.border}`,
   boxShadow: c.shadow,
   borderRadius: 22,
+});
+// Same look, no backdrop-filter. Blur is one of the most expensive CSS effects
+// on iOS Safari — fine for a hero card or a sheet, but ruinous once it's applied
+// to every row in a long scrolling list (each blurred layer repaints on scroll).
+// Repeated list items use this instead; the surface color already reads as glass.
+const glassLite = (c, radius = 22) => ({
+  background: c.surface2,
+  border: `1px solid ${c.border}`,
+  boxShadow: c.shadow,
+  borderRadius: radius,
 });
 
 // ---------- Seed data ----------
@@ -2143,7 +2166,7 @@ function ActivityApptRow({ a, ctx, showDelete }) {
   const { c, properties, setAppointments, scheduleReminder, notify } = ctx;
   const p = properties.find((x) => x.id === a.propertyId);
   return (
-    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
+    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glassLite(c, 22)}>
       <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><CalendarDays size={14} color={c.primary} /></div>
       <div className="flex-1 min-w-0">
         <p style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.title || a.customerName || "بازدید"}</p>
@@ -2160,7 +2183,7 @@ function ActivityApptRow({ a, ctx, showDelete }) {
 }
 function ActivityCallRow({ cl, c }) {
   return (
-    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
+    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glassLite(c, 22)}>
       <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><PhoneCall size={14} color={c.attn} /></div>
       <div className="flex-1 min-w-0">
         <p style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cl.customerName || "تماس"}</p>
@@ -2227,7 +2250,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
       </div>
 
       {mode === "list" ? (
-        <div className="grid grid-cols-2 gap-3 pb-4">
+        <div className="grid grid-cols-2 gap-3 pb-4 flora-stagger">
           {filtered.map((p) => <PropertyGridCard key={p.id} p={p} ctx={ctx} onClick={() => setDetail({ type: "property", id: p.id })} />)}
           {filtered.length === 0 && <div className="col-span-2"><EmptyLine c={c} text="فایلی پیدا نشد" /></div>}
         </div>
@@ -2307,30 +2330,88 @@ function AllPropertiesMap({ c, rows, onOpen }) {
   );
 }
 
+// Pulls the dominant color out of a cover photo so each card's bottom gradient is
+// tinted by its own image (the signature look of the reference design). Our photos
+// are locally-stored data URLs, so canvas sampling works without CORS tainting.
+const domColorCache = new Map();
+function useDominantColor(url) {
+  const [rgb, setRgb] = useState(() => (url ? domColorCache.get(url) : null) || null);
+  useEffect(() => {
+    if (!url || domColorCache.has(url)) { if (url) setRgb(domColorCache.get(url)); return; }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const S = 12; // tiny sample — enough for an average, costs nothing
+        const cv = document.createElement("canvas");
+        cv.width = S; cv.height = S;
+        const cx = cv.getContext("2d", { willReadFrequently: true });
+        cx.drawImage(img, 0, 0, S, S);
+        const d = cx.getImageData(0, 0, S, S).data;
+        let r = 0, g = 0, b = 0, n = 0;
+        // Sample the lower half — that's what sits behind the gradient/text.
+        for (let i = Math.floor(d.length / 2); i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+        const out = [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+        domColorCache.set(url, out);
+        if (!cancelled) setRgb(out);
+      } catch (e) { /* leave null — the card falls back to a neutral gradient */ }
+    };
+    img.src = url;
+    return () => { cancelled = true; };
+  }, [url]);
+  return rgb;
+}
+
 function PropertyGridCard({ p, ctx, onClick }) {
   const { c } = ctx;
-  const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
-  const meta = [`${faDigits(p.area)} متر`, `${faDigits(p.rooms)} خواب`].join(" · ");
+  const cover = p.media && p.media[0];
+  const Icon = typeIcon(p.type);
+  const sold = p.stage === "فروخته شد";
+  const rgb = useDominantColor(cover && cover.type === "image" ? cover.url : null);
+  // Deepen the sampled color so white text always clears contrast, then fade it out.
+  const tint = rgb ? `${Math.round(rgb[0] * 0.55)}, ${Math.round(rgb[1] * 0.55)}, ${Math.round(rgb[2] * 0.55)}` : "18, 24, 38";
+
+  const Chip = ({ children }) => (
+    <span className="flex items-center" style={{ gap: 4, fontSize: 10.5, fontWeight: FW.medium, color: "#fff", background: "rgba(255,255,255,0.18)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "4px 9px", borderRadius: RAD.pill, whiteSpace: "nowrap" }}>{children}</span>
+  );
+
   return (
-    <button onClick={onClick} className="press text-right overflow-hidden" style={{ borderRadius: RAD.md, ...glass(c) }}>
-      <div className="relative w-full" style={{ aspectRatio: "4 / 3", background: c.primarySoft }}>
-        {cover ? (
-          cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center"><Icon size={30} color={c.primary} className="flora-float" style={{ opacity: 0.45 }} /></div>
-        )}
-        <span className="absolute top-2 right-2" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: "#fff", background: "rgba(15,20,35,0.72)", padding: `3px ${SP.sm}px`, borderRadius: RAD.sm }}>{p.deal}</span>
-        {sold && (
-          <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(15,20,35,0.55)" }}>
-            <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: "#fff", background: c.danger, padding: `4px ${SP.md - 2}px`, borderRadius: RAD.sm }}>فروخته شد</span>
-          </div>
-        )}
+    <button onClick={onClick} className="press text-right relative overflow-hidden" style={{ borderRadius: 22, aspectRatio: "3 / 4", background: c.surface2 }}>
+      {/* full-bleed photo */}
+      {cover ? (
+        cover.type === "image"
+          ? <img src={cover.url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          : <video src={cover.url} muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: `linear-gradient(150deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
+          <Icon size={34} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} />
+        </div>
+      )}
+
+      {/* bottom gradient, tinted by the photo's own dominant color */}
+      <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to top, rgba(${tint},0.96) 0%, rgba(${tint},0.82) 26%, rgba(${tint},0.30) 52%, transparent 72%)`, transition: "background .5s ease" }} />
+
+      {/* price pill (top-right in RTL) */}
+      <span className="absolute" style={{ top: 10, right: 10, fontSize: 11.5, fontWeight: FW.heavy, color: "#fff", background: "rgba(20,26,40,0.55)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", padding: "6px 12px", borderRadius: RAD.pill, direction: "ltr" }}>{fmtBudgetShort(p.price)}</span>
+
+      {/* content over the gradient */}
+      <div className="absolute" style={{ bottom: 0, right: 0, left: 0, padding: 12 }}>
+        <p style={{ fontSize: 14, fontWeight: FW.heavy, color: "#fff", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.title}</p>
+        <div className="flex items-center" style={{ gap: 4, marginTop: 4 }}>
+          <Ruler size={11} color="rgba(255,255,255,0.75)" />
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.82)" }}>{faDigits(p.area)} متر{p.rooms ? ` · ${faDigits(p.rooms)} خواب` : ""}</span>
+        </div>
+        <div className="flex items-center" style={{ gap: 6, marginTop: 9 }}>
+          <Chip><Icon size={11} color="#fff" />{p.type}</Chip>
+          <Chip>{p.deal}</Chip>
+        </div>
       </div>
-      <div style={{ padding: SP.md }}>
-        <p style={{ fontSize: FS.body + 1, fontWeight: FW.heavy, color: c.primary, direction: "ltr", textAlign: "right" }}>{fmtToman(p.price)}</p>
-        <p style={{ fontSize: FS.body, fontWeight: FW.medium, marginTop: 3, color: c.ink, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.4, minHeight: 30 }}>{p.title}</p>
-        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.xs }}>{meta}</p>
-      </div>
+
+      {sold && (
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(12,16,26,0.55)" }}>
+          <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: "#fff", background: c.danger, padding: `5px ${SP.md}px`, borderRadius: RAD.pill }}>فروخته شد</span>
+        </div>
+      )}
     </button>
   );
 }
@@ -2394,7 +2475,7 @@ function CustomerCard({ cu, c, onClick }) {
   const decaying = stage !== "خرید کرد" && idleDays >= 2;
   const decay = decaying ? Math.min(1, (idleDays - 1) / 7) : 0; // full grey by ~day 8
   return (
-    <button onClick={onClick} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22), filter: decay > 0 ? `grayscale(${decay})` : "none", opacity: 1 - decay * 0.32, transition: "filter .6s ease, opacity .6s ease" }}>
+    <button onClick={onClick} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glassLite(c, RAD.lg), filter: decay > 0 ? `grayscale(${decay})` : "none", opacity: 1 - decay * 0.32, transition: "filter .6s ease, opacity .6s ease" }}>
       <div className="flex items-center" style={{ gap: SP.md }}>
         <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 48, height: 48, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
         <div className="flex-1 min-w-0">
@@ -3364,7 +3445,7 @@ function CustomerDetail({ id, ctx, onBack }) {
       )}
       <SectionHeader c={c} title="تاریخچه تماس" />
       <div className="flex flex-col gap-2 mb-4">
-        {custCalls.map((cl) => <div key={cl.id} className="rounded-lg p-3 flex items-center justify-between" style={glass(c, 20)}><span style={{ fontSize: 12 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
+        {custCalls.map((cl) => <div key={cl.id} className="rounded-lg p-3 flex items-center justify-between" style={glassLite(c, 20)}><span style={{ fontSize: 12 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
         {custCalls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
       </div>
       <SectionHeader c={c} title="بازدیدهای برنامه‌ریزی‌شده" />
@@ -3384,7 +3465,7 @@ const daysSince = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 8
 
 function QuickContactRow({ c, name, phone, note }) {
   return (
-    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glass(c, 22)}>
+    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glassLite(c, 22)}>
       <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><UserCircle2 size={15} color={c.primary} /></div>
       <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700 }}>{name}</p>{note && <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{note}</p>}</div>
       {phone && (
@@ -3684,7 +3765,7 @@ function CallsView({ ctx, onBack }) {
         {sorted.map((cl) => {
           const done = cl.status === "انجام‌شد";
           return (
-            <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 20)}>
+            <div key={cl.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glassLite(c, 20)}>
               <button onClick={() => { setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x)); if (!done) celebrate({ kind: "followup", label: "پیگیری ثبت شد" }); }} className="press shrink-0">
                 <CheckCircle2 size={22} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
               </button>
@@ -3867,7 +3948,7 @@ ${transcript}
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`rounded-xl p-3 ${m.role === "user" ? "self-end" : "self-start"}`} style={{ ...glass(c, 20), maxWidth: "85%", background: m.role === "user" ? c.primary : c.surface }}>
+          <div key={i} className={`rounded-xl p-3 ${m.role === "user" ? "self-end" : "self-start"}`} style={{ ...glassLite(c, 20), maxWidth: "85%", background: m.role === "user" ? c.primary : c.surface2 }}>
             <p style={{ fontSize: 12.5, lineHeight: 1.9, color: m.role === "user" ? "#fff" : c.ink, whiteSpace: "pre-wrap" }}>{m.text}</p>
           </div>
         ))}
@@ -3946,6 +4027,98 @@ function DealStatusBadge({ c, status }) {
   if (status === "در حال مذاکره") return <span style={{ fontSize: 10, fontWeight: 700, color: c.primary, background: c.primarySoft, padding: "4px 10px", borderRadius: 10 }}>در حال مذاکره</span>;
   return <span style={{ fontSize: 10, fontWeight: 700, color: c.attn, background: c.attnSoft, padding: "4px 10px", borderRadius: 10 }}>در انتظار پرداخت</span>;
 }
+
+// The "total balance" wallet-card look: near-black surface, a quiet label, one
+// huge white figure, and a tappable pill underneath for the secondary number —
+// plus a pair of stacked accent cards peeking from the side, echoing the
+// reference without pretending to be a literal payment card.
+function BalanceCard({ c, label, value, pillIcon: PillIcon, pillLabel, pillValue, onPillClick }) {
+  return (
+    <div className="relative overflow-hidden" style={{ borderRadius: 22, padding: 20, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", boxShadow: "0 16px 38px -14px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06)" }}>
+      {/* stacked decorative cards, peeking from the right edge */}
+      <div className="absolute" style={{ top: 14, left: -10, width: 92, height: 118 }}>
+        <div style={{ position: "absolute", top: 10, left: 18, width: 68, height: 96, borderRadius: 16, background: "linear-gradient(160deg,#3b5fd9,#22346e)", opacity: .9 }} />
+        <div className="relative" style={{ position: "absolute", top: 0, left: 0, width: 74, height: 104, borderRadius: 18, background: "linear-gradient(150deg,#fb923c 0%,#ec4899 100%)", boxShadow: "0 10px 22px -8px rgba(236,72,153,.5)" }}>
+          <span style={{ position: "absolute", top: 12, right: 10, width: 15, height: 15, borderRadius: "50%", background: "rgba(255,255,255,.55)" }} />
+          <span style={{ position: "absolute", top: 12, right: 20, width: 15, height: 15, borderRadius: "50%", background: "rgba(255,255,255,.85)" }} />
+          <span style={{ position: "absolute", bottom: 10, right: 10, left: 10, fontSize: 9, color: "rgba(255,255,255,.85)", letterSpacing: ".03em" }}>کمیسیون</span>
+        </div>
+      </div>
+
+      <div className="relative" style={{ maxWidth: "62%" }}>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,.55)", letterSpacing: ".06em" }}>{label}</p>
+        <div style={{ marginTop: 6 }}><CountUpTomanSplit value={value} size={25} /></div>
+        <button onClick={onPillClick} className="press flex items-center" style={{ gap: 8, marginTop: 16, background: "rgba(255,255,255,.08)", borderRadius: RAD.pill, padding: "6px 8px 6px 12px" }}>
+          <span className="flex items-center justify-center" style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,255,255,.12)", flexShrink: 0 }}><PillIcon size={11} color="#fff" /></span>
+          <span dir="ltr" style={{ whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: "#fff" }}>{pillValue.replace(" تومان", "")}</span>
+            {pillValue.includes("تومان") && <span style={{ fontSize: 9.5, fontWeight: 500, color: "rgba(255,255,255,.5)" }}> تومان</span>}
+          </span>
+          <span style={{ fontSize: 10.5, color: "rgba(255,255,255,.55)" }}>{pillLabel}</span>
+          <ChevronLeft size={13} color="rgba(255,255,255,.5)" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Compact statement-style tile, matching the balance card's dark language.
+function StatTile({ c, icon: Icon, label, value, tone, isMoney = true }) {
+  return (
+    <div className="relative overflow-hidden" style={{ padding: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", border: "1px solid rgba(255,255,255,.06)" }}>
+      <div className="flex items-center justify-center" style={{ width: 26, height: 26, borderRadius: 9, background: `${tone}22`, marginBottom: 10 }}><Icon size={13} color={tone} /></div>
+      <p style={{ fontSize: 10.5, color: "rgba(255,255,255,.5)", marginBottom: 4 }}>{label}</p>
+      {isMoney
+        ? <CountUpToman value={value} style={{ fontSize: 17, fontWeight: FW.heavy, color: "#fff", direction: "ltr", display: "block", textAlign: "right", fontVariantNumeric: "tabular-nums" }} />
+        : <CountUpNum value={value} style={{ fontSize: 21, fontWeight: FW.heavy, color: "#fff", fontVariantNumeric: "tabular-nums" }} />}
+    </div>
+  );
+}
+
+// A real bank-statement style feed: recent money in (commission received) and
+// money out (office expenses), merged and sorted — the kind of thing you'd
+// actually glance at, not a list you have to feel bad about.
+function RecentActivityCard({ ctx, onSeeAll }) {
+  const { c, payments, expenses, deals } = ctx;
+  const txns = [
+    ...payments.map((p) => ({ id: `p-${p.id}`, kind: "in", date: p.date, amount: p.amount, label: deals.find((d) => d.id === p.dealId)?.propertyTitle || "کمیسیون دریافتی" })),
+    ...expenses.map((e) => ({ id: `e-${e.id}`, kind: "out", date: e.date, amount: e.amount, label: e.title || e.category || "هزینه‌ی دفتر" })),
+  ].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 4);
+
+  return (
+    <div className="relative overflow-hidden flora-rise" style={{ borderRadius: RAD.lg, padding: SP.lg, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", border: "1px solid rgba(255,255,255,.06)" }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: txns.length ? SP.md : 0 }}>
+        <div className="flex items-center" style={{ gap: SP.sm }}>
+          <div className="flex items-center justify-center" style={{ width: 26, height: 26, borderRadius: 9, background: `${c.primary}22` }}><Wallet size={13} color={c.primary} /></div>
+          <span style={{ fontSize: 12.5, fontWeight: FW.bold, color: "#fff" }}>آخرین تراکنش‌ها</span>
+        </div>
+        {txns.length > 0 && <button onClick={onSeeAll} className="press" style={{ fontSize: 10.5, color: "rgba(255,255,255,.5)" }}>همه ‹</button>}
+      </div>
+      {txns.length === 0 ? (
+        <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.5)" }}>هنوز تراکنشی ثبت نشده</p>
+      ) : (
+        <div className="flex flex-col flora-stagger" style={{ gap: SP.sm }}>
+          {txns.map((t) => (
+            <div key={t.id} className="flex items-center" style={{ gap: SP.sm }}>
+              <div className="flex items-center justify-center shrink-0" style={{ width: 28, height: 28, borderRadius: "50%", background: t.kind === "in" ? `${c.success}22` : `${c.danger}22` }}>
+                {t.kind === "in" ? <TrendingUp size={13} color={c.success} /> : <TrendingDown size={13} color={c.danger} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</p>
+                <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.4)", marginTop: 1 }}>{fmtJalali(t.date)}</p>
+              </div>
+              <p dir="ltr" style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{Math.round(t.amount).toLocaleString("en-US")}</span>
+                <span style={{ fontSize: 9, color: "rgba(255,255,255,.4)" }}> تومان</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function FinanceCenterView({ ctx, onBack }) {
   const { c, deals, payments, setPayments, setSheet, simpleMode } = ctx;
@@ -4040,36 +4213,22 @@ function FinanceCenterView({ ctx, onBack }) {
 
       {tab === "overview" && (
         <div>
-          {/* Banknote-styled hero: guilloche lines, gold seal, engraved figures */}
-          <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)", boxShadow: "0 14px 34px rgba(30,58,138,.4)" }}>
-            {/* Engraved guilloche lines, like the back of a banknote */}
-            <svg width="100%" height="100%" viewBox="0 0 320 160" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, opacity: 0.14, pointerEvents: "none" }}>
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <path key={i} d={`M-20,${30 + i * 22} C60,${5 + i * 22} 120,${60 + i * 22} 200,${28 + i * 22} C260,${8 + i * 22} 300,${45 + i * 22} 340,${25 + i * 22}`} fill="none" stroke="#fbbf24" strokeWidth="0.8" />
-              ))}
-            </svg>
-            <span style={{ position: "absolute", top: "-40%", left: "-20%", width: 180, height: 180, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
-            <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
+          {/* Total-balance hero — collected commission on the face, outstanding in the pill */}
+          <div className="flora-rise" style={{ marginBottom: SP.lg }}>
+            <BalanceCard
+              c={c}
+              label="کمیسیون دریافتی"
+              value={totalPaidAll}
+              pillIcon={Wallet}
+              pillLabel="وصول‌نشده"
+              pillValue={fmtToman(totalRemainingAll)}
+              onPillClick={() => setTab("debtors")}
+            />
+          </div>
 
-            <div className="flex items-center justify-between mb-3" style={{ position: "relative" }}>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,.18)" }}><Sparkles size={15} color="#fff" /></div>
-                <strong style={{ fontSize: 13.5, color: "#fff" }}>خلاصه هوشمند</strong>
-              </div>
-              {/* Gold seal, the way a note carries its denomination stamp */}
-              <div className="flora-coin w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#fde68a,#f59e0b)", boxShadow: "0 3px 10px rgba(245,158,11,.5), inset 0 0 0 1.5px rgba(255,255,255,.35)" }}>
-                <span style={{ fontSize: 11, fontWeight: 900, color: "#7c2d12" }}>ت</span>
-              </div>
-            </div>
-
-            <div style={{ position: "relative" }}>
-              <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>مانده‌ی کل کمیسیون‌های وصول‌نشده</p>
-              <CountUpToman value={totalRemainingAll} className="flora-money" style={{ fontSize: 21, fontWeight: 800, color: "#fbbf24", display: "inline-block", marginTop: 3, direction: "ltr" }} />
-              <div className="flex items-center gap-1.5 mt-2.5">
-                <span style={{ width: 6, height: 6, borderRadius: 99, background: debtors.length > 0 ? "#f87171" : "#4ade80" }} className={debtors.length > 0 ? "flora-pulse" : ""} />
-                <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.85)" }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است"}</p>
-              </div>
-            </div>
+          <div className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.lg }}>
+            <span style={{ width: 6, height: 6, borderRadius: 99, background: debtors.length > 0 ? c.danger : c.success }} className={debtors.length > 0 ? "flora-pulse" : ""} />
+            <p style={{ fontSize: FS.caption, color: c.muted }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است"}</p>
           </div>
 
           {simpleMode && (
@@ -4082,18 +4241,17 @@ function FinanceCenterView({ ctx, onBack }) {
             </button>
           )}
 
+          {/* One row, auto-scrolling — exactly the 6 figures requested */}
           <FinMarquee c={c} items={[
-            { icon: CalendarDays, color: c.primary, value: fmtToman(monthVal), label: "فروش این ماه" },
             { icon: TrendingUp, color: c.purple, value: fmtToman(yearVal), label: "فروش امسال" },
-            { icon: Landmark, color: c.primary, value: fmtToman(totalValue), label: "کل ارزش معاملات" },
-            { icon: Wallet, color: c.success, value: fmtToman(totalPaidAll), label: "کمیسیون دریافتی" },
+            { icon: CalendarDays, color: c.primary, value: fmtToman(monthVal), label: "فروش ماهیانه" },
+            { icon: Landmark, color: c.primary, value: fmtToman(totalValue), label: "ارزش کل معاملات" },
             { icon: AlertTriangle, color: c.attn, value: fmtToman(totalRemainingAll), label: "کمیسیون وصول‌نشده" },
-            { icon: FileCheck, color: c.purple, value: faDigits(deals.length), label: "تعداد معاملات" },
-            { icon: TrendingDown, color: c.danger, value: fmtToman(totalExpenses), label: "کل هزینه‌های دفتر" },
-            { icon: Wallet, color: c.success, value: fmtToman(netProfit), label: "سود خالص دفتر" },
+            { icon: Wallet, color: c.success, value: fmtToman(netProfit), label: "سود خالص" },
+            { icon: TrendingDown, color: c.danger, value: fmtToman(totalExpenses), label: "کل هزینه" },
           ]} />
 
-          <div style={{ height: 14 }} />
+          <div style={{ height: SP.md }} />
 
           <MonthlyDealsChart c={c} data={monthlyTotals} max={maxMonthly} />
 
@@ -4233,7 +4391,7 @@ function FinanceCenterView({ ctx, onBack }) {
           <SectionHeader c={c} title="بدهکاران" />
           <div className="flex flex-col gap-2.5 flora-stagger">
             {debtors.map((x, i) => (
-              <div key={i} className="rounded-2xl p-4" style={{ ...glass(c, 22), border: `1px solid ${c.dangerSoft}` }}>
+              <div key={i} className="rounded-2xl p-4" style={{ ...glassLite(c, 22), border: `1px solid ${c.dangerSoft}` }}>
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-2.5">
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: c.dangerSoft }}><UserCircle2 size={17} color={c.danger} /></div>
@@ -4337,7 +4495,7 @@ function FinanceCenterView({ ctx, onBack }) {
         </div>
       )}
 
-      {tab === "overview" && <FinanceAiTab ctx={ctx} stats={{ totalValue, totalCommission, totalPaidAll, totalRemainingAll, deals, debtors }} />}
+      {tab === "overview" && <RecentActivityCard ctx={ctx} onSeeAll={() => setTab("transactions")} />}
       <div style={{ height: 20 }} />
     </div>
   );
@@ -4396,12 +4554,13 @@ function FinMarquee({ c, items }) {
         style={{ display: "flex", gap: 10, overflowX: "auto", overflowY: "hidden", padding: "4px 16px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
       >
         {doubled.map((it, i) => (
-          <div key={i} dir="rtl" className="rounded-xl p-3" style={{ ...glass(c, 18), width: 150, flexShrink: 0, background: `linear-gradient(160deg, ${it.color}14, ${c.surface} 60%)` }}>
-            <div className="flex items-center gap-1.5 mb-2">
-              <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: it.color + "22", boxShadow: `inset 0 0 0 1.2px ${it.color}33` }}><it.icon size={12} color={it.color} /></div>
-              <p style={{ fontSize: 9.5, color: c.muted }}>{it.label}</p>
-            </div>
-            <p style={{ fontSize: 12.5, fontWeight: 800, direction: "ltr", textAlign: "right", whiteSpace: "nowrap" }}>{it.value}</p>
+          <div key={i} dir="rtl" className="relative overflow-hidden" style={{ borderRadius: 16, padding: 12, width: 122, flexShrink: 0, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <div className="flex items-center justify-center" style={{ width: 22, height: 22, borderRadius: 8, background: it.color + "22", marginBottom: 8 }}><it.icon size={11} color={it.color} /></div>
+            <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.5)", marginBottom: 3 }}>{it.label}</p>
+            <p dir="ltr" style={{ whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{it.value.replace(" تومان", "")}</span>
+              {it.value.includes("تومان") && <span style={{ fontSize: 9, fontWeight: 500, color: "rgba(255,255,255,.45)" }}> تومان</span>}
+            </p>
           </div>
         ))}
       </div>
