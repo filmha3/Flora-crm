@@ -1047,18 +1047,22 @@ function MarketWidget({ c }) {
 
     (async () => {
       try {
-        // BrsApi free endpoint returns { gold:[...], currency:[...] } as JSON
-        const res = await fetch("https://api.brsapi.ir/Api/Market/Gold_Currency.php?key=BVjuQ6mYZMzT9usLPTVArBTNYbFegq8B", { signal: AbortSignal.timeout?.(6000) });
+        // BrsApi free endpoint returns { gold:[...], currency:[...] } as JSON.
+        // Field names are matched defensively (symbol/name/name_en/title, price/value)
+        // since the exact sample response couldn't be fetched here (site blocks bots).
+        const res = await fetch("https://api.brsapi.ir/Market/Gold_Currency.php?key=BVjuQ6mYZMzT9usLPTVArBTNYbFegq8B", { signal: AbortSignal.timeout?.(6000) });
         if (!res.ok) throw new Error("bad status");
         const json = await res.json();
-        const usd = (json.currency || []).find((x) => /USD|دلار/i.test(x.symbol || x.name || ""));
-        const gram = (json.gold || []).find((x) => /18|هجده|گرم/i.test(x.name || x.symbol || ""));
+        const label = (x) => `${x.symbol || ""} ${x.name || ""} ${x.name_en || ""} ${x.title || ""}`;
+        const priceOf = (x) => x.price ?? x.value ?? x.price_toman ?? x.close;
+        const usd = (json.currency || []).find((x) => /USD|دلار امریکا|دلار آمریکا/i.test(label(x)));
+        const gram = (json.gold || []).find((x) => /18|هجده|IR_GOLD_18K|geram18/i.test(label(x)));
         const parsed = {
-          usd: usd ? Number(String(usd.price).replace(/[^\d]/g, "")) : null,
-          gold: gram ? Number(String(gram.price).replace(/[^\d]/g, "")) : null,
+          usd: usd ? Number(String(priceOf(usd)).replace(/[^\d]/g, "")) : null,
+          gold: gram ? Number(String(priceOf(gram)).replace(/[^\d]/g, "")) : null,
           at: Date.now(),
         };
-        if (!parsed.usd && !parsed.gold) throw new Error("no fields");
+        if (!parsed.usd && !parsed.gold) { console.warn("Flora market widget: response shape unrecognized", json); throw new Error("no fields"); }
         if (!cancelled) { setData(parsed); try { localStorage.setItem(CACHE, JSON.stringify(parsed)); } catch (e) {} }
       } catch (e) {
         if (!cancelled && !data) setFailed(true);
