@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -731,7 +731,8 @@ export default function FloraCRM() {
 
       {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
       <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
-        <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} setTab={setTab} />
+        {/* Property detail owns the full screen — its photo hero replaces the top bar */}
+        {detail?.type !== "property" && <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} setTab={setTab} />}
 
         <div className="flex-1 overflow-y-auto pb-28 px-4 relative">
           <div key={detail ? `d-${detail.id}` : tab} className="flora-door">
@@ -3243,92 +3244,231 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
   );
 }
 
+// A full-bleed photo hero with floating glass controls and a glass filmstrip —
+// matching the reference. The image itself reacts to scroll: it zooms slightly
+// on pull-down (the classic iOS parallax bounce) and drifts/fades as the page
+// scrolls past it, all driven by listening to the app's own scroll container
+// (found via closest()) so no shared layout code needs to change.
+function PropertyHero({ c, p, media, onBack, onEdit, uploading, addMedia, setLightbox }) {
+  const heroRef = useRef(null);
+  const imgWrapRef = useRef(null);
+  const fileRef = useRef(null);
+
+  // Scroll-driven parallax + pull-to-zoom. Measured from the element's own
+  // rect rather than scrollTop — iOS Safari doesn't reliably report negative
+  // scrollTop during rubber-band overscroll, but the rect always moves. Styles
+  // are written straight to the node inside a rAF, so scrolling never triggers
+  // a React re-render (that was the source of the jank).
+  useEffect(() => {
+    const heroEl = heroRef.current;
+    const wrapEl = imgWrapRef.current;
+    const scrollEl = heroEl?.closest(".overflow-y-auto");
+    if (!heroEl || !wrapEl || !scrollEl) return;
+    let raf = 0;
+    const apply = () => {
+      raf = 0;
+      const heroTop = heroEl.getBoundingClientRect().top;
+      const containerTop = scrollEl.getBoundingClientRect().top;
+      const offset = heroTop - containerTop; // >0 = pulled down, <0 = scrolled up past
+      if (offset > 0) {
+        // pull-down: grow from the top edge so the photo fills the stretched gap
+        const grow = 1 + Math.min(0.4, offset / 300);
+        wrapEl.style.transform = `scale(${grow})`;
+        wrapEl.style.transformOrigin = "center top";
+        wrapEl.style.opacity = "1";
+      } else {
+        // scrolling past: drift slower than the page and fade out
+        const past = -offset;
+        wrapEl.style.transform = `translateY(${past * 0.35}px) scale(1)`;
+        wrapEl.style.transformOrigin = "center top";
+        wrapEl.style.opacity = String(Math.max(0.25, 1 - past / 280));
+      }
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply); };
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    apply();
+    return () => { scrollEl.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+
+  const cover = media[0];
+
+  const share = async () => {
+    const text = `${p.title} — ${fmtToman(p.price)}`;
+    if (navigator.share) { try { await navigator.share({ title: p.title, text }); } catch (e) {} }
+    else { navigator.clipboard?.writeText(text); }
+  };
+
+  return (
+    <div ref={heroRef} className="relative overflow-hidden" style={{ margin: "0 -16px", height: 320 }}>
+      <div ref={imgWrapRef} style={{ position: "absolute", inset: 0, willChange: "transform, opacity" }}>
+        {cover ? (
+          cover.type === "image"
+            ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center" style={{ background: `linear-gradient(150deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
+            <Building2 size={48} color={c.primary} style={{ opacity: 0.4 }} />
+          </div>
+        )}
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(10,14,26,.8) 0%, transparent 32%, rgba(10,14,26,.3) 100%)" }} />
+      </div>
+
+      {/* floating glass controls */}
+      <div className="absolute flex items-center justify-between" style={{ top: 16, left: 16, right: 16 }}>
+        <button onClick={onBack} className="press flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,.16)", backdropFilter: "blur(14px) saturate(180%)", WebkitBackdropFilter: "blur(14px) saturate(180%)" }}><ArrowRight size={17} color="#fff" /></button>
+        <div className="flex items-center" style={{ gap: 8 }}>
+          <button onClick={share} className="press flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,.16)", backdropFilter: "blur(14px) saturate(180%)", WebkitBackdropFilter: "blur(14px) saturate(180%)" }}><Share2 size={16} color="#fff" /></button>
+          <button onClick={onEdit} className="press flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,.16)", backdropFilter: "blur(14px) saturate(180%)", WebkitBackdropFilter: "blur(14px) saturate(180%)" }}><Edit3 size={16} color="#fff" /></button>
+        </div>
+      </div>
+
+      {/* glass filmstrip */}
+      <div className="absolute flex items-center flora-rise" style={{ left: 16, right: 16, bottom: 16, gap: 8, padding: 8, borderRadius: 20, background: "rgba(255,255,255,.14)", backdropFilter: "blur(18px) saturate(180%)", WebkitBackdropFilter: "blur(18px) saturate(180%)", border: "1px solid rgba(255,255,255,.2)", overflowX: "auto" }}>
+        {media.slice(0, 4).map((m, i) => (
+          <button key={m.id} onClick={() => setLightbox({ media, index: i })} className="press shrink-0" style={{ width: 46, height: 46, borderRadius: 14, overflow: "hidden", border: i === 0 ? "2px solid #fff" : "1px solid rgba(255,255,255,.3)" }}>
+            {m.type === "image" ? <img src={m.url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+          </button>
+        ))}
+        {media.length > 4 && (
+          <button onClick={() => setLightbox({ media, index: 4 })} className="press shrink-0 flex items-center justify-center" style={{ width: 46, height: 46, borderRadius: 14, background: "rgba(0,0,0,.5)" }}>
+            <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>+{faDigits(media.length - 4)}</span>
+          </button>
+        )}
+        <button onClick={() => fileRef.current?.click()} className="press shrink-0 flex items-center justify-center" style={{ width: 46, height: 46, borderRadius: 14, background: "rgba(255,255,255,.16)" }}>
+          {uploading ? <Loader2 size={16} className="animate-spin" color="#fff" /> : <Plus size={19} color="#fff" />}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files?.length) addMedia(e.target.files); e.target.value = ""; }} />
+      </div>
+    </div>
+  );
+}
+
+// Simple read-only "About" card with a read-more toggle — matches the reference.
+function AboutPropertyCard({ c, desc }) {
+  const [open, setOpen] = useState(false);
+  const long = desc.length > 140;
+  return (
+    <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.sm }}>درباره‌ی ملک</p>
+      <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, display: !open && long ? "-webkit-box" : "block", WebkitLineClamp: !open && long ? 3 : "unset", WebkitBoxOrient: "vertical", overflow: !open && long ? "hidden" : "visible" }}>{desc}</p>
+      {long && (
+        <button onClick={() => setOpen((v) => !v)} className="press flex items-center justify-center w-full" style={{ gap: SP.xs, marginTop: SP.sm, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>
+          {open ? "بستن" : "بیشتر بخوان"}<ChevronDown size={13} color={c.primary} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .25s" }} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// "Schedule a Visit" — a day strip for the coming week plus fixed time slots,
+// booking directly onto the calendar from the file itself (matches the reference).
+const VISIT_SLOTS = [{ time: "11:00", label: "۱۱ صبح" }, { time: "13:00", label: "۱ بعدازظهر" }, { time: "17:00", label: "۵ بعدازظهر" }, { time: "19:00", label: "۷ بعدازظهر" }];
+function ScheduleVisitCard({ ctx, property }) {
+  const { c, setAppointments, notify } = ctx;
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+    const iso = daysAgoISO(-i).slice(0, 10);
+    const [jy, jm, jd] = isoToJalali(iso);
+    const dow = new Date(iso).getDay(); // 0=Sun..6=Sat
+    return { iso, dayName: ["ی", "د", "س", "چ", "پ", "ج", "ش"][dow], jd, jm };
+  }), []);
+  const [date, setDate] = useState(days[0].iso);
+  const [time, setTime] = useState(null);
+  const [customerName, setCustomerName] = useState("");
+
+  const confirm = () => {
+    if (!time || !customerName.trim()) { notify("نام مشتری و ساعت بازدید را مشخص کن"); return; }
+    setAppointments((prev) => [{ id: uid(), propertyId: property.id, customerId: "", customerName: customerName.trim(), date, time, notes: "" }, ...prev]);
+    notify("بازدید ثبت شد");
+    setCustomerName(""); setTime(null);
+  };
+
+  return (
+    <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>تعیین وقت بازدید</p>
+
+      <div className="flex" style={{ gap: SP.sm, overflowX: "auto", paddingBottom: SP.xs, marginBottom: SP.md }}>
+        {days.map((d) => { const active = date === d.iso; return (
+          <button key={d.iso} onClick={() => setDate(d.iso)} className="press shrink-0 flex flex-col items-center" style={{ width: 52, paddingBlock: SP.sm + 2, borderRadius: RAD.md, gap: SP.xs, background: active ? c.ink : c.surface2 }}>
+            <span style={{ fontSize: FS.caption, color: active ? c.bg : c.muted, fontWeight: FW.bold }}>{d.dayName}</span>
+            <span style={{ fontSize: FS.body, color: active ? c.bg : c.ink, fontWeight: FW.heavy }}>{faDigits(d.jd)}</span>
+          </button>
+        ); })}
+      </div>
+
+      <div className="flex flex-wrap" style={{ gap: SP.sm, marginBottom: SP.lg }}>
+        {VISIT_SLOTS.map((s) => { const active = time === s.time; return (
+          <button key={s.time} onClick={() => setTime(s.time)} className="press" style={{ paddingInline: SP.md, paddingBlock: SP.sm + 2, borderRadius: RAD.md, background: active ? c.ink : c.surface2, color: active ? c.bg : c.ink, fontWeight: FW.bold, fontSize: FS.caption }}>{s.label}</button>
+        ); })}
+      </div>
+
+      <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="نام مشتری برای بازدید" style={inputStyle(c)} />
+      <button onClick={confirm} className="press w-full" style={{ marginTop: SP.md, paddingBlock: SP.md, borderRadius: RAD.md, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>ثبت بازدید</button>
+    </div>
+  );
+}
+
 function PropertyDetail({ id, ctx, onBack }) {
-  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, hasAiKey, callAI, setSheet } = ctx;
+  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, setSheet } = ctx;
   const p = properties.find((x) => x.id === id);
   const owner = owners.find((o) => o.id === p?.ownerId);
   const builder = builders.find((b) => b.id === p?.builderId);
-  const [aiLoading, setAiLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [adText, setAdText] = useState(p?.desc || "");
   if (!p) return null;
 
   const addMedia = async (fileList) => { setUploading(true); const items = await filesToMedia(fileList); setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: [...(x.media || []), ...items] } : x)); setUploading(false); };
   const removeMedia = (mediaId) => setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: x.media.filter((m) => m.id !== mediaId) } : x));
   const propAppts = appointments.filter((a) => a.propertyId === id);
 
-  const generateAd = async () => {
-    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
-    setAiLoading(true);
-    try {
-      const isPreSale = p.deal === "پیش‌فروش";
-      const prompt = `تو یک مشاور املاک حرفه‌ای و خوش‌ذوق در سرعین هستی. یک متن معرفی گرم و جذاب برای این ملک بنویس — طوری که وقتی مشاور آن را برای مشتری می‌خواند، مشتری هیجان‌زده شود و بگوید «بریم ببینیمش». لحن صمیمی و تصویری باشد، نه خشک و فهرست‌وار. حس زندگی در آن ملک را منتقل کن (نور، فضا، آرامش، موقعیت خوب سرعین و نزدیکی به طبیعت و آب‌گرم). حداکثر ۵ خط. با یک جمله‌ی دعوت‌کننده تمام کن.
-اطلاعات ملک:
-عنوان: ${p.title}
-نوع: ${p.type}${isPreSale ? " (پیش‌فروش)" : ""}
-متراژ: ${p.area} متر
-طبقه: ${p.floor || "-"}
-اتاق خواب: ${p.rooms}
-لوازم: ${p.furnished || "-"}
-موقعیت: ${p.address}
-قیمت: ${fmtToman(p.price)}
-فقط خودِ متن معرفی را برگردان، بدون تیتر و توضیح اضافه.`;
-      const text = await callAI(prompt);
-      setAdText(text.trim());
-      setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: text.trim() } : x));
-    } catch (e) { notify(`خطا در تولید آگهی: ${e.message || "نامشخص"}`); }
-    setAiLoading(false);
-  };
-
   return (
-    <div className="pt-2">
-      <BackHeader c={c} title="جزئیات فایل" onBack={onBack} onEdit={() => setSheet({ kind: "property", editId: id })} onDelete={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("فایل حذف شد"); }} />
-      <SectionHeader c={c} title="عکس و فیلم" />
-      <div className="mb-4"><MediaGallery c={c} media={p.media || []} uploading={uploading} onAdd={addMedia} onRemove={removeMedia} onView={setLightbox} /></div>
+    <div>
+      <PropertyHero c={c} p={p} media={p.media || []} onBack={onBack} onEdit={() => setSheet({ kind: "property", editId: id })} uploading={uploading} addMedia={addMedia} setLightbox={setLightbox} />
+      <div className="flex justify-end" style={{ marginTop: SP.md, marginBottom: SP.md }}>
+        <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("فایل حذف شد"); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.danger }}><Trash2 size={12} color={c.danger} />حذف فایل</button>
+      </div>
 
-      <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2.5">
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}>
-              {floraIcon(floraTypeIcon(p.type, p.deal), { size: 26, color: c.primary })}
-            </div>
-            <span style={{ fontSize: 11, background: c.primarySoft, color: c.primary, padding: "3px 10px", borderRadius: 999, fontWeight: 700 }}>{p.deal}</span>
+      <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <h3 style={{ fontSize: FS.title, fontWeight: FW.heavy, letterSpacing: "-0.01em", textDecoration: p.stage === "فروخته شد" ? "line-through" : "none" }}>{p.title}</h3>
+            <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.sm, color: c.muted, fontSize: FS.caption }}><MapPin size={13} />{p.address || "بدون آدرس"}</div>
           </div>
           <StageBadge c={c} stage={p.stage} />
         </div>
-        <h3 style={{ fontSize: 17, fontWeight: 800, marginTop: 8, textDecoration: p.stage === "فروخته شد" ? "line-through" : "none" }}>{p.title}</h3>
-        <p style={{ fontSize: 20, fontWeight: 800, color: c.primary, marginTop: 4 }}>{fmtToman(p.price)}</p>
-        <p style={{ fontSize: 11.5, color: c.muted, marginTop: 2 }}>{fmtToman(p.pricePerMeter)} در هر متر · {faDigits(p.area)} متر</p>
-        <div className="flex gap-2 mt-3 flex-wrap">
-          <InfoChip c={c} icon={Ruler} label={`${faDigits(p.area)} متر`} />
-          <InfoChip c={c} icon={typeIcon(p.type)} label={p.type} />
-          <InfoChip c={c} icon={Home} label={`${faDigits(p.rooms)} خواب`} />
-          {p.floor != null && <InfoChip c={c} icon={Building} label={`طبقه ${faDigits(p.floor)}`} />}
-          {p.furnished && <InfoChip c={c} icon={BadgeCheck} label={p.furnished} />}
-        </div>
-        <div className="flex items-center gap-1.5 mt-3" style={{ color: c.muted, fontSize: 12.5 }}><MapPin size={13} /> {p.address}</div>
-        {owner && <OwnerReveal c={c} owner={owner} />}
-        {builder && <div className="flex items-center gap-1.5 mt-2" style={{ color: c.muted, fontSize: 12.5 }}><Hammer size={13} /> سازنده: {builder.name} · <span dir="ltr">{builder.phone}</span></div>}
 
-        <div className="flex gap-2 mt-4">
+        {/* spec grid — matches the reference's icon-over-label row */}
+        <div className="grid grid-cols-4" style={{ gap: SP.sm, marginTop: SP.lg, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+          {[
+            { icon: Ruler, label: `${faDigits(p.area)} متر` },
+            { icon: Home, label: `${faDigits(p.rooms)} خواب` },
+            { icon: Building, label: p.floor != null ? `طبقه ${faDigits(p.floor)}` : "—" },
+            { icon: typeIcon(p.type), label: p.type },
+          ].map((s, i) => (
+            <div key={i} className="flex flex-col items-center" style={{ gap: SP.xs + 1 }}>
+              <s.icon size={18} color={c.muted} />
+              <span style={{ fontSize: FS.caption, color: c.ink, fontWeight: FW.medium, textAlign: "center" }}>{s.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginTop: SP.lg }}>
+          <p style={{ fontSize: FS.caption, color: c.muted }}>قیمت</p>
+          <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.xs }}>{fmtToman(p.price)}</p>
+        </div>
+
+        {p.furnished && <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.md, color: c.muted, fontSize: FS.caption }}><BadgeCheck size={13} />{p.furnished}</div>}
+        {owner && <OwnerReveal c={c} owner={owner} />}
+        {builder && <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.sm, color: c.muted, fontSize: FS.caption }}><Hammer size={13} /> سازنده: {builder.name} · <span dir="ltr">{builder.phone}</span></div>}
+
+        <div className="flex" style={{ gap: SP.sm, marginTop: SP.lg }}>
           {STAGES.map((s) => (
-            <button key={s} onClick={() => setProperties((prev) => prev.map((x) => x.id === id ? { ...x, stage: s } : x))} className="press flex-1 rounded-xl py-2.5" style={{ background: p.stage === s ? c.primary : c.surface2, color: p.stage === s ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>{s}</button>
+            <button key={s} onClick={() => setProperties((prev) => prev.map((x) => x.id === id ? { ...x, stage: s } : x))} className="press flex-1" style={{ borderRadius: RAD.md, paddingBlock: SP.sm + 2, background: p.stage === s ? c.primary : c.surface2, color: p.stage === s ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption }}>{s}</button>
           ))}
         </div>
       </div>
 
-      <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
-        <div className="flex items-center justify-between mb-2.5">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>معرفی برای مشتری</p>
-          <button onClick={generateAd} disabled={aiLoading} className="press flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontSize: 11.5, fontWeight: 700 }}>
-            {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {aiLoading ? "در حال نوشتن..." : "نوشتن با AI"}
-          </button>
-        </div>
-        <textarea value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="یک متن گرم برای نشان‌دادن به مشتری بنویس، یا با دکمه‌ی بالا بگذار AI بنویسد..."
-          rows={5} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.9, color: c.ink, outline: "none", fontFamily: "inherit", resize: "vertical" }} />
-        <button onClick={() => { setProperties((prev) => prev.map((x) => x.id === id ? { ...x, desc: adText } : x)); notify("آگهی ذخیره شد"); }}
-          className="press w-full mt-2 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ذخیره آگهی</button>
-      </div>
+      {p.desc && <AboutPropertyCard c={c} desc={p.desc} />}
+
+      <ScheduleVisitCard ctx={ctx} property={p} />
 
       {p.deal === "پیش‌فروش" && (p.preDown || p.preDelivery || p.preDeed || p.preMonths) && (
         <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
