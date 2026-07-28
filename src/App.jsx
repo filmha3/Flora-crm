@@ -1048,7 +1048,7 @@ function MarketWidget({ c }) {
     (async () => {
       try {
         // BrsApi free endpoint returns { gold:[...], currency:[...] } as JSON
-        const res = await fetch("https://brsapi.ir/Api/Market/Gold_Currency.php?key=BVjuQ6mYZMzT9usLPTVArBTNYbFegq8B", { signal: AbortSignal.timeout?.(6000) });
+        const res = await fetch("https://api.brsapi.ir/Api/Market/Gold_Currency.php?key=BVjuQ6mYZMzT9usLPTVArBTNYbFegq8B", { signal: AbortSignal.timeout?.(6000) });
         if (!res.ok) throw new Error("bad status");
         const json = await res.json();
         const usd = (json.currency || []).find((x) => /USD|دلار/i.test(x.symbol || x.name || ""));
@@ -2198,7 +2198,7 @@ function PropertyMiniCard({ p, c, onClick }) {
   return (
     <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c, 22), opacity: sold ? 0.55 : 1 }}>
       <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 56, height: 56, borderRadius: RAD.md, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
+        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
       </div>
       <div className="flex-1 min-w-0">
         <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: sold ? "line-through" : "none" }}>{p.title}</p>
@@ -2331,35 +2331,26 @@ function AllPropertiesMap({ c, rows, onOpen }) {
 }
 
 // Pulls the dominant color out of a cover photo so each card's bottom gradient is
-// tinted by its own image (the signature look of the reference design). Our photos
-// are locally-stored data URLs, so canvas sampling works without CORS tainting.
+// tinted by its own image (the signature look of the reference design). Samples
+// directly from the <img> already on screen — a separate hidden Image() used to
+// be created just for sampling, which meant every photo decoded twice.
 const domColorCache = new Map();
-function useDominantColor(url) {
-  const [rgb, setRgb] = useState(() => (url ? domColorCache.get(url) : null) || null);
-  useEffect(() => {
-    if (!url || domColorCache.has(url)) { if (url) setRgb(domColorCache.get(url)); return; }
-    let cancelled = false;
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const S = 12; // tiny sample — enough for an average, costs nothing
-        const cv = document.createElement("canvas");
-        cv.width = S; cv.height = S;
-        const cx = cv.getContext("2d", { willReadFrequently: true });
-        cx.drawImage(img, 0, 0, S, S);
-        const d = cx.getImageData(0, 0, S, S).data;
-        let r = 0, g = 0, b = 0, n = 0;
-        // Sample the lower half — that's what sits behind the gradient/text.
-        for (let i = Math.floor(d.length / 2); i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
-        const out = [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
-        domColorCache.set(url, out);
-        if (!cancelled) setRgb(out);
-      } catch (e) { /* leave null — the card falls back to a neutral gradient */ }
-    };
-    img.src = url;
-    return () => { cancelled = true; };
-  }, [url]);
-  return rgb;
+function sampleDominantColor(imgEl, url) {
+  if (domColorCache.has(url)) return domColorCache.get(url);
+  try {
+    const S = 12; // tiny sample — enough for an average, costs nothing
+    const cv = document.createElement("canvas");
+    cv.width = S; cv.height = S;
+    const cx = cv.getContext("2d", { willReadFrequently: true });
+    cx.drawImage(imgEl, 0, 0, S, S);
+    const d = cx.getImageData(0, 0, S, S).data;
+    let r = 0, g = 0, b = 0, n = 0;
+    // Sample the lower half — that's what sits behind the gradient/text.
+    for (let i = Math.floor(d.length / 2); i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+    const out = [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+    domColorCache.set(url, out);
+    return out;
+  } catch (e) { return null; } // falls back to a neutral gradient
 }
 
 function PropertyGridCard({ p, ctx, onClick }) {
@@ -2367,7 +2358,15 @@ function PropertyGridCard({ p, ctx, onClick }) {
   const cover = p.media && p.media[0];
   const Icon = typeIcon(p.type);
   const sold = p.stage === "فروخته شد";
-  const rgb = useDominantColor(cover && cover.type === "image" ? cover.url : null);
+  const url = cover && cover.type === "image" ? cover.url : null;
+  const imgRef = useRef(null);
+  const [rgb, setRgb] = useState(() => (url ? domColorCache.get(url) : null) || null);
+  useEffect(() => {
+    if (!url) return;
+    if (domColorCache.has(url)) { setRgb(domColorCache.get(url)); return; }
+    // Image may already be loaded (cached/fast) by the time this runs.
+    if (imgRef.current?.complete) setRgb(sampleDominantColor(imgRef.current, url));
+  }, [url]);
   // Deepen the sampled color so white text always clears contrast, then fade it out.
   const tint = rgb ? `${Math.round(rgb[0] * 0.55)}, ${Math.round(rgb[1] * 0.55)}, ${Math.round(rgb[2] * 0.55)}` : "18, 24, 38";
 
@@ -2377,10 +2376,10 @@ function PropertyGridCard({ p, ctx, onClick }) {
 
   return (
     <button onClick={onClick} className="press text-right relative overflow-hidden" style={{ borderRadius: 22, aspectRatio: "3 / 4", background: c.surface2 }}>
-      {/* full-bleed photo */}
+      {/* full-bleed photo — lazy-loaded so offscreen cards don't decode until near view */}
       {cover ? (
         cover.type === "image"
-          ? <img src={cover.url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          ? <img ref={imgRef} src={cover.url} alt="" loading="lazy" decoding="async" onLoad={(e) => { if (!domColorCache.has(url)) setRgb(sampleDominantColor(e.currentTarget, url)); }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
           : <video src={cover.url} muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: `linear-gradient(150deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
