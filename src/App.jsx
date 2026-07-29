@@ -189,16 +189,28 @@ const reencodeToWebp = (dataUrl) => new Promise((resolve) => {
 });
 const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (file) => {
   const isVideo = file.type.startsWith("video");
+  const isImage = file.type.startsWith("image");
   if (isVideo) {
     const url = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); });
     return { id: uid(), type: "video", url, name: file.name };
   }
-  return { id: uid(), type: "image", url: await compressImage(file), name: file.name };
+  if (isImage) return { id: uid(), type: "image", url: await compressImage(file), name: file.name };
+  // Documents (PDF, Word, etc.) — stored as-is, no image compression pipeline applies.
+  const url = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); });
+  return { id: uid(), type: "file", url, name: file.name };
 }));
 
 const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
 // Where a buyer is in their journey — cleaned-up, agent-friendly labels.
 const CUSTOMER_STAGES = ["در حال بررسی", "دنبال سرمایه‌گذاری", "دنبال پیش‌فروش", "خرید کرد", "منصرف شد", "بدون پیگیری"];
+// Investment Center (Portfolio) — Phase 1 constants
+const INVESTMENT_STATUSES = ["در حال بررسی", "خریداری‌شده", "در حال بازسازی", "برای فروش", "فروخته‌شده"];
+const INVESTMENT_TYPES = ["خرید و نگهداری", "بازسازی و فروش", "پیش‌خرید", "مشارکت در ساخت"];
+const INVESTMENT_EXPENSE_CATEGORIES = ["کمیسیون", "مالیات", "دفترخانه", "انتقال سند", "بازسازی", "کابینت", "رنگ", "کناف", "برق", "لوله‌کشی", "آسانسور", "پارکینگ", "بیمه", "وام", "بهره", "تبلیغات", "نظافت", "حمل", "سایر"];
+// Payments and checks are merged into one ledger — a check is just a payment
+// with a due date and a clearing status, not a separate system.
+const PAYMENT_METHODS = ["نقد", "کارت", "حواله", "انتقال بانکی", "چک"];
+const CHECK_STATUSES = ["در انتظار", "پاس شده", "برگشت خورده", "باطل شده"];
 const CUSTOMER_STAGE_COLOR = (c) => ({
   "در حال بررسی": c.primary,
   "دنبال سرمایه‌گذاری": c.purple,
@@ -388,6 +400,7 @@ export default function FloraCRM() {
   // each payment) so the whole ledger stays consistent if the ratio is ever corrected.
   const [splitShares, setSplitShares] = useState({ agent: 1, management: 1, rent: 1 });
   const [officeIncomes, setOfficeIncomes] = useState(seedOfficeIncomes);
+  const [investments, setInvestments] = useState([]); // Investment Center (Portfolio) — Phase 1
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
@@ -417,6 +430,7 @@ export default function FloraCRM() {
           if (saved.payments) setPayments(saved.payments);
           if (saved.expenses) setExpenses(saved.expenses);
           if (saved.officeIncomes) setOfficeIncomes(saved.officeIncomes);
+          if (saved.investments) setInvestments(saved.investments);
         }
         const settings = await dbGet(SETTINGS_KEY);
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
@@ -438,10 +452,10 @@ export default function FloraCRM() {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes }).catch(() => {});
+      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes]);
+  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, avalaiKey, avalaiModel, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, avalaiKey, avalaiModel, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
@@ -572,26 +586,45 @@ export default function FloraCRM() {
     });
   };
 
-  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes });
+  // Persian (Jalali) date for filenames — e.g. "۶-مرداد-۱۴۰۵" instead of 2026-07-28.
+  const jalaliFileDate = () => { const [jy, jm, jd] = isoToJalali(todayISO()); return `${faDigits(jd)}-${MONTHS_FA[jm - 1]}-${faDigits(jy)}`; };
+  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments });
   const downloadBackup = (payload, label) => {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `flora-backup-${label || todayISO()}.json`; a.click();
+    a.href = url; a.download = `flora-backup-${label || jalaliFileDate()}.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  // Real device share sheet — Telegram, WhatsApp, Files, Mail, AirDrop all show
+  // up as targets since we're sharing an actual file, not just a link. Falls
+  // back to a plain download if the browser doesn't support file sharing.
+  const shareBackup = async (payload, label, friendlyName) => {
+    const filename = `flora-backup-${label || jalaliFileDate()}.json`;
+    const file = new File([JSON.stringify(payload, null, 2)], filename, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: friendlyName || "بکاپ فلورا" }); return; }
+      catch (e) { if (e?.name === "AbortError") return; /* user cancelled — not an error */ }
+    }
+    notify("ارسال مستقیم پشتیبانی نشد — دانلود شد، خودت بفرست");
+    downloadBackup(payload, label);
   };
   const exportBackup = () => {
     downloadBackup(buildBackupPayload());
     dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now() }).catch(() => {});
     notify("فایل بکاپ کامل دانلود شد");
   };
+  const shareBackupNow = async () => {
+    await shareBackup(buildBackupPayload(), null, "بکاپ کامل فلورا");
+    dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now() }).catch(() => {});
+  };
   // Scoped backups — the import merges whatever it finds, so these restore cleanly too.
   const exportProperties = () => {
-    downloadBackup({ version: 1, exportedAt: new Date().toISOString(), scope: "properties", properties, owners, builders, customers, appointments, calls }, `files-customers-${todayISO()}`);
+    downloadBackup({ version: 1, exportedAt: new Date().toISOString(), scope: "properties", properties, owners, builders, customers, appointments, calls }, `files-customers-${jalaliFileDate()}`);
     notify("بکاپ فایل‌ها و مشتری‌ها دانلود شد");
   };
   const exportFinance = () => {
-    downloadBackup({ version: 1, exportedAt: new Date().toISOString(), scope: "finance", deals, payments, expenses, officeIncomes }, `finance-${todayISO()}`);
+    downloadBackup({ version: 1, exportedAt: new Date().toISOString(), scope: "finance", deals, payments, expenses, officeIncomes }, `finance-${jalaliFileDate()}`);
     notify("بکاپ مالی دانلود شد");
   };
   const importBackup = (file) => {
@@ -609,6 +642,7 @@ export default function FloraCRM() {
         if (data.payments) setPayments(data.payments);
         if (data.expenses) setExpenses(data.expenses);
         if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
+        if (data.investments) setInvestments(data.investments);
         notify("بکاپ با موفقیت بازیابی شد");
       } catch (e) { notify("فایل بکاپ نامعتبر است"); }
     };
@@ -624,10 +658,10 @@ export default function FloraCRM() {
   const ctx = {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, splitShares, setSplitShares, simpleMode, setSimpleMode,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
-    scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance,
+    scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
   };
 
   if (!loaded) {
@@ -2815,7 +2849,7 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
 }
 
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
+  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
 
@@ -2850,6 +2884,16 @@ function MoreTab({ ctx }) {
           <ChevronLeft size={17} color={c.muted} />
         </button>
       )}
+
+      {/* New: Investment Center (Portfolio) — Phase 1 */}
+      <button onClick={() => setDetail({ type: "investment-center" })} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.purpleSoft }}><TrendingUp size={20} color={c.purple} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>سرمایه‌گذاری</p>
+          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>پورتفولیوی سرمایه‌گذاری، شرکا و سود هر پروژه</p>
+        </div>
+        <ChevronLeft size={17} color={c.muted} />
+      </button>
 
       {/* Two hero shortcuts */}
       <div className="grid grid-cols-2 gap-3 mb-3">
@@ -2931,8 +2975,11 @@ function MoreTab({ ctx }) {
       {/* Collapsible: settings & backup */}
       <CollapsibleCard c={c} icon={Wallet} tint={c.purple} title="پشتیبان‌گیری و تنظیمات" subtitle="بکاپ داده‌ها و هوش مصنوعی">
         <p style={{ fontSize: 10.5, color: c.muted, marginBottom: 8, lineHeight: 1.7 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. اگر فقط بخشی را می‌خواهی، از دکمه‌های جدا استفاده کن.</p>
+        <button onClick={shareBackupNow} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primary }}>
+          <Send size={14} color="#fff" /><span style={{ fontSize: 11.5, fontWeight: 700, color: "#fff" }}>ارسال بکاپ (تلگرام، واتساپ، ایمیل...)</span>
+        </button>
         <button onClick={exportBackup} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primarySoft }}>
-          <Download size={14} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>بکاپ کامل</span>
+          <Download size={14} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>دانلود بکاپ کامل</span>
         </button>
         <div className="flex gap-2 mb-2">
           <button onClick={exportProperties} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
@@ -2970,8 +3017,508 @@ function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "calls") return <CallsView ctx={ctx} onBack={onBack} />;
   if (detail.type === "ai-chat") return <AiChatView ctx={ctx} onBack={onBack} />;
   if (detail.type === "finance") return <FinanceCenterView ctx={ctx} onBack={onBack} />;
+  if (detail.type === "investment-center") return <InvestmentCenterView ctx={ctx} onBack={onBack} />;
+  if (detail.type === "investment") return <InvestmentDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   return null;
 }
+// ---------- Investment Center (Portfolio) — Phase 1 ----------
+// Purchase price + all expenses = cost basis. Current value − cost basis = real
+// profit. This is the one formula the whole module leans on; everything else
+// (partner shares, cards, dashboards) is built from these three numbers so the
+// agent never has to open a calculator, per the source spec's design philosophy.
+function computeInvestmentStats(inv) {
+  const totalExpenses = (inv.expenses || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const costBasis = (Number(inv.purchasePrice) || 0) + totalExpenses;
+  const currentValue = Number(inv.currentValue) || 0;
+  const profit = currentValue - costBasis;
+  const profitPct = costBasis > 0 ? (profit / costBasis) * 100 : 0;
+  const partnerPercentSum = (inv.partners || []).reduce((s, p) => s + (Number(p.percent) || 0), 0);
+  const totalCapital = (inv.partners || []).reduce((s, p) => s + (Number(p.capital) || 0), 0);
+  // Cash flow — money in (logged payments/partner contributions) vs money out
+  // (project expenses). Pending checks are money committed but not yet cleared.
+  const payments = inv.payments || [];
+  const cashIn = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const cashOut = totalExpenses;
+  const cashBalance = cashIn - cashOut;
+  const pendingChecks = payments.filter((p) => p.method === "چک" && p.checkStatus === "در انتظار");
+  const pendingChecksTotal = pendingChecks.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const nextDueCheck = pendingChecks.slice().sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""))[0];
+  // ROI, annualized using actual holding period so a 3-month flip and a
+  // 3-year hold aren't compared on the same footing.
+  const holdDays = inv.purchaseDate ? Math.max(1, daysSince(inv.purchaseDate)) : 0;
+  const annualizedRoi = holdDays > 0 ? profitPct * (365 / holdDays) : 0;
+  return { totalExpenses, costBasis, currentValue, profit, profitPct, partnerPercentSum, totalCapital, cashIn, cashOut, cashBalance, pendingChecksTotal, pendingChecksCount: pendingChecks.length, nextDueCheck, holdDays, annualizedRoi };
+}
+
+function InvestmentCard({ c, inv, onClick }) {
+  const stats = computeInvestmentStats(inv);
+  const cover = inv.media && inv.media[0];
+  const profitable = stats.profit >= 0;
+  return (
+    <button onClick={onClick} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glassLite(c, RAD.lg) }}>
+      <div className="flex items-center" style={{ gap: SP.md }}>
+        <div className="rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 52, height: 52, background: c.purpleSoft }}>
+          {cover ? <img src={cover.url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Landmark size={24} color={c.purple} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inv.title}</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inv.address || "بدون آدرس"}</p>
+        </div>
+        <span className="rounded-full shrink-0" style={{ fontSize: 9.5, fontWeight: FW.bold, color: c.purple, background: c.purpleSoft, padding: "3px 9px" }}>{inv.status || INVESTMENT_STATUSES[0]}</span>
+      </div>
+      <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
+        <div>
+          <p style={{ fontSize: 9.5, color: c.muted }}>ارزش روز</p>
+          <p style={{ fontSize: FS.body, fontWeight: FW.heavy, marginTop: 2 }}>{fmtBudgetShort(stats.currentValue)}</p>
+        </div>
+        <div className="text-left">
+          <p style={{ fontSize: 9.5, color: c.muted }}>سود / زیان</p>
+          <p style={{ fontSize: FS.body, fontWeight: FW.heavy, marginTop: 2, color: profitable ? c.success : c.danger, direction: "ltr" }}>
+            {profitable ? "+" : ""}{fmtBudgetShort(stats.profit)} <span style={{ fontSize: FS.caption }}>({faDigits(Math.round(stats.profitPct))}٪)</span>
+          </p>
+        </div>
+      </div>
+      {(inv.partners?.length > 0 || stats.pendingChecksCount > 0) && (
+        <div className="flex items-center" style={{ gap: SP.md, marginTop: SP.sm, color: c.muted, fontSize: FS.caption }}>
+          {inv.partners?.length > 0 && <span className="flex items-center" style={{ gap: SP.xs }}><Users size={12} />{faDigits(inv.partners.length)} شریک</span>}
+          {stats.pendingChecksCount > 0 && (
+            <span className="flex items-center" style={{ gap: SP.xs, color: c.attn }}>
+              <FileCheck size={12} color={c.attn} />{faDigits(stats.pendingChecksCount)} چک باز{stats.nextDueCheck ? ` · سررسید ${fmtJalali(stats.nextDueCheck.dueDate)}` : ""}
+            </span>
+          )}
+        </div>
+      )}
+    </button>
+  );
+}
+
+function InvestmentCenterView({ ctx, onBack }) {
+  const { c, investments, setInvestments, setDetail, notify } = ctx;
+  const [showForm, setShowForm] = useState(false);
+  const allStats = investments.map((i) => computeInvestmentStats(i));
+  const totalValue = allStats.reduce((s, x) => s + x.currentValue, 0);
+  const totalProfit = allStats.reduce((s, x) => s + x.profit, 0);
+  const totalCapital = allStats.reduce((s, x) => s + x.totalCapital, 0);
+  const profitableCount = allStats.filter((x) => x.profit >= 0).length;
+  const losingCount = allStats.length - profitableCount;
+
+  return (
+    <div className="pt-2">
+      <BackHeader c={c} title="پورتفولیوی سرمایه‌گذاری" onBack={onBack} />
+
+      {investments.length > 0 && (
+        <div className="grid grid-cols-2" style={{ gap: SP.md, marginBottom: SP.lg }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>ارزش کل دارایی‌ها</p>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}>{fmtBudgetShort(totalValue)}</p>
+          </div>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>سود کل</p>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4, color: totalProfit >= 0 ? c.success : c.danger }}>{totalProfit >= 0 ? "+" : ""}{fmtBudgetShort(totalProfit)}</p>
+          </div>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>سرمایه درگیر</p>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}>{fmtBudgetShort(totalCapital)}</p>
+          </div>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>پروژه‌های سودده / زیان‌ده</p>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}><span style={{ color: c.success }}>{faDigits(profitableCount)}</span> / <span style={{ color: c.danger }}>{faDigits(losingCount)}</span></p>
+          </div>
+        </div>
+      )}
+
+      <button onClick={() => setShowForm(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body, marginBottom: SP.lg }}>
+        <Plus size={17} color="#fff" />ثبت پروژه‌ی جدید
+      </button>
+
+      <div className="flex flex-col flora-stagger" style={{ gap: SP.md }}>
+        {investments.map((inv) => <InvestmentCard key={inv.id} c={c} inv={inv} onClick={() => setDetail({ type: "investment", id: inv.id })} />)}
+        {investments.length === 0 && <EmptyLine c={c} text="هنوز پروژه‌ای ثبت نشده" />}
+      </div>
+
+      {showForm && <InvestmentForm ctx={ctx} onClose={() => setShowForm(false)} />}
+    </div>
+  );
+}
+
+function InvestmentForm({ ctx, onClose, editId }) {
+  const { c, investments, setInvestments, notify } = ctx;
+  const editing = editId ? investments.find((x) => x.id === editId) : null;
+  const [f, setF] = useState(editing ? {
+    title: editing.title, propertyType: editing.propertyType || "آپارتمان", investmentType: editing.investmentType || INVESTMENT_TYPES[0],
+    address: editing.address || "", area: String(editing.area || ""), buildYear: String(editing.buildYear || ""), floor: String(editing.floor || ""), unitCount: String(editing.unitCount || ""),
+    seller: editing.seller || "", buyer: editing.buyer || "", purchaseDate: editing.purchaseDate || todayISO(), deliveryDate: editing.deliveryDate || "",
+    purchasePrice: String(editing.purchasePrice || ""), currentValue: String(editing.currentValue || editing.purchasePrice || ""), status: editing.status || INVESTMENT_STATUSES[0], desc: editing.desc || "",
+  } : { title: "", propertyType: "آپارتمان", investmentType: INVESTMENT_TYPES[0], address: "", area: "", buildYear: "", floor: "", unitCount: "", seller: "", buyer: "", purchaseDate: todayISO(), deliveryDate: "", purchasePrice: "", currentValue: "", status: INVESTMENT_STATUSES[0], desc: "" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const valid = f.title.trim() && f.purchasePrice;
+
+  const save = () => {
+    const payload = {
+      title: f.title.trim(), propertyType: f.propertyType, investmentType: f.investmentType, address: f.address.trim(),
+      area: toNum(f.area), buildYear: toNum(f.buildYear), floor: toNum(f.floor), unitCount: toNum(f.unitCount),
+      seller: f.seller.trim(), buyer: f.buyer.trim(), purchaseDate: f.purchaseDate, deliveryDate: f.deliveryDate,
+      purchasePrice: toNum(f.purchasePrice), currentValue: toNum(f.currentValue) || toNum(f.purchasePrice), status: f.status, desc: f.desc.trim(),
+    };
+    if (editing) {
+      setInvestments((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
+      notify("پروژه به‌روزرسانی شد");
+    } else {
+      setInvestments((prev) => [{ id: uid(), media: [], documents: [], partners: [], expenses: [], payments: [], createdAt: new Date().toISOString(), ...payload }, ...prev]);
+      notify("پروژه ثبت شد");
+    }
+    onClose();
+  };
+
+  return (
+    <SheetShell c={c} title={editing ? "ویرایش پروژه" : "ثبت پروژه‌ی سرمایه‌گذاری"} onClose={onClose}>
+      <Field c={c} label="عنوان پروژه"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder="مثلاً برج مروارید — واحد ۱۲" /></Field>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="نوع ملک"><Select c={c} value={f.propertyType} onChange={set("propertyType")} options={TYPE_FILTERS.slice(1).map((t) => ({ value: t, label: t }))} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="نوع سرمایه‌گذاری"><Select c={c} value={f.investmentType} onChange={set("investmentType")} options={INVESTMENT_TYPES.map((t) => ({ value: t, label: t }))} /></Field></div>
+      </div>
+      <Field c={c} label="آدرس"><input style={inputStyle(c)} value={f.address} onChange={set("address")} /></Field>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="متراژ"><input style={inputStyle(c)} inputMode="numeric" value={f.area} onChange={set("area")} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="سال ساخت"><input style={inputStyle(c)} inputMode="numeric" value={f.buildYear} onChange={set("buildYear")} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="طبقه"><input style={inputStyle(c)} inputMode="numeric" value={f.floor} onChange={set("floor")} /></Field></div>
+      </div>
+      <Field c={c} label="تعداد واحد"><input style={inputStyle(c)} inputMode="numeric" value={f.unitCount} onChange={set("unitCount")} /></Field>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="فروشنده"><input style={inputStyle(c)} value={f.seller} onChange={set("seller")} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="خریدار"><input style={inputStyle(c)} value={f.buyer} onChange={set("buyer")} /></Field></div>
+      </div>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="تاریخ خرید"><JalaliDatePicker c={c} value={f.purchaseDate} onChange={(iso) => setF({ ...f, purchaseDate: iso })} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="تاریخ تحویل"><JalaliDatePicker c={c} value={f.deliveryDate || todayISO()} onChange={(iso) => setF({ ...f, deliveryDate: iso })} /></Field></div>
+      </div>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="قیمت خرید (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.purchasePrice} onChange={set("purchasePrice")} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="ارزش روز (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.currentValue} onChange={set("currentValue")} placeholder="اگر خالی، برابر قیمت خرید" /></Field></div>
+      </div>
+      <Field c={c} label="وضعیت پروژه"><Select c={c} value={f.status} onChange={set("status")} options={INVESTMENT_STATUSES.map((s) => ({ value: s, label: s }))} /></Field>
+      <Field c={c} label="توضیحات"><input style={inputStyle(c)} value={f.desc} onChange={set("desc")} /></Field>
+      <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ثبت پروژه"} disabled={!valid} onClick={save} />
+    </SheetShell>
+  );
+}
+
+function PartnerForm({ c, onClose, onSave, editing }) {
+  const [f, setF] = useState(editing || { name: "", percent: "", capital: "", account: "", card: "", sheba: "", phone: "", email: "", note: "" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const valid = f.name.trim() && f.percent;
+  return (
+    <SheetShell c={c} title={editing ? "ویرایش شریک" : "افزودن شریک"} onClose={onClose}>
+      <Field c={c} label="نام"><input style={inputStyle(c)} value={f.name} onChange={set("name")} /></Field>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="درصد مالکیت"><input style={inputStyle(c)} inputMode="numeric" value={f.percent} onChange={set("percent")} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="مبلغ سرمایه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.capital} onChange={set("capital")} /></Field></div>
+      </div>
+      <PhoneField c={c} label="تلفن" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} onPickContact={({ name, phone }) => setF((prev) => ({ ...prev, name: name || prev.name, phone: phone || prev.phone }))} />
+      <Field c={c} label="ایمیل"><input style={inputStyle(c)} dir="ltr" value={f.email} onChange={set("email")} /></Field>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="شماره حساب"><input style={inputStyle(c)} dir="ltr" value={f.account} onChange={set("account")} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="شماره کارت"><input style={inputStyle(c)} dir="ltr" value={f.card} onChange={set("card")} /></Field></div>
+      </div>
+      <Field c={c} label="شماره شبا"><input style={inputStyle(c)} dir="ltr" value={f.sheba} onChange={set("sheba")} /></Field>
+      <Field c={c} label="یادداشت"><input style={inputStyle(c)} value={f.note} onChange={set("note")} /></Field>
+      <SubmitBtn c={c} label="ذخیره شریک" disabled={!valid} onClick={() => { onSave({ id: editing?.id || uid(), ...f, percent: toNum(f.percent), capital: toNum(f.capital) }); onClose(); }} />
+    </SheetShell>
+  );
+}
+
+// Payments and checks, merged: pick a method, and if it's a check, two extra
+// fields (bank + due date) and a status appear — one form, one ledger.
+function PaymentForm({ c, onClose, onSave, editing }) {
+  const [f, setF] = useState(editing || { amount: "", date: todayISO(), desc: "", method: PAYMENT_METHODS[0], bank: "", dueDate: todayISO(), checkStatus: CHECK_STATUSES[0] });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const isCheck = f.method === "چک";
+  const valid = f.amount;
+  return (
+    <SheetShell c={c} title={editing ? "ویرایش پرداخت" : "ثبت پرداخت"} onClose={onClose}>
+      <Field c={c} label="روش پرداخت">
+        <div className="flex flex-wrap" style={{ gap: SP.sm }}>
+          {PAYMENT_METHODS.map((m) => { const active = f.method === m; return (
+            <button key={m} onClick={() => setF({ ...f, method: m })} className="press" style={{ paddingInline: SP.md, paddingBlock: SP.sm, borderRadius: RAD.md, background: active ? c.primary : c.surface2, color: active ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption }}>{m}</button>
+          ); })}
+        </div>
+      </Field>
+      <Field c={c} label="مبلغ (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} /></Field>
+      <Field c={c} label="تاریخ"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
+      {isCheck && (
+        <>
+          <Field c={c} label="بانک"><input style={inputStyle(c)} value={f.bank} onChange={set("bank")} /></Field>
+          <Field c={c} label="تاریخ سررسید"><JalaliDatePicker c={c} value={f.dueDate} onChange={(iso) => setF({ ...f, dueDate: iso })} /></Field>
+          <Field c={c} label="وضعیت چک"><Select c={c} value={f.checkStatus} onChange={set("checkStatus")} options={CHECK_STATUSES.map((s) => ({ value: s, label: s }))} /></Field>
+        </>
+      )}
+      <Field c={c} label="توضیح"><input style={inputStyle(c)} value={f.desc} onChange={set("desc")} /></Field>
+      <SubmitBtn c={c} label="ذخیره" disabled={!valid} onClick={() => { onSave({ id: editing?.id || uid(), ...f, amount: toNum(f.amount) }); onClose(); }} />
+    </SheetShell>
+  );
+}
+
+function InvestmentExpenseForm({ c, onClose, onSave }) {
+  const [f, setF] = useState({ amount: "", date: todayISO(), payer: "", desc: "", category: INVESTMENT_EXPENSE_CATEGORIES[0] });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const valid = f.amount;
+  return (
+    <SheetShell c={c} title="ثبت هزینه" onClose={onClose}>
+      <Field c={c} label="دسته‌بندی"><Select c={c} value={f.category} onChange={set("category")} options={INVESTMENT_EXPENSE_CATEGORIES.map((x) => ({ value: x, label: x }))} /></Field>
+      <Field c={c} label="مبلغ (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} /></Field>
+      <Field c={c} label="تاریخ"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
+      <Field c={c} label="پرداخت‌کننده"><input style={inputStyle(c)} value={f.payer} onChange={set("payer")} /></Field>
+      <Field c={c} label="توضیح"><input style={inputStyle(c)} value={f.desc} onChange={set("desc")} /></Field>
+      <SubmitBtn c={c} label="ثبت هزینه" disabled={!valid} onClick={() => { onSave({ id: uid(), ...f, amount: toNum(f.amount) }); onClose(); }} />
+    </SheetShell>
+  );
+}
+
+// "اگر امروز بفروشم" — Exit Strategy and Partner Settlement merged into one
+// calculator, since they're the same underlying math viewed from two angles:
+// the project's net proceeds, and exactly who gets how much of them.
+function ExitStrategyCard({ c, inv, onClose }) {
+  const stats = computeInvestmentStats(inv);
+  const [salePrice, setSalePrice] = useState(String(stats.currentValue || inv.purchasePrice || 0));
+  const [taxPct, setTaxPct] = useState("5");
+  const [commissionPct, setCommissionPct] = useState("2");
+
+  const sp = toNum(salePrice);
+  const tax = sp * (toNum(taxPct) / 100);
+  const commission = sp * (toNum(commissionPct) / 100);
+  const pendingChecks = stats.pendingChecksTotal;
+  const netProceeds = sp - tax - commission - pendingChecks;
+  const netProfit = netProceeds - stats.costBasis;
+
+  return (
+    <SheetShell c={c} title="اگر امروز بفروشم" onClose={onClose}>
+      <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>مالیات و کمیسیون تخمینی است — عدد دقیق را خودت بر اساس شرایط معامله وارد کن.</p>
+      <Field c={c} label="قیمت فروش فرضی (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={salePrice} onChange={(e) => setSalePrice(e.target.value)} /></Field>
+      <div className="flex" style={{ gap: SP.sm }}>
+        <div style={{ flex: 1 }}><Field c={c} label="مالیات (٪ تخمینی)"><input style={inputStyle(c)} inputMode="numeric" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} /></Field></div>
+        <div style={{ flex: 1 }}><Field c={c} label="کمیسیون (٪)"><input style={inputStyle(c)} inputMode="numeric" value={commissionPct} onChange={(e) => setCommissionPct(e.target.value)} /></Field></div>
+      </div>
+
+      <div style={{ marginTop: SP.md, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+        <Row c={c} label="قیمت فروش" value={fmtToman(sp)} />
+        <Row c={c} label="مالیات" value={`- ${fmtToman(tax)}`} color={c.danger} />
+        <Row c={c} label="کمیسیون" value={`- ${fmtToman(commission)}`} color={c.danger} />
+        {pendingChecks > 0 && <Row c={c} label="چک‌های باقی‌مانده" value={`- ${fmtToman(pendingChecks)}`} color={c.danger} />}
+        <Row c={c} label="بهای تمام‌شده" value={`- ${fmtToman(stats.costBasis)}`} color={c.danger} />
+        <div className="flex items-center justify-between" style={{ marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
+          <span style={{ fontSize: FS.body, fontWeight: FW.bold }}>سود خالص</span>
+          <span style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: netProfit >= 0 ? c.success : c.danger, direction: "ltr" }}>{netProfit >= 0 ? "+" : ""}{fmtToman(netProfit)}</span>
+        </div>
+      </div>
+
+      {inv.partners.length > 0 && (
+        <div style={{ marginTop: SP.lg }}>
+          <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.sm }}>سهم هر شریک (سرمایه + سود)</p>
+          <div className="flex flex-col" style={{ gap: SP.sm }}>
+            {inv.partners.map((p) => {
+              const share = netProfit * ((Number(p.percent) || 0) / 100);
+              const finalAmount = (Number(p.capital) || 0) + share;
+              return (
+                <div key={p.id} className="flex items-center justify-between" style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+                  <div>
+                    <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{p.name}</p>
+                    <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>سرمایه {fmtBudgetShort(p.capital)} + سهم سود {share >= 0 ? "+" : ""}{fmtBudgetShort(share)}</p>
+                  </div>
+                  <span style={{ fontSize: FS.body + 1, fontWeight: FW.heavy, color: c.primary, direction: "ltr" }}>{fmtBudgetShort(finalAmount)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </SheetShell>
+  );
+}
+
+function InvestmentDetail({ id, ctx, onBack }) {
+  const { c, investments, setInvestments, notify } = ctx;
+  const inv = investments.find((x) => x.id === id);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showPartner, setShowPartner] = useState(false);
+  const [editPartner, setEditPartner] = useState(null);
+  const [showExpense, setShowExpense] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [editPayment, setEditPayment] = useState(null);
+  const [showExit, setShowExit] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  if (!inv) return null;
+  const stats = computeInvestmentStats(inv);
+  const percentOk = inv.partners.length === 0 || Math.round(stats.partnerPercentSum) === 100;
+
+  const update = (fn) => setInvestments((prev) => prev.map((x) => x.id === id ? fn(x) : x));
+  const savePartner = (partner) => update((x) => ({ ...x, partners: x.partners.some((p) => p.id === partner.id) ? x.partners.map((p) => p.id === partner.id ? partner : p) : [...x.partners, partner] }));
+  const removePartner = (pid) => update((x) => ({ ...x, partners: x.partners.filter((p) => p.id !== pid) }));
+  const saveExpense = (exp) => update((x) => ({ ...x, expenses: [exp, ...x.expenses] }));
+  const removeExpense = (eid) => update((x) => ({ ...x, expenses: x.expenses.filter((e) => e.id !== eid) }));
+  const savePayment = (pay) => update((x) => ({ ...x, payments: (x.payments || []).some((p) => p.id === pay.id) ? x.payments.map((p) => p.id === pay.id ? pay : p) : [pay, ...(x.payments || [])] }));
+  const removePayment = (pid) => update((x) => ({ ...x, payments: (x.payments || []).filter((p) => p.id !== pid) }));
+  const addDocs = async (fileList) => { setUploadingDoc(true); const items = await filesToMedia(fileList); update((x) => ({ ...x, documents: [...(x.documents || []), ...items] })); setUploadingDoc(false); };
+  const removeDoc = (did) => update((x) => ({ ...x, documents: (x.documents || []).filter((d) => d.id !== did) }));
+
+  return (
+    <div className="pt-2">
+      <BackHeader c={c} title="جزئیات پروژه" onBack={onBack} onEdit={() => setShowEdit(true)} onDelete={() => { setInvestments((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("پروژه حذف شد"); }} />
+
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <h3 style={{ fontSize: FS.title, fontWeight: FW.heavy }}>{inv.title}</h3>
+            <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.sm, color: c.muted, fontSize: FS.caption }}><MapPin size={13} />{inv.address || "بدون آدرس"}</div>
+          </div>
+          <span className="rounded-full shrink-0" style={{ fontSize: 10.5, fontWeight: FW.bold, color: c.purple, background: c.purpleSoft, padding: "4px 10px" }}>{inv.status}</span>
+        </div>
+
+        <div className="grid grid-cols-4" style={{ gap: SP.sm, marginTop: SP.lg, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+          {[
+            { icon: Ruler, label: inv.area ? `${faDigits(inv.area)} متر` : "—" },
+            { icon: Building, label: inv.floor ? `طبقه ${faDigits(inv.floor)}` : "—" },
+            { icon: CalendarDays, label: inv.buildYear ? faDigits(inv.buildYear) : "—" },
+            { icon: typeIcon(inv.propertyType), label: inv.propertyType },
+          ].map((s, i) => (
+            <div key={i} className="flex flex-col items-center" style={{ gap: SP.xs + 1 }}>
+              <s.icon size={18} color={c.muted} />
+              <span style={{ fontSize: FS.caption, color: c.ink, fontWeight: FW.medium, textAlign: "center" }}>{s.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {inv.desc && <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.md, lineHeight: 1.8 }}>{inv.desc}</p>}
+      </div>
+
+      {/* Auto profit calculation — the core promise of this module */}
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.md }}>محاسبه‌ی سود</p>
+        <Row c={c} label="قیمت خرید" value={fmtToman(inv.purchasePrice)} />
+        <Row c={c} label="جمع هزینه‌ها" value={fmtToman(stats.totalExpenses)} color={c.attn} />
+        <Row c={c} label="بهای تمام‌شده" value={fmtToman(stats.costBasis)} />
+        <Row c={c} label="ارزش روز" value={fmtToman(stats.currentValue)} color={c.primary} />
+        <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
+          <span style={{ fontSize: FS.body, fontWeight: FW.bold }}>سود / زیان واقعی</span>
+          <span style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: stats.profit >= 0 ? c.success : c.danger, direction: "ltr" }}>{stats.profit >= 0 ? "+" : ""}{fmtToman(stats.profit)} ({faDigits(Math.round(stats.profitPct))}٪)</span>
+        </div>
+        {stats.holdDays > 0 && (
+          <div className="flex items-center justify-between" style={{ marginTop: SP.xs }}>
+            <span style={{ fontSize: FS.caption, color: c.muted }}>ROI سالانه‌شده · {faDigits(Math.round(stats.holdDays / 30))} ماه نگهداری</span>
+            <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.muted, direction: "ltr" }}>{faDigits(Math.round(stats.annualizedRoi))}٪ / سال</span>
+          </div>
+        )}
+        <button onClick={() => setShowExit(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.lg, paddingBlock: SP.sm + 2, borderRadius: RAD.md, background: c.ink, color: c.bg, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>
+          <TrendingUp size={14} color={c.bg} />اگر امروز بفروشم
+        </button>
+      </div>
+
+      {/* Cash flow — money in vs out, and what's pending */}
+      <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
+        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
+          <p style={{ fontSize: 9.5, color: c.muted }}>ورود پول</p>
+          <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, color: c.success, marginTop: 3 }}>{fmtBudgetShort(stats.cashIn)}</p>
+        </div>
+        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
+          <p style={{ fontSize: 9.5, color: c.muted }}>خروج پول</p>
+          <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, color: c.danger, marginTop: 3 }}>{fmtBudgetShort(stats.cashOut)}</p>
+        </div>
+        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
+          <p style={{ fontSize: 9.5, color: c.muted }}>مانده</p>
+          <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, marginTop: 3 }}>{fmtBudgetShort(stats.cashBalance)}</p>
+        </div>
+      </div>
+
+      {/* Partners */}
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: SP.md }}>
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>شرکا</p>
+          <button onClick={() => { setEditPartner(null); setShowPartner(true); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}><Plus size={13} color={c.primary} />افزودن</button>
+        </div>
+        {!percentOk && (
+          <div className="flex items-center" style={{ gap: SP.xs, marginBottom: SP.md, padding: SP.sm, borderRadius: RAD.sm, background: c.dangerSoft, color: c.danger, fontSize: FS.caption }}>
+            <AlertTriangle size={13} color={c.danger} />جمع درصدها {faDigits(Math.round(stats.partnerPercentSum))}٪ است، نه ۱۰۰٪
+          </div>
+        )}
+        <div className="flex flex-col" style={{ gap: SP.sm }}>
+          {inv.partners.map((p) => (
+            <div key={p.id} className="flex items-center" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{p.name}</p>
+                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{faDigits(p.percent)}٪ · {fmtBudgetShort(p.capital)}</p>
+              </div>
+              <button onClick={() => { setEditPartner(p); setShowPartner(true); }} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface }}><Edit3 size={12} color={c.muted} /></button>
+              <button onClick={() => removePartner(p.id)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
+            </div>
+          ))}
+          {inv.partners.length === 0 && <EmptyLine c={c} text="شریکی ثبت نشده" />}
+        </div>
+      </div>
+
+      {/* Expenses */}
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: SP.md }}>
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>هزینه‌ها</p>
+          <button onClick={() => setShowExpense(true)} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}><Plus size={13} color={c.primary} />ثبت هزینه</button>
+        </div>
+        <div className="flex flex-col" style={{ gap: SP.sm }}>
+          {inv.expenses.map((e) => (
+            <div key={e.id} className="flex items-center" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{e.category}{e.desc ? ` — ${e.desc}` : ""}</p>
+                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{fmtJalali(e.date)}{e.payer ? ` · ${e.payer}` : ""}</p>
+              </div>
+              <span style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.attn, direction: "ltr" }}>{fmtBudgetShort(e.amount)}</span>
+              <button onClick={() => removeExpense(e.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
+            </div>
+          ))}
+          {inv.expenses.length === 0 && <EmptyLine c={c} text="هزینه‌ای ثبت نشده" />}
+        </div>
+      </div>
+
+      {/* Payments & checks — merged ledger */}
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: SP.md }}>
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>پرداخت‌ها و چک‌ها</p>
+          <button onClick={() => { setEditPayment(null); setShowPayment(true); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}><Plus size={13} color={c.primary} />ثبت پرداخت</button>
+        </div>
+        <div className="flex flex-col" style={{ gap: SP.sm }}>
+          {(inv.payments || []).map((p) => {
+            const isCheck = p.method === "چک";
+            const checkTone = p.checkStatus === "پاس شده" ? c.success : p.checkStatus === "برگشت خورده" || p.checkStatus === "باطل شده" ? c.danger : c.attn;
+            return (
+              <div key={p.id} className="flex items-center" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{p.method}{p.desc ? ` — ${p.desc}` : ""}</p>
+                  <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>
+                    {isCheck ? `سررسید ${fmtJalali(p.dueDate)}${p.bank ? ` · ${p.bank}` : ""}` : fmtJalali(p.date)}
+                  </p>
+                </div>
+                {isCheck && <span className="rounded-full shrink-0" style={{ fontSize: 9.5, fontWeight: FW.bold, color: checkTone, background: checkTone + "1f", padding: "3px 8px" }}>{p.checkStatus}</span>}
+                <span style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.success, direction: "ltr" }}>{fmtBudgetShort(p.amount)}</span>
+                <button onClick={() => { setEditPayment(p); setShowPayment(true); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Edit3 size={12} color={c.muted} /></button>
+                <button onClick={() => removePayment(p.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
+              </div>
+            );
+          })}
+          {(inv.payments || []).length === 0 && <EmptyLine c={c} text="پرداختی ثبت نشده" />}
+        </div>
+      </div>
+
+      {/* Documents — reuses the same media pipeline properties use */}
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.md }}>اسناد و مدارک</p>
+        <MediaGallery c={c} media={inv.documents || []} uploading={uploadingDoc} onAdd={addDocs} onRemove={removeDoc} onView={ctx.setLightbox} accept="image/*,video/*,application/pdf,.doc,.docx" />
+      </div>
+
+      {showEdit && <InvestmentForm ctx={ctx} editId={id} onClose={() => setShowEdit(false)} />}
+      {showPartner && <PartnerForm c={c} editing={editPartner} onClose={() => setShowPartner(false)} onSave={savePartner} />}
+      {showExpense && <InvestmentExpenseForm c={c} onClose={() => setShowExpense(false)} onSave={saveExpense} />}
+      {showPayment && <PaymentForm c={c} editing={editPayment} onClose={() => setShowPayment(false)} onSave={savePayment} />}
+      {showExit && <ExitStrategyCard c={c} inv={inv} onClose={() => setShowExit(false)} />}
+    </div>
+  );
+}
+
 function BackHeader({ c, title, onBack, onEdit, onDelete }) {
   return (
     <div className="flex items-center justify-between pt-2 pb-4">
@@ -3015,7 +3562,7 @@ function OwnerReveal({ c, owner }) {
   );
 }
 
-function MediaGallery({ c, media, onAdd, onRemove, onView, uploading }) {
+function MediaGallery({ c, media, onAdd, onRemove, onView, uploading, accept = "image/*,video/*" }) {
   const inputRef = useRef(null);
   return (
     <div className="flex gap-2.5 overflow-x-auto pb-1">
@@ -3023,12 +3570,17 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading }) {
         {uploading ? <Loader2 size={18} color={c.primary} className="animate-spin" /> : <ImagePlus size={18} color={c.primary} />}
         <span style={{ fontSize: 10, color: c.primary, fontWeight: 700 }}>افزودن</span>
       </button>
-      <input ref={inputRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files?.length) onAdd(e.target.files); e.target.value = ""; }} />
+      <input ref={inputRef} type="file" accept={accept} multiple hidden onChange={(e) => { if (e.target.files?.length) onAdd(e.target.files); e.target.value = ""; }} />
       {media.map((m, mi) => (
         <div key={m.id} className="relative shrink-0 rounded-lg overflow-hidden" style={{ width: 84, height: 84 }}>
           <button onClick={() => onView({ media, index: mi })} className="w-full h-full">
-            {m.type === "image" ? <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
+            {m.type === "image" ? <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : m.type === "video" ? (
               <div className="relative w-full h-full"><video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} /><div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={18} color="#fff" fill="#fff" /></div></div>
+            ) : (
+              <div className="flex flex-col items-center justify-center w-full h-full" style={{ background: c.surface2, padding: 6 }}>
+                <FileText size={22} color={c.muted} />
+                <span style={{ fontSize: 8.5, color: c.muted, marginTop: 4, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{m.name || "فایل"}</span>
+              </div>
             )}
           </button>
           <button onClick={() => onRemove(m.id)} className="press absolute top-1 left-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }}><X size={11} color="#fff" /></button>
@@ -3067,7 +3619,15 @@ function Lightbox({ item, onClose }) {
       >
         {cur.type === "image"
           ? <img src={cur.url} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14, objectFit: "contain" }} />
-          : <video src={cur.url} controls autoPlay style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14 }} />}
+          : cur.type === "video"
+          ? <video src={cur.url} controls autoPlay style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14 }} />
+          : (
+            <div className="flex flex-col items-center" style={{ gap: 12 }}>
+              <FileText size={48} color="rgba(255,255,255,0.7)" />
+              <p style={{ color: "#fff", fontSize: 13, fontWeight: 600, textAlign: "center" }}>{cur.name || "فایل"}</p>
+              <a href={cur.url} download={cur.name || "file"} className="press" style={{ fontSize: 12.5, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.18)", padding: "10px 20px", borderRadius: 999 }}>باز کردن / دانلود</a>
+            </div>
+          )}
 
         {/* arrow buttons (RTL: right arrow = previous, left arrow = next) */}
         {media.length > 1 && !atStart && (
