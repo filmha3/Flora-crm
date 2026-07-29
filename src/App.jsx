@@ -3146,18 +3146,17 @@ function InvestmentForm({ ctx, onClose, editId }) {
   const editing = editId ? investments.find((x) => x.id === editId) : null;
   const [f, setF] = useState(editing ? {
     title: editing.title, propertyType: editing.propertyType || "آپارتمان", investmentType: editing.investmentType || INVESTMENT_TYPES[0],
-    address: editing.address || "", area: String(editing.area || ""), buildYear: String(editing.buildYear || ""), floor: String(editing.floor || ""), unitCount: String(editing.unitCount || ""),
-    seller: editing.seller || "", buyer: editing.buyer || "", purchaseDate: editing.purchaseDate || todayISO(), deliveryDate: editing.deliveryDate || "",
+    address: editing.address || "", area: String(editing.area || ""), floor: String(editing.floor || ""),
+    purchaseDate: editing.purchaseDate || todayISO(),
     purchasePrice: String(editing.purchasePrice || ""), currentValue: String(editing.currentValue || editing.purchasePrice || ""), status: editing.status || INVESTMENT_STATUSES[0], desc: editing.desc || "",
-  } : { title: "", propertyType: "آپارتمان", investmentType: INVESTMENT_TYPES[0], address: "", area: "", buildYear: "", floor: "", unitCount: "", seller: "", buyer: "", purchaseDate: todayISO(), deliveryDate: "", purchasePrice: "", currentValue: "", status: INVESTMENT_STATUSES[0], desc: "" });
+  } : { title: "", propertyType: "آپارتمان", investmentType: INVESTMENT_TYPES[0], address: "", area: "", floor: "", purchaseDate: todayISO(), purchasePrice: "", currentValue: "", status: INVESTMENT_STATUSES[0], desc: "" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.title.trim() && f.purchasePrice;
 
   const save = () => {
     const payload = {
       title: f.title.trim(), propertyType: f.propertyType, investmentType: f.investmentType, address: f.address.trim(),
-      area: toNum(f.area), buildYear: toNum(f.buildYear), floor: toNum(f.floor), unitCount: toNum(f.unitCount),
-      seller: f.seller.trim(), buyer: f.buyer.trim(), purchaseDate: f.purchaseDate, deliveryDate: f.deliveryDate,
+      area: toNum(f.area), floor: toNum(f.floor), purchaseDate: f.purchaseDate,
       purchasePrice: toNum(f.purchasePrice), currentValue: toNum(f.currentValue) || toNum(f.purchasePrice), status: f.status, desc: f.desc.trim(),
     };
     if (editing) {
@@ -3180,18 +3179,9 @@ function InvestmentForm({ ctx, onClose, editId }) {
       <Field c={c} label="آدرس"><input style={inputStyle(c)} value={f.address} onChange={set("address")} /></Field>
       <div className="flex" style={{ gap: SP.sm }}>
         <div style={{ flex: 1 }}><Field c={c} label="متراژ"><input style={inputStyle(c)} inputMode="numeric" value={f.area} onChange={set("area")} /></Field></div>
-        <div style={{ flex: 1 }}><Field c={c} label="سال ساخت"><input style={inputStyle(c)} inputMode="numeric" value={f.buildYear} onChange={set("buildYear")} /></Field></div>
         <div style={{ flex: 1 }}><Field c={c} label="طبقه"><input style={inputStyle(c)} inputMode="numeric" value={f.floor} onChange={set("floor")} /></Field></div>
       </div>
-      <Field c={c} label="تعداد واحد"><input style={inputStyle(c)} inputMode="numeric" value={f.unitCount} onChange={set("unitCount")} /></Field>
-      <div className="flex" style={{ gap: SP.sm }}>
-        <div style={{ flex: 1 }}><Field c={c} label="فروشنده"><input style={inputStyle(c)} value={f.seller} onChange={set("seller")} /></Field></div>
-        <div style={{ flex: 1 }}><Field c={c} label="خریدار"><input style={inputStyle(c)} value={f.buyer} onChange={set("buyer")} /></Field></div>
-      </div>
-      <div className="flex" style={{ gap: SP.sm }}>
-        <div style={{ flex: 1 }}><Field c={c} label="تاریخ خرید"><JalaliDatePicker c={c} value={f.purchaseDate} onChange={(iso) => setF({ ...f, purchaseDate: iso })} /></Field></div>
-        <div style={{ flex: 1 }}><Field c={c} label="تاریخ تحویل"><JalaliDatePicker c={c} value={f.deliveryDate || todayISO()} onChange={(iso) => setF({ ...f, deliveryDate: iso })} /></Field></div>
-      </div>
+      <Field c={c} label="تاریخ خرید"><JalaliDatePicker c={c} value={f.purchaseDate} onChange={(iso) => setF({ ...f, purchaseDate: iso })} /></Field>
       <div className="flex" style={{ gap: SP.sm }}>
         <div style={{ flex: 1 }}><Field c={c} label="قیمت خرید (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.purchasePrice} onChange={set("purchasePrice")} /></Field></div>
         <div style={{ flex: 1 }}><Field c={c} label="ارزش روز (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.currentValue} onChange={set("currentValue")} placeholder="اگر خالی، برابر قیمت خرید" /></Field></div>
@@ -5620,8 +5610,12 @@ ${debtorsSummary || "بدهکاری وجود ندارد"}`;
 // ---------- Sheet shell + fields ----------
 function SheetShell({ c, title, onClose, children }) {
   return (
-    <div className="absolute inset-0 z-30 flex items-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full p-5 flora-sheet max-h-[85%] overflow-y-auto" style={{ ...glass(c), borderRadius: "26px 26px 0 0" }}>
+    // `fixed` (not `absolute`) — the app shell uses minHeight:100vh, so it can be
+    // taller than the screen; an absolutely-positioned sheet would anchor to the
+    // bottom of the *document* instead of the viewport and render off-screen.
+    <div className="fixed inset-0 z-30 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full p-5 flora-sheet overflow-y-auto"
+        style={{ ...glass(c), borderRadius: "26px 26px 0 0", maxWidth: 390, maxHeight: "92dvh", overscrollBehavior: "contain", paddingBottom: `calc(${SP.xxl}px + env(safe-area-inset-bottom, 0px))` }}>
         <div className="w-10 h-1.5 rounded-full mx-auto mb-4" style={{ background: c.surface2 }} />
         <div className="flex items-center justify-between mb-4"><h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{title}</h3><button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button></div>
         {children}
@@ -5764,8 +5758,8 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
     return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
   }, []);
   return (
-    <div className="absolute inset-0 z-[70] flex items-end justify-center flora-pop" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ ...glass(c, RAD.lg), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, overflow: "hidden" }}>
+    <div className="fixed inset-0 z-[70] flex items-end justify-center flora-pop" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ ...glass(c, RAD.lg), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, overflow: "hidden", maxWidth: 390 }}>
         <div className="flex items-center justify-between" style={{ paddingInline: SP.xl, paddingBlock: SP.md, borderBottom: `1px solid ${c.border}` }}>
           <h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>انتخاب آدرس از نقشه سرعین</h3>
           <button onClick={onClose} className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button>
