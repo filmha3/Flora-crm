@@ -209,7 +209,7 @@ const INVESTMENT_TYPES = ["خرید و نگهداری", "بازسازی و فر�
 const INVESTMENT_EXPENSE_CATEGORIES = ["کمیسیون", "مالیات", "دفترخانه", "انتقال سند", "بازسازی", "کابینت", "رنگ", "کناف", "برق", "لوله‌کشی", "آسانسور", "پارکینگ", "بیمه", "وام", "بهره", "تبلیغات", "نظافت", "حمل", "سایر"];
 // Payments and checks are merged into one ledger — a check is just a payment
 // with a due date and a clearing status, not a separate system.
-const PAYMENT_METHODS = ["نقد", "کارت", "حواله", "انتقال بانکی", "چک"];
+const INVESTMENT_PAYMENT_METHODS = ["نقد", "کارت", "حواله", "انتقال بانکی", "چک"];
 const CHECK_STATUSES = ["در انتظار", "پاس شده", "برگشت خورده", "باطل شده"];
 const CUSTOMER_STAGE_COLOR = (c) => ({
   "در حال بررسی": c.primary,
@@ -3229,7 +3229,7 @@ function PartnerForm({ c, onClose, onSave, editing }) {
 
 // Payments and checks, merged: pick a method, and if it's a check, two extra
 // fields (bank + due date) and a status appear — one form, one ledger.
-function PaymentForm({ c, onClose, onSave, editing }) {
+function InvestmentPaymentForm({ c, onClose, onSave, editing }) {
   const [f, setF] = useState(editing || { amount: "", date: todayISO(), desc: "", method: PAYMENT_METHODS[0], bank: "", dueDate: todayISO(), checkStatus: CHECK_STATUSES[0] });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const isCheck = f.method === "چک";
@@ -3238,7 +3238,7 @@ function PaymentForm({ c, onClose, onSave, editing }) {
     <SheetShell c={c} title={editing ? "ویرایش پرداخت" : "ثبت پرداخت"} onClose={onClose}>
       <Field c={c} label="روش پرداخت">
         <div className="flex flex-wrap" style={{ gap: SP.sm }}>
-          {PAYMENT_METHODS.map((m) => { const active = f.method === m; return (
+          {INVESTMENT_PAYMENT_METHODS.map((m) => { const active = f.method === m; return (
             <button key={m} onClick={() => setF({ ...f, method: m })} className="press" style={{ paddingInline: SP.md, paddingBlock: SP.sm, borderRadius: RAD.md, background: active ? c.primary : c.surface2, color: active ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption }}>{m}</button>
           ); })}
         </div>
@@ -3513,7 +3513,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
       {showEdit && <InvestmentForm ctx={ctx} editId={id} onClose={() => setShowEdit(false)} />}
       {showPartner && <PartnerForm c={c} editing={editPartner} onClose={() => setShowPartner(false)} onSave={savePartner} />}
       {showExpense && <InvestmentExpenseForm c={c} onClose={() => setShowExpense(false)} onSave={saveExpense} />}
-      {showPayment && <PaymentForm c={c} editing={editPayment} onClose={() => setShowPayment(false)} onSave={savePayment} />}
+      {showPayment && <InvestmentPaymentForm c={c} editing={editPayment} onClose={() => setShowPayment(false)} onSave={savePayment} />}
       {showExit && <ExitStrategyCard c={c} inv={inv} onClose={() => setShowExit(false)} />}
     </div>
   );
