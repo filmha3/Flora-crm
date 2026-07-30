@@ -693,7 +693,12 @@ export default function FloraCRM() {
         @keyframes floraDoorOpen { from { opacity:0; transform: perspective(600px) rotateY(-12deg) scale(.97);} to { opacity:1; transform: perspective(600px) rotateY(0) scale(1);} }
         .flora-float { animation: floraFloat 2.6s ease-in-out infinite; }
         .flora-key { animation: floraKeyTurn 1.8s ease-in-out infinite; }
-        .flora-door { animation: floraDoorOpen .4s cubic-bezier(.22,1,.36,1) both; }
+        /* Uses "backwards" fill, not "both", on purpose: "both" leaves the final
+           transform applied forever, and a lingering transform makes this element
+           a containing block — which silently breaks position:fixed for every
+           sheet/modal rendered inside it. "backwards" still prevents the entry
+           flash but drops the transform once the animation ends. */
+        .flora-door { animation: floraDoorOpen .4s cubic-bezier(.22,1,.36,1) backwards; }
         .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) both; }
         .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) both; }
         .flora-pop { animation: floraPop .2s ease both; }
