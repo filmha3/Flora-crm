@@ -502,6 +502,58 @@ export default function FloraCRM() {
     if (!data?.text) throw new Error("چیزی شنیده نشد — دوباره امتحان کن");
     return data.text;
   };
+  // Virtual staging — analysis step uses AvalAI's vision-capable chat endpoint
+  // (same gateway, multi-modal content) to look at all selected photos together
+  // and produce ONE shared style profile, so every generated image is asked to
+  // follow the same description instead of inventing its own look per photo.
+  const canStage = !!avalaiKey;
+  const analyzeForStaging = async (imageUrls, styleHint) => {
+    if (!avalaiKey) throw new Error("کلید AvalAI وارد نشده");
+    const content = [
+      { type: "text", text: `این ${imageUrls.length} عکس از یک ملک واحد هستند. اول نوع هر اتاق را به همین ترتیب تشخیص بده (یکی از: پذیرایی، اتاق‌خواب، اتاق‌خواب مستر، اتاق بچه، آشپزخانه، غذاخوری، حمام، راهرو، بالکن). سپس یک «پروفایل سبک» واحد برای کل ملک بساز که باید در تمام تصاویر یکسان و ثابت بماند — نه یک سبک جدا برای هر عکس. سبک درخواستی مشاور: «${styleHint || "مدرن ایرانی مسکونی"}». دقیقاً همین JSON خام را برگردان، بدون توضیح و بدون markdown:
+{"rooms":["به ترتیب همان تعداد عکس"],"styleProfile":{"colorPalette":"...","furnitureStyle":"...","woodMaterial":"...","curtainStyle":"...","rugStyle":"...","decorationStyle":"...","lightingMood":"...","luxuryLevel":"..."}}` },
+      ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+    ];
+    let res, data;
+    try {
+      res = await fetch("https://api.avalai.ir/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
+        body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content }] }),
+      });
+    } catch (netErr) { throw new Error("اتصال برقرار نشد — اینترنت را بررسی کن"); }
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message || `خطای تحلیل تصاویر (کد ${res.status})`);
+    const text = data?.choices?.[0]?.message?.content;
+    try { return JSON.parse(text.replace(/```json|```/g, "").trim()); }
+    catch (e) { throw new Error("پاسخ تحلیل قابل‌خواندن نبود"); }
+  };
+  // The actual generation step — Nano Banana 2 (Gemini 3.1 Flash Image), proxied
+  // by AvalAI through the same chat/completions endpoint used for text, just with
+  // an image attached to the message and an image returned in the response. It's
+  // Google's current image-editing model and is specifically documented as strong
+  // at multi-reference consistency — a good match for "one style across six
+  // photos," though still not a hard architectural mask-lock; results can vary.
+  const stageImage = async (dataUrl, prompt) => {
+    if (!avalaiKey) throw new Error("کلید AvalAI وارد نشده");
+    let res, data;
+    try {
+      res = await fetch("https://api.avalai.ir/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
+        body: JSON.stringify({
+          model: "gemini-3.1-flash-image",
+          messages: [{ role: "user", content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: dataUrl } },
+          ] }],
+        }),
+      });
+    } catch (netErr) { throw new Error("اتصال برقرار نشد — اینترنت را بررسی کن"); }
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message || `خطای تولید تصویر (کد ${res.status})`);
+    const img = data?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    if (!img) throw new Error("تصویری برنگشت");
+    return img; // AvalAI returns either a data: URI or an https URL — both work directly as <img src>
+  };
   const callAI = async (prompt) => {
     // AvalAI — an Iranian gateway that's OpenAI-compatible and reachable from Iran
     // without a VPN, so it sidesteps the Gemini/OpenAI regional blocks.
@@ -660,7 +712,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
-    openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
   };
 
@@ -1033,26 +1085,6 @@ function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1
   );
 }
 
-function LegacyFloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.4 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" style={{ opacity }} aria-hidden="true">
-      {/* diamond house outline */}
-      <path d="M50 6 L92 48 L82 92 L18 92 L8 48 Z" stroke={color} strokeWidth={stroke} strokeLinejoin="round" fill="none" />
-      {/* keyhole / trunk */}
-      <circle cx="50" cy="40" r="7" stroke={color} strokeWidth={stroke} fill="none" />
-      <path d="M50 47 L50 78" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
-      {/* branching leaves, left */}
-      <path d="M50 58 C40 54 33 58 28 68 C38 70 46 66 50 58 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
-      <path d="M50 68 C42 66 36 70 32 79 C41 80 47 76 50 68 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
-      {/* branching leaves, right */}
-      <path d="M50 58 C60 54 67 58 72 68 C62 70 54 66 50 58 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
-      <path d="M50 68 C58 66 64 70 68 79 C59 80 53 76 50 68 Z" stroke={color} strokeWidth={stroke * 0.8} fill="none" strokeLinejoin="round" />
-      {/* fine veins */}
-      <path d="M50 58 L50 78 M34 66 L44 63 M56 63 L66 66 M38 76 L46 72 M54 72 L62 76" stroke={color} strokeWidth={stroke * 0.5} strokeLinecap="round" opacity="0.7" />
-    </svg>
-  );
-}
-
 function EmptyLine({ c, text }) {
   return (
     <div className="flex flex-col items-center justify-center" style={{ padding: "18px 2px" }}>
@@ -1407,6 +1439,24 @@ function SalesCoachTile({ ctx }) {
       <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>دستیار فروش</p>
       <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>نگاه مدیر فروش</p>
     </button>
+  );
+}
+
+// Standalone entry — no property attached, so the source photos never go
+// through the app's own compression pipeline and results are just downloaded,
+// not stored in the app's own (size-limited) data store.
+function HomeStagingTile({ ctx }) {
+  const { c } = ctx;
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Wand2 size={20} color={c.purple} /></div>
+        <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>استیجینگ مجازی</p>
+        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>آپلود مستقیم، کیفیت کامل</p>
+      </button>
+      {open && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
@@ -1968,10 +2018,11 @@ function HomeTab({ ctx }) {
         </button>
       )}
 
-      {/* Two quick-launch tools, paired since both are lightweight one-tap entries */}
+      {/* Three quick-launch tools */}
       <div className="grid grid-cols-2" style={{ gap: SP.md, marginTop: SP.xl }}>
         <VoiceAssistantTile ctx={ctx} />
         {!simpleMode && <SalesCoachTile ctx={ctx} />}
+        <HomeStagingTile ctx={ctx} />
       </div>
 
       {/* Today's focus — quiet action cards */}
@@ -2225,18 +2276,6 @@ function ActivityApptRow({ a, ctx, showDelete }) {
     </div>
   );
 }
-function ActivityCallRow({ cl, c }) {
-  return (
-    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glassLite(c, 22)}>
-      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><PhoneCall size={14} color={c.attn} /></div>
-      <div className="flex-1 min-w-0">
-        <p style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cl.customerName || "تماس"}</p>
-        <p style={{ fontSize: 10.5, color: c.muted }}>{cl.notes || cl.status} · {fmtJalali(cl.date)}</p>
-      </div>
-    </div>
-  );
-}
-
 function PropertyMiniCard({ p, c, onClick }) {
   const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
   return (
@@ -2878,29 +2917,8 @@ function MoreTab({ ctx }) {
       {/* Office management + editable agency identity, merged into one card */}
       <OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} notify={notify} properties={properties} customers={customers} owners={owners} />
 
-      {/* In simple mode, Finance isn't in the nav — give it a shortcut here */}
-      {simpleMode && (
-        <button onClick={() => setTab("finance")} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><Wallet size={20} color={c.success} /></div>
-          <div className="flex-1 min-w-0">
-            <p style={{ fontSize: 13, fontWeight: 700 }}>مالی و کمیسیون</p>
-            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>معاملات، پرداخت‌ها و تقسیم کمیسیون</p>
-          </div>
-          <ChevronLeft size={17} color={c.muted} />
-        </button>
-      )}
-
-      {/* New: Investment Center (Portfolio) — Phase 1 */}
-      <button onClick={() => setDetail({ type: "investment-center" })} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.purpleSoft }}><TrendingUp size={20} color={c.purple} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>سرمایه‌گذاری</p>
-          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>پورتفولیوی سرمایه‌گذاری، شرکا و سود هر پروژه</p>
-        </div>
-        <ChevronLeft size={17} color={c.muted} />
-      </button>
-
-      {/* Two hero shortcuts */}
+      {/* Quick-launch grid — calendar, messages, and (when relevant) finance/investment,
+          all the same compact tile so this doesn't turn into a stack of mismatched rows */}
       <div className="grid grid-cols-2 gap-3 mb-3">
         <button onClick={() => setTab("calendar")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.primarySoft }}><CalendarDays size={18} color={c.primary} /></div>
@@ -2912,31 +2930,29 @@ function MoreTab({ ctx }) {
           <p style={{ fontSize: 12.5, fontWeight: 700 }}>پیام‌های آماده</p>
           <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>متن‌های جذب مشتری</p>
         </button>
+        {simpleMode && (
+          <button onClick={() => setTab("finance")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.successSoft }}><Wallet size={18} color={c.success} /></div>
+            <p style={{ fontSize: 12.5, fontWeight: 700 }}>مالی و کمیسیون</p>
+            <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>معاملات و پرداخت‌ها</p>
+          </button>
+        )}
+        <button onClick={() => setDetail({ type: "investment-center" })} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><TrendingUp size={18} color={c.purple} /></div>
+          <p style={{ fontSize: 12.5, fontWeight: 700 }}>سرمایه‌گذاری</p>
+          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>پورتفولیو و سود شرکا</p>
+        </button>
       </div>
 
-      {/* Collapsible: call follow-ups */}
-      <CollapsibleCard c={c} icon={PhoneCall} tint={c.attn} title="پیگیری تماس‌ها" subtitle={pending > 0 ? `${faDigits(pending)} تماس در انتظار` : "همه پیگیری شده"} count={calls.length}>
-        <div className="flex flex-col gap-2">
-          {calls.map((cl) => {
-            const done = cl.status === "انجام‌شد";
-            return (
-              <div key={cl.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
-                <button onClick={() => setCalls((prev) => prev.map((x) => x.id === cl.id ? { ...x, status: done ? "در انتظار پاسخ" : "انجام‌شد" } : x))} className="shrink-0">
-                  <CheckCircle2 size={20} color={done ? c.success : c.attn} fill={done ? c.success : "none"} />
-                </button>
-                <div className="flex-1 min-w-0">
-                  <p style={{ fontSize: 12.5, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p>
-                  <p style={{ fontSize: 10, color: c.muted }}>{cl.notes} · {fmtJalali(cl.date)}</p>
-                </div>
-                <button onClick={() => setSheet({ kind: "call", editId: cl.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
-                <button onClick={() => { setCalls((prev) => prev.filter((x) => x.id !== cl.id)); notify("تماس حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
-              </div>
-            );
-          })}
-          {calls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
-          <AddLink c={c} label="ثبت تماس جدید" onClick={() => setSheet("call")} />
+      {/* Calls live in their own full screen (top-bar badge) — just a quick link here, not a second copy of the list */}
+      <button onClick={() => setDetail({ type: "calls" })} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><PhoneCall size={20} color={c.attn} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>پیگیری تماس‌ها</p>
+          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار` : "همه پیگیری شده"}</p>
         </div>
-      </CollapsibleCard>
+        <ChevronLeft size={17} color={c.muted} />
+      </button>
 
       {/* Collapsible: owners */}
       <CollapsibleCard c={c} icon={UserCircle2} tint={c.primary} title="مالکین" subtitle="لیست مالکین و تماس سریع" count={owners.length}>
@@ -3225,7 +3241,7 @@ function PartnerForm({ c, onClose, onSave, editing }) {
 // Payments and checks, merged: pick a method, and if it's a check, two extra
 // fields (bank + due date) and a status appear — one form, one ledger.
 function InvestmentPaymentForm({ c, onClose, onSave, editing }) {
-  const [f, setF] = useState(editing || { amount: "", date: todayISO(), desc: "", method: PAYMENT_METHODS[0], bank: "", dueDate: todayISO(), checkStatus: CHECK_STATUSES[0] });
+  const [f, setF] = useState(editing || { amount: "", date: todayISO(), desc: "", method: INVESTMENT_PAYMENT_METHODS[0], bank: "", dueDate: todayISO(), checkStatus: CHECK_STATUSES[0] });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const isCheck = f.method === "چک";
   const valid = f.amount;
@@ -3648,7 +3664,6 @@ function Lightbox({ item, onClose }) {
     </div>
   );
 }
-function InfoChip({ c, icon: Icon, label }) { return <div className="flex items-center gap-1 rounded-xl px-2.5 py-1.5" style={{ background: c.surface2 }}><Icon size={12} color={c.muted} /><span style={{ fontSize: 11, color: c.ink }}>{label}</span></div>; }
 
 // Read-only map preview shown on a property's detail page once a location has been pinned.
 function PropertyMiniMap({ c, lat, lng, title }) {
@@ -3795,6 +3810,207 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// A proper standalone entry point — this deserves its own card, same visual
+// weight as the Divar ad-copy card, not a link buried inside another feature.
+function VirtualStagingCard({ ctx, p }) {
+  const { c } = ctx;
+  const [open, setOpen] = useState(false);
+  const hasPhotos = (p.media || []).some((m) => m.type === "image");
+  return (
+    <div style={{ marginBottom: SP.lg }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.md, paddingRight: 2 }}>
+        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>استیجینگ مجازی با AI</h2>
+      </div>
+      {hasPhotos ? (
+        <button onClick={() => setOpen(true)} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#7c6ff5,#c084fc)", boxShadow: "0 14px 30px -10px rgba(124,111,245,0.45)" }}>
+          <Wand2 size={17} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>عکس‌های خالی رو با مبلمان دکور کن</span>
+        </button>
+      ) : (
+        <div className="flex items-center" style={{ gap: SP.sm, padding: SP.lg, borderRadius: RAD.lg, ...glassLite(c, RAD.lg) }}>
+          <ImageIcon size={16} color={c.muted} /><p style={{ fontSize: FS.caption, color: c.muted }}>اول برای این فایل عکس ثبت کن</p>
+        </div>
+      )}
+      {open && <VirtualStagingSheet ctx={ctx} p={p} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+// Virtual staging, Focus Mode — pick up to 6 photos (from a file's existing
+// pictures, or freshly uploaded at full quality — this flow deliberately skips
+// the app's normal compressImage pipeline, since staging needs the best possible
+// source and the results are downloaded straight out, not stored in the app).
+const STAGE_STYLES = ["مدرن ایرانی", "لوکس مدرن", "مینیمال"];
+const readFileFullQuality = (file) => new Promise((resolve) => {
+  const r = new FileReader();
+  r.onload = () => resolve({ id: uid(), type: "image", url: r.result, name: file.name });
+  r.readAsDataURL(file);
+});
+function VirtualStagingSheet({ ctx, p, onClose }) {
+  const { c, canStage, analyzeForStaging, stageImage, notify } = ctx;
+  const fileMedia = (p?.media || []).filter((m) => m.type === "image");
+  const [uploaded, setUploaded] = useState([]); // freshly-picked, full-quality, not saved anywhere
+  const images = [...fileMedia, ...uploaded];
+  const [phase, setPhase] = useState("select"); // select | style | receiving | analyzing | profile | generating | done
+  const [selected, setSelected] = useState([]);
+  const [styleHint, setStyleHint] = useState(STAGE_STYLES[0]);
+  const [customStyle, setCustomStyle] = useState("");
+  const [genIndex, setGenIndex] = useState(0);
+  const [results, setResults] = useState([]);
+  const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  const handleUpload = async (fileList) => {
+    const files = Array.from(fileList).slice(0, 6 - uploaded.length - fileMedia.length);
+    if (files.length === 0) { notify("حداکثر ۶ عکس"); return; }
+    const items = await Promise.all(files.map(readFileFullQuality));
+    setUploaded((prev) => [...prev, ...items]);
+    setSelected((prev) => [...prev, ...items].slice(0, 6));
+  };
+
+  const toggleSelect = (m) => {
+    setSelected((prev) => {
+      if (prev.some((x) => x.id === m.id)) return prev.filter((x) => x.id !== m.id);
+      if (prev.length >= 6) { notify("حداکثر ۶ عکس"); return prev; }
+      return [...prev, m];
+    });
+  };
+
+  const run = async () => {
+    if (!canStage) { setError("اول کلید AvalAI را در تنظیمات وارد کن"); return; }
+    const style = customStyle.trim() || styleHint;
+    setError(""); setResults([]);
+    setPhase("receiving");
+    await new Promise((r) => setTimeout(r, 500));
+    setPhase("analyzing");
+    let analysis;
+    try { analysis = await analyzeForStaging(selected.map((m) => m.url), style); }
+    catch (e) { setError(e.message || "خطا در تحلیل تصاویر"); setPhase("style"); return; }
+    setPhase("profile");
+    await new Promise((r) => setTimeout(r, 500));
+    setPhase("generating");
+    const profile = analysis.styleProfile || {};
+    const rooms = analysis.rooms || [];
+    const out = [];
+    for (let i = 0; i < selected.length; i++) {
+      setGenIndex(i + 1);
+      const room = rooms[i] || "اتاق";
+      const prompt = `این عکس یک ${room} واقعی است. فقط مبلمان و دکور اضافه یا جایگزین کن؛ دیوارها، سقف، پنجره‌ها، درها، کف، ستون‌ها، کابینت آشپزخانه، شومینه، اندازه‌ی اتاق، زاویه‌ی دوربین و پرسپکتیو را اصلاً تغییر نده. سبک: ${profile.furnitureStyle || style}. پالت رنگ: ${profile.colorPalette || "-"}. جنس چوب: ${profile.woodMaterial || "-"}. پرده: ${profile.curtainStyle || "-"}. فرش: ${profile.rugStyle || "-"}. دکور: ${profile.decorationStyle || "-"}. نور: ${profile.lightingMood || "-"}. سطح لوکس‌بودن: ${profile.luxuryLevel || "-"}. نتیجه باید کاملاً واقعی و شبیه عکس گرفته‌شده توسط عکاس حرفه‌ای املاک باشد، نه شبیه تصویر تولیدشده با هوش مصنوعی.`;
+      try { const staged = await stageImage(selected[i].url, prompt); out.push({ original: selected[i].url, staged, room }); }
+      catch (e) { out.push({ original: selected[i].url, staged: null, room, error: e.message || "خطا" }); }
+      setResults([...out]);
+    }
+    setPhase("done");
+  };
+
+  const downloadImage = (dataUrl, name) => { const a = document.createElement("a"); a.href = dataUrl; a.download = name; a.click(); };
+  const STEP_ORDER = ["receiving", "analyzing", "profile", "generating"];
+
+  return (
+    <div className="fixed inset-0 z-[96] flex flex-col" style={{ background: c.bg }}>
+      <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
+        <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>استیجینگ مجازی</h2>
+        <div style={{ width: 36 }} />
+      </div>
+
+      <div className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
+        {error && <p style={{ fontSize: FS.caption, color: c.danger, background: c.dangerSoft, padding: SP.md, borderRadius: RAD.md, marginBottom: SP.md, lineHeight: 1.8 }}>{error}</p>}
+
+        {phase === "select" && (
+          <div>
+            <p style={{ fontSize: FS.body, color: c.muted, marginBottom: SP.lg, lineHeight: 1.8 }}>تا ۶ عکس انتخاب یا آپلود کن — همه‌شون با یه سبک واحد دکور می‌شن، نه هرکدوم جدا. عکس‌های آپلودی با کیفیت کامل پردازش می‌شن.</p>
+            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ""; }} />
+            <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
+              <button onClick={() => fileRef.current?.click()} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: c.primarySoft, border: `1px dashed ${c.primary}55` }}>
+                <ImagePlus size={20} color={c.primary} /><span style={{ fontSize: 9.5, color: c.primary, fontWeight: FW.bold, marginTop: 4 }}>آپلود</span>
+              </button>
+              {images.map((m) => {
+                const idx = selected.findIndex((x) => x.id === m.id);
+                const isSel = idx > -1;
+                return (
+                  <button key={m.id} onClick={() => toggleSelect(m)} className="press relative" style={{ aspectRatio: "1", borderRadius: RAD.md, overflow: "hidden", border: isSel ? `2px solid ${c.primary}` : `1px solid ${c.border}` }}>
+                    <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    {isSel && <span className="absolute flex items-center justify-center" style={{ top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: c.primary, color: "#fff", fontSize: 11, fontWeight: 800 }}>{faDigits(idx + 1)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => setPhase("style")} disabled={selected.length === 0} className="press w-full" style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: selected.length ? c.primary : c.surface2, color: selected.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body }}>ادامه ({faDigits(selected.length)} عکس)</button>
+          </div>
+        )}
+
+        {phase === "style" && (
+          <div>
+            <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.md }}>سبک دکوراسیون</p>
+            <div className="flex flex-wrap" style={{ gap: SP.sm, marginBottom: SP.lg }}>
+              {STAGE_STYLES.map((s) => { const active = styleHint === s && !customStyle; return (
+                <button key={s} onClick={() => { setStyleHint(s); setCustomStyle(""); }} className="press" style={{ paddingInline: SP.lg, paddingBlock: SP.sm + 2, borderRadius: RAD.pill, background: active ? c.primary : c.surface2, color: active ? "#fff" : c.ink, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>{s}</button>
+              ); })}
+            </div>
+            <input value={customStyle} onChange={(e) => setCustomStyle(e.target.value)} placeholder="یا خودت بنویس، مثلاً «کلاسیک گرم»" style={inputStyle(c)} />
+            <button onClick={run} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>شروع استیجینگ</button>
+          </div>
+        )}
+
+        {STEP_ORDER.includes(phase) && (
+          <div className="flex flex-col items-center" style={{ paddingBlock: SP.xxl }}>
+            <VoiceOrb c={c} state="thinking" />
+            <div className="w-full" style={{ marginTop: SP.xl }}>
+              {[
+                { key: "receiving", label: `دریافت تصاویر (${faDigits(selected.length)}/${faDigits(selected.length)})` },
+                { key: "analyzing", label: "تحلیل ملک" },
+                { key: "profile", label: "ساخت پروفایل سبک" },
+                { key: "generating", label: `تولید تصاویر ${genIndex ? `(${faDigits(genIndex)}/${faDigits(selected.length)})` : ""}` },
+              ].map((step) => {
+                const curIdx = STEP_ORDER.indexOf(phase);
+                const stepIdx = STEP_ORDER.indexOf(step.key);
+                const state = stepIdx < curIdx ? "done" : stepIdx === curIdx ? "active" : "pending";
+                return (
+                  <div key={step.key} className="flex items-center" style={{ gap: SP.md, marginBottom: SP.md, opacity: state === "pending" ? 0.4 : 1 }}>
+                    <div className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: "50%", background: state === "done" ? c.successSoft : state === "active" ? c.primarySoft : c.surface2 }}>
+                      {state === "done" ? <CheckCircle2 size={14} color={c.success} /> : state === "active" ? <Loader2 size={13} className="animate-spin" color={c.primary} /> : <span style={{ width: 6, height: 6, borderRadius: 99, background: c.muted }} />}
+                    </div>
+                    <span style={{ fontSize: FS.caption + 1, color: state === "pending" ? c.muted : c.ink, fontWeight: state === "active" ? FW.bold : FW.medium }}>{step.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {phase === "done" && (
+          <div>
+            {results.some((r) => r.staged) && (
+              <button onClick={() => { results.forEach((r, i) => { if (r.staged) setTimeout(() => downloadImage(r.staged, `staged-${i + 1}.png`), i * 300); }); notify("دانلود همه شروع شد — تو گالری گوشیت ذخیره می‌شن"); }} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, marginBottom: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#7c6ff5,#c084fc)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
+                <Download size={16} color="#fff" />دانلود همه با کیفیت کامل
+              </button>
+            )}
+            <div className="flex flex-col" style={{ gap: SP.lg }}>
+              {results.map((r, i) => (
+                <div key={i} style={{ borderRadius: RAD.lg, padding: SP.md, ...glass(c, 24) }}>
+                  <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>{r.room}</p>
+                  {r.staged ? (
+                    <>
+                      <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
+                        <div><img src={r.original} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 9.5, color: c.muted, textAlign: "center", marginTop: 4 }}>قبل</p></div>
+                        <div><img src={r.staged} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 9.5, color: c.primary, textAlign: "center", marginTop: 4, fontWeight: FW.bold }}>بعد از استیجینگ</p></div>
+                      </div>
+                      <button onClick={() => downloadImage(r.staged, `staged-${i + 1}.png`)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.sm, paddingBlock: SP.sm, borderRadius: RAD.md, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: FS.caption }}><Download size={13} color={c.primary} />دانلود</button>
+                    </>
+                  ) : (
+                    <p style={{ fontSize: FS.caption, color: c.danger, lineHeight: 1.8 }}>{r.error || "این عکس تولید نشد"}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button onClick={onClose} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: c.ink, color: c.bg, fontWeight: FW.bold, fontSize: FS.body }}>تمام</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -4040,6 +4256,8 @@ function PropertyDetail({ id, ctx, onBack }) {
 
       {p.lat && p.lng && <PropertyMiniMap c={c} lat={p.lat} lng={p.lng} title={p.title} />}
 
+      <VirtualStagingCard ctx={ctx} p={p} />
+
       <DivarAdCard ctx={ctx} p={p} />
 
       <SectionHeader c={c} title="بازدیدهای این فایل" />
@@ -4160,21 +4378,6 @@ const phoneOf = (customers, name) => { const m = customers.find((cu) => cu.name.
 const waLink = (phone, text) => { if (!phone) return null; const digits = phone.replace(/\D/g, "").replace(/^0/, "98"); return `https://wa.me/${digits}${text ? `?text=${encodeURIComponent(text)}` : ""}`; };
 const smsLink = (phone, text) => (phone ? `sms:${phone}${text ? `?body=${encodeURIComponent(text)}` : ""}` : null);
 const daysSince = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-
-function QuickContactRow({ c, name, phone, note }) {
-  return (
-    <div className="rounded-lg p-3 flex items-center gap-2.5" style={glassLite(c, 22)}>
-      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><UserCircle2 size={15} color={c.primary} /></div>
-      <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700 }}>{name}</p>{note && <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{note}</p>}</div>
-      {phone && (
-        <div className="flex items-center gap-1.5 shrink-0">
-          <a href={`tel:${phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>
-          <a href={waLink(phone, note)} target="_blank" rel="noreferrer" className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><MessageSquare size={12} color={c.primary} /></a>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function greetingPhrase() {
   const h = new Date().getHours();
@@ -4761,18 +4964,6 @@ function BalanceCard({ c, label, value, pillIcon: PillIcon, pillLabel, pillValue
 }
 
 // Compact statement-style tile, matching the balance card's dark language.
-function StatTile({ c, icon: Icon, label, value, tone, isMoney = true }) {
-  return (
-    <div className="relative overflow-hidden" style={{ padding: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", border: "1px solid rgba(255,255,255,.06)" }}>
-      <div className="flex items-center justify-center" style={{ width: 26, height: 26, borderRadius: 9, background: `${tone}22`, marginBottom: 10 }}><Icon size={13} color={tone} /></div>
-      <p style={{ fontSize: 10.5, color: "rgba(255,255,255,.5)", marginBottom: 4 }}>{label}</p>
-      {isMoney
-        ? <CountUpToman value={value} style={{ fontSize: 17, fontWeight: FW.heavy, color: "#fff", direction: "ltr", display: "block", textAlign: "right", fontVariantNumeric: "tabular-nums" }} />
-        : <CountUpNum value={value} style={{ fontSize: 21, fontWeight: FW.heavy, color: "#fff", fontVariantNumeric: "tabular-nums" }} />}
-    </div>
-  );
-}
-
 // A real bank-statement style feed: recent money in (commission received) and
 // money out (office expenses), merged and sorted — the kind of thing you'd
 // actually glance at, not a list you have to feel bad about.
@@ -5537,80 +5728,6 @@ function MoneyIdeasCard({ ctx, received }) {
   );
 }
 
-function FinanceAiTab({ ctx, stats }) {
-  const { c, hasAiKey, callAI, notify, setSheet, agentName } = ctx;
-  const [report, setReport] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => { (async () => { try { const cached = await dbGet(FINANCE_AI_KEY); if (cached?.date === todayISO()) setReport(cached.data); } catch (e) {} })(); }, []);
-
-  const generate = async () => {
-    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); setSheet("ai-settings"); return; }
-    setLoading(true);
-    try {
-      const debtorsSummary = stats.debtors.slice(0, 8).map((x) => `- ${x.name}: ${x.amount} تومان، ${x.days} روز تأخیر`).join("\n");
-      const prompt = `تو مدیر مالی هوشمند یک دفتر مشاور املاک به اسم ${agentName || "مشاور"} هستی. بر اساس اطلاعات مالی زیر، دقیقاً یک JSON خام (بدون توضیح، بدون markdown) با این ساختار برگردان:
-{"report":["۵ خط خلاصه‌ی وضعیت مالی امروز، هرکدام یک رشته کوتاه فارسی"],"suggestions":[{"text":"یک پیشنهاد یا بینش مالی کوتاه فارسی"}]}
-report حداکثر ۵ آیتم، suggestions حداکثر ۵ آیتم.
-
-کل ارزش معاملات: ${stats.totalValue} تومان
-کل کمیسیون: ${stats.totalCommission} تومان
-دریافت‌شده: ${stats.totalPaidAll} تومان
-مانده: ${stats.totalRemainingAll} تومان
-تعداد معاملات: ${stats.deals.length}
-بدهکاران:
-${debtorsSummary || "بدهکاری وجود ندارد"}`;
-      const text = await callAI(prompt);
-      const cleaned = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(cleaned);
-      setReport(parsed);
-      dbSet(FINANCE_AI_KEY, { date: todayISO(), data: parsed }).catch(() => {});
-    } catch (e) {
-      if (e instanceof SyntaxError) notify("پاسخ AI قابل‌خواندن نبود — دوباره امتحان کن");
-      else notify(`خطا: ${e.message || "نامشخص"}`);
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div>
-      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0f172a,#1e293b)", border: `1px solid ${c.primarySoft}` }}>
-        <div className="flex items-center gap-2.5 mb-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}><Bot size={16} color="#fff" /></div>
-          <div><strong style={{ fontSize: 13, color: c.ink, display: "block" }}>گزارش صبحگاهی مدیر مالی</strong><span style={{ fontSize: 10, color: c.muted }}>{report ? "به‌روزرسانی شده امروز" : "هنوز تولید نشده"}</span></div>
-        </div>
-        {report?.report ? (
-          <ul style={{ listStyle: "none" }}>
-            {report.report.map((line, i) => (
-              <li key={i} className="flex gap-2 items-start" style={{ fontSize: 12, color: c.muted, marginBottom: 9, lineHeight: 1.8 }}>
-                <span style={{ width: 18, height: 18, borderRadius: 6, background: c.primarySoft, color: c.primary, fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{faDigits(i + 1)}</span>
-                {line}
-              </li>
-            ))}
-          </ul>
-        ) : <p style={{ fontSize: 11.5, color: c.muted }}>روی دکمه‌ی پایین بزن تا گزارش امروز ساخته شود.</p>}
-      </div>
-
-      <button onClick={generate} disabled={loading} className="press w-full rounded-xl py-3 mb-4 flex items-center justify-center gap-2" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
-        {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} {loading ? "در حال تحلیل..." : report ? "به‌روزرسانی گزارش" : "تولید گزارش امروز"}
-      </button>
-
-      {report?.suggestions?.length > 0 && (
-        <>
-          <SectionHeader c={c} title="پیشنهادهای هوشمند" />
-          <div className="flex flex-col gap-2.5">
-            {report.suggestions.map((s, i) => (
-              <div key={i} className="rounded-xl p-3.5 flex gap-2.5" style={glass(c, 20)}>
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Sparkles size={15} color={c.primary} /></div>
-                <p style={{ fontSize: 12, color: c.ink, lineHeight: 1.8 }}>{s.text}</p>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // ---------- Sheet shell + fields ----------
 function SheetShell({ c, title, onClose, children }) {
