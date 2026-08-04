@@ -6,7 +6,7 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -1482,6 +1482,123 @@ function HomeStagingTile({ ctx }) {
   );
 }
 
+// Entry tile for a real Perplexity-powered chat — search-grounded, so it can
+// genuinely look things up on the web (including Divar listings), not just
+// answer from training data like the app's other AI features.
+function DivarSearchTile({ ctx }) {
+  const { c } = ctx;
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}><Search size={20} color={c.primary} /></div>
+        <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>جستجوی دیوار</p>
+        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>تحلیل آگهی‌ها با AI</p>
+      </button>
+      {open && <DivarSearchSheet ctx={ctx} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function DivarSearchSheet({ ctx, onClose }) {
+  const { c, perplexityKey, agencyCity, notify, setSheet } = ctx;
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef(null);
+  const DIVAR_URL_RE = /https?:\/\/(www\.)?divar\.ir\/v\/\S+/g;
+
+  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, loading]);
+
+  const addLinkToFiles = (url) => {
+    onClose();
+    setSheet({ kind: "property", prefillDivarLink: url });
+  };
+
+  const send = async () => {
+    const q = input.trim();
+    if (!q) return;
+    if (!perplexityKey) { notify("اول کلید Perplexity را در تنظیمات هوش مصنوعی وارد کن"); return; }
+    setMessages((prev) => [...prev, { role: "user", text: q }]);
+    setInput("");
+    setLoading(true);
+    try {
+      const isLink = /divar\.ir\/v\//.test(q);
+      const prompt = isLink
+        ? `این لینک یک آگهی ملکی در دیوار است: ${q}\nصفحه را باز کن و آگهی را برای یک مشاور املاک تحلیل کن: عنوان، قیمت، متراژ، تعداد اتاق، طبقه، آدرس، و یک جمع‌بندی کوتاه از اینکه این قیمت نسبت به بازار منطقه منصفانه به‌نظر می‌رسد یا نه. به فارسی و خلاصه جواب بده.`
+        : `تو یه دستیار جستجوی املاک هستی که رو دیوار (divar.ir) جستجوی زنده انجام می‌دی. اگه شهرِ سوال کاربر مشخص نبود، فرض کن منظورش ${agencyCity || "سرعین"}ه. جواب رو دقیق، عملی و به فارسی بده — اگه آگهی‌های واقعی پیدا کردی، برای هرکدوم عنوان، قیمت تقریبی، و لینک مستقیم آگهی (divar.ir/v/...) رو بیار. سوال: ${q}`;
+      const res = await fetch("https://api.perplexity.ai/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${perplexityKey}` },
+        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `خطا (کد ${res.status})`);
+      const text = data?.choices?.[0]?.message?.content || "پاسخی دریافت نشد";
+      const citations = data?.citations || data?.search_results?.map((s) => s.url) || [];
+      // Divar listing links found either in citations or written inline in the
+      // answer itself — either way, surface them as one-tap "add to files".
+      const inlineLinks = [...text.matchAll(DIVAR_URL_RE)].map((m) => m[0]);
+      const listingLinks = [...new Set([...citations.filter((u) => /divar\.ir\/v\//.test(u)), ...inlineLinks])];
+      setMessages((prev) => [...prev, { role: "assistant", text, citations, listingLinks }]);
+    } catch (e) {
+      setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}`, error: true }]);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[96] flex flex-col" style={{ background: c.bg }}>
+      <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
+        <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>جستجوی دیوار با AI</h2>
+        <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><Globe size={16} color={c.ink} /></a>
+      </div>
+
+      <div ref={scrollRef} className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center" style={{ paddingTop: SP.xxl, textAlign: "center" }}>
+            <div className="flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: "50%", background: c.primarySoft, marginBottom: SP.md }}><Search size={26} color={c.primary} /></div>
+            <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, maxWidth: 280 }}>بپرس، مثلاً «۵ تا فایل امروزیِ فروش آپارتمان سرعین رو بگو»، یا یه لینک آگهی دیوار پیست کن تا تحلیلش کنم.</p>
+          </div>
+        )}
+        <div className="flex flex-col" style={{ gap: SP.md }}>
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div style={{ maxWidth: "88%", padding: SP.md, borderRadius: RAD.md, background: m.role === "user" ? c.primary : c.surface2, color: m.role === "user" ? "#fff" : c.ink }}>
+                <p style={{ fontSize: FS.body, lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{m.text}</p>
+                {m.citations?.length > 0 && (
+                  <div className="flex flex-col" style={{ gap: 4, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
+                    {m.citations.slice(0, 5).map((u, j) => (
+                      <a key={j} href={u} target="_blank" rel="noreferrer" style={{ fontSize: FS.caption, color: c.primary, direction: "ltr", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u}</a>
+                    ))}
+                  </div>
+                )}
+                {m.listingLinks?.length > 0 && (
+                  <div className="flex flex-col" style={{ gap: SP.xs, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
+                    {m.listingLinks.slice(0, 5).map((u, j) => (
+                      <button key={j} onClick={() => addLinkToFiles(u)} className="press flex items-center justify-center" style={{ gap: 5, paddingBlock: 7, borderRadius: RAD.sm, background: c.primarySoft }}>
+                        <Plus size={12} color={c.primary} /><span style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>افزودن آگهی {faDigits(j + 1)} به فایل‌ها</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start"><div style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}><Loader2 size={16} className="animate-spin" color={c.primary} /></div></div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center shrink-0" style={{ gap: SP.sm, padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))`, borderTop: `1px solid ${c.border}` }}>
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="هرچی می‌خوای بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
+        <button onClick={send} disabled={loading || !input.trim()} className="press flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: "50%", background: c.primary }}><Send size={17} color="#fff" /></button>
+      </div>
+    </div>
+  );
+}
+
 // Voice → structured CRM entries. Records audio, transcribes with AvalAI's real
 // Whisper proxy (not the browser's unreliable built-in recognizer), then asks the
 // AI to pull out who/what/when as JSON. The agent reviews before anything saves —
@@ -2021,11 +2138,12 @@ function HomeTab({ ctx }) {
         </button>
       )}
 
-      {/* Three quick-launch tools */}
+      {/* Quick-launch tools */}
       <div className="grid grid-cols-2" style={{ gap: SP.md, marginTop: SP.xl }}>
         <VoiceAssistantTile ctx={ctx} />
         {!simpleMode && <SalesCoachTile ctx={ctx} />}
         <HomeStagingTile ctx={ctx} />
+        <DivarSearchTile ctx={ctx} />
       </div>
 
       {/* Today's focus — quiet action cards */}
@@ -5924,7 +6042,8 @@ function FormSheet({ sheetVal, ctx, onClose }) {
   const customerId = typeof sheetVal === "object" ? sheetVal.customerId : null;
   const dealId = typeof sheetVal === "object" ? sheetVal.dealId : null;
   const prefillDealId = typeof sheetVal === "object" ? sheetVal.prefillDealId : null;
-  if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} editId={editId} />;
+  const prefillDivarLink = typeof sheetVal === "object" ? sheetVal.prefillDivarLink : null;
+  if (kind === "property") return <PropertyForm ctx={ctx} onClose={onClose} editId={editId} prefillDivarLink={prefillDivarLink} />;
   if (kind === "customer") return <CustomerForm ctx={ctx} onClose={onClose} />;
   if (kind === "owner") return <OwnerForm ctx={ctx} onClose={onClose} editId={editId} />;
   if (kind === "builder") return <BuilderForm ctx={ctx} onClose={onClose} editId={editId} />;
@@ -6182,16 +6301,16 @@ function PreSaleFields({ c, f, setF, total }) {
   );
 }
 
-function PropertyForm({ ctx, onClose, editId }) {
-  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate } = ctx;
+function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
+  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate, perplexityKey } = ctx;
   const editing = editId ? properties.find((x) => x.id === editId) : null;
   const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
   const [f, setF] = useState(editing ? {
     title: editing.title, type: editing.type, deal: editing.deal, pricePerMeter: String(editing.pricePerMeter), area: String(editing.area),
     rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address,
     ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "", lat: editing.lat, lng: editing.lng,
-    preDown: String(editing.preDown || ""), preMonths: String(editing.preMonths || ""), preDelivery: String(editing.preDelivery || ""), preDeed: String(editing.preDeed || ""), buildStage: editing.buildStage || BUILD_STAGES[0],
-  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0] });
+    preDown: String(editing.preDown || ""), preMonths: String(editing.preMonths || ""), preDelivery: String(editing.preDelivery || ""), preDeed: String(editing.preDeed || ""), buildStage: editing.buildStage || BUILD_STAGES[0], desc: editing.desc || "",
+  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0], desc: "" });
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
   const [showMore, setShowMore] = useState(false);
@@ -6210,6 +6329,61 @@ function PropertyForm({ ctx, onClose, editId }) {
     initial: { lat: f.lat, lng: f.lng },
     onPick: ({ address, lat, lng }) => { setF((prev) => ({ ...prev, address, lat, lng })); setMapPicker(null); },
   });
+
+  const [aiExtracting, setAiExtracting] = useState(false);
+  useEffect(() => {
+    if (prefillDivarLink && !editing) {
+      setDivarLink(prefillDivarLink);
+      setShowDivar(true);
+      extractFromDivarAI(prefillDivarLink);
+    }
+  }, []); // eslint-disable-line
+  const extractFromDivarAI = async (linkOverride) => {
+    const link = (linkOverride || divarLink).trim();
+    if (!link) { notify("اول لینک آگهی دیوار را وارد کن"); return; }
+    if (!perplexityKey) { notify("اول کلید Perplexity را در تنظیمات هوش مصنوعی وارد کن"); return; }
+    setAiExtracting(true);
+    try {
+      const prompt = `این لینک یک آگهی ملکی در دیوار است: ${link}
+صفحه را باز کن و اطلاعات را دقیق استخراج کن. فقط همین JSON خام را برگردان، بدون توضیح و بدون markdown:
+{"title":"","type":"یکی از: آپارتمان,ویلا,زمین,مغازه,اداری","deal":"یکی از: فروش,پیش‌فروش","price":عدد کل به تومان,"area":عدد متر,"rooms":عدد,"floor":عدد,"furnished":"با لوازم یا بدون لوازم","address":"","description":"خلاصه‌ی متن آگهی در حد دو خط","imageUrl":"لینک مستقیم اولین عکس آگهی اگر پیدا کردی وگرنه رشته‌ی خالی"}`;
+      const res = await fetch("https://api.perplexity.ai/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${perplexityKey}` },
+        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `خطای Perplexity (کد ${res.status})`);
+      const raw = data?.choices?.[0]?.message?.content || "";
+      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      setF((prev) => ({
+        ...prev,
+        title: parsed.title || prev.title,
+        type: TYPE_FILTERS.includes(parsed.type) ? parsed.type : prev.type,
+        deal: ["فروش", "پیش‌فروش"].includes(parsed.deal) ? parsed.deal : prev.deal,
+        area: parsed.area ? String(parsed.area) : prev.area,
+        pricePerMeter: parsed.price && parsed.area ? String(Math.round(parsed.price / parsed.area)) : prev.pricePerMeter,
+        rooms: parsed.rooms ? String(parsed.rooms) : prev.rooms,
+        floor: parsed.floor != null ? String(parsed.floor) : prev.floor,
+        furnished: parsed.furnished || prev.furnished,
+        address: parsed.address || prev.address,
+      }));
+      if (parsed.description) setF((prev) => ({ ...prev, desc: parsed.description }));
+      // Best-effort image fetch — some CDNs block cross-origin reads even though
+      // <img> can display them; if this fails we just skip the photo silently
+      // for the fetch itself, but do tell the agent so they know to add it by hand.
+      if (parsed.imageUrl) {
+        try {
+          const blob = await (await fetch(parsed.imageUrl)).blob();
+          const file = new File([blob], "divar.jpg", { type: blob.type || "image/jpeg" });
+          const compressed = await compressImage(file);
+          setMedia((prev) => [...prev, { id: uid(), type: "image", url: compressed }]);
+        } catch (imgErr) { notify("اطلاعات استخراج شد، ولی عکس خودکار نیومد — دستی اضافه کن"); }
+      }
+      setShowDivar(false);
+      notify("اطلاعات با AI استخراج شد — پایین فرم را برای تایید بررسی کن");
+    } catch (e) { notify(`استخراج ناموفق بود: ${e.message || "خطای نامشخص"}`); }
+    setAiExtracting(false);
+  };
 
   const extractFromDivar = () => {
     if (!divarText.trim()) { notify("متن آگهی را پیست کن"); return; }
@@ -6230,7 +6404,7 @@ function PropertyForm({ ctx, onClose, editId }) {
       else { const newOwner = { id: uid(), name: nm, phone: ph }; setOwners((prev) => [newOwner, ...prev]); ownerId = newOwner.id; }
     } else ownerId = "";
     const payload = {
-      title: f.title, type: f.type, deal: f.deal, address: f.address, builderId: f.builderId, furnished: f.furnished,
+      title: f.title, type: f.type, deal: f.deal, address: f.address, builderId: f.builderId, furnished: f.furnished, desc: f.desc.trim(),
       pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId, media, lat: f.lat ?? null, lng: f.lng ?? null,
       preDown: toNum(f.preDown), preMonths: toNum(f.preMonths), preDelivery: toNum(f.preDelivery), preDeed: toNum(f.preDeed), buildStage: f.buildStage,
     };
@@ -6238,7 +6412,7 @@ function PropertyForm({ ctx, onClose, editId }) {
       setProperties((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
       notify("تغییرات فایل ذخیره شد");
     } else {
-      setProperties((prev) => [{ id: uid(), stage: "فعال", desc: "", createdAt: new Date().toISOString(), ...payload }, ...prev]);
+      setProperties((prev) => [{ id: uid(), stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
       notify("فایل با موفقیت ثبت شد");
       celebrate({ kind: "file", label: "فایل جدید ثبت شد" });
     }
@@ -6254,19 +6428,22 @@ function PropertyForm({ ctx, onClose, editId }) {
       )}
       {showDivar && (
         <div className="rounded-xl p-3.5 mb-4" style={glass(c, 22)}>
-          <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
-            دیوار اجازه‌ی دریافت خودکار اطلاعات را نمی‌دهد، پس این بخش را خودت باید پر کنی: صفحه‌ی آگهی را در دیوار باز کن، همه‌ی متنش را کپی کن و اینجا پیست کن.
+          <Field c={c} label="لینک آگهی دیوار"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
+          <button type="button" onClick={extractFromDivarAI} disabled={aiExtracting} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
+            {aiExtracting ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} {aiExtracting ? "در حال استخراج..." : "استخراج خودکار با AI"}
+          </button>
+          <p style={{ fontSize: 10.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
+            نیاز به کلید Perplexity در تنظیمات هوش مصنوعی دارد. اگر نداری یا جواب نداد، همین‌جا دستی هم می‌تونی پیستش کنی:
           </p>
-          <Field c={c} label="لینک دیوار (فقط یادداشت)"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
-          <Field c={c} label="متن کامل آگهی">
+          <Field c={c} label="متن کامل آگهی (اختیاری)">
             <textarea value={divarText} onChange={(e) => setDivarText(e.target.value)} rows={5} placeholder="متن آگهی را از صفحه‌ی دیوار کپی و اینجا پیست کن..." style={{ ...inputStyle(c), resize: "vertical" }} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field c={c} label="لینک تصویر ۱ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg1} onChange={(e) => setDivarImg1(e.target.value)} placeholder="روی عکس نگه‌دار → کپی لینک تصویر" /></Field>
             <Field c={c} label="لینک تصویر ۲ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg2} onChange={(e) => setDivarImg2(e.target.value)} placeholder="..." /></Field>
           </div>
-          <button type="button" onClick={extractFromDivar} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
-            <Wand2 size={15} /> استخراج اطلاعات
+          <button type="button" onClick={extractFromDivar} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>
+            <Wand2 size={15} /> استخراج دستی از متن پیست‌شده
           </button>
         </div>
       )}
@@ -6311,6 +6488,7 @@ function PropertyForm({ ctx, onClose, editId }) {
             <Field c={c} label="نام مالک"><input style={inputStyle(c)} value={f.ownerName} onChange={set("ownerName")} placeholder="اختیاری" /></Field>
             <Field c={c} label="شماره مالک"><input style={inputStyle(c)} dir="ltr" value={f.ownerPhone} inputMode="tel" onChange={set("ownerPhone")} placeholder="اختیاری" /></Field>
           </div>
+          <Field c={c} label="توضیحات"><textarea value={f.desc} onChange={set("desc")} rows={3} placeholder="توضیح کوتاه درباره‌ی ملک..." style={{ ...inputStyle(c), resize: "vertical" }} /></Field>
         </div>
       )}
       {isPreSale && (
