@@ -6,11 +6,11 @@ import {
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
-  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2,
+  CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak", MARKET_INSIGHT_KEY = "flora-market-insight", DAILY_VIBE_KEY = "flora-daily-vibe";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak", MARKET_INSIGHT_KEY = "flora-market-insight";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -404,10 +404,12 @@ export default function FloraCRM() {
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
+  const [perplexityKey, setPerplexityKey] = useState("");
   const [avalaiKey, setAvalaiKey] = useState("");
   const [avalaiModel, setAvalaiModel] = useState("gpt-4o-mini");
   const [aiProvider, setAiProvider] = useState("avalai");
   const [agentName, setAgentName] = useState("");
+  const [agentPhoto, setAgentPhoto] = useState(""); // compressed base64, same pipeline as property photos
   const [agencyName, setAgencyName] = useState("املاک گنجینه");
   const [agencyCity, setAgencyCity] = useState("سرعین");
   const [loaded, setLoaded] = useState(false);
@@ -436,10 +438,12 @@ export default function FloraCRM() {
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
         if (settings?.openaiKey) setOpenaiKey(settings.openaiKey);
         if (settings?.grokKey) setGrokKey(settings.grokKey);
+        if (settings?.perplexityKey) setPerplexityKey(settings.perplexityKey);
         if (settings?.avalaiKey) setAvalaiKey(settings.avalaiKey);
         if (settings?.avalaiModel) setAvalaiModel(settings.avalaiModel);
         if (settings?.aiProvider) setAiProvider(settings.aiProvider);
         if (settings?.agentName) setAgentName(settings.agentName);
+        if (settings?.agentPhoto) setAgentPhoto(settings.agentPhoto);
         if (settings?.agencyName) setAgencyName(settings.agencyName);
         if (settings?.agencyCity) setAgencyCity(settings.agencyCity);
         if (settings?.splitShares) setSplitShares(settings.splitShares);
@@ -456,7 +460,7 @@ export default function FloraCRM() {
     }, 400);
     return () => clearTimeout(t);
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, avalaiKey, avalaiModel, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, avalaiKey, avalaiModel, aiProvider, agentName, agencyName, agencyCity, splitShares, simpleMode]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
   // so once a week the app downloads a fresh backup file automatically (and flags it),
@@ -482,7 +486,7 @@ export default function FloraCRM() {
     })();
   }, [loaded]); // eslint-disable-line
 
-  const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey);
+  const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey) || (aiProvider === "perplexity" && perplexityKey);
   // Voice-to-text uses AvalAI's Whisper proxy specifically — the other providers
   // aren't wired for audio, so voice notes need an AvalAI key regardless of which
   // provider is chosen for text (only real Whisper gets Persian numbers/names right).
@@ -602,6 +606,24 @@ export default function FloraCRM() {
       if (!text) throw new Error("پاسخ خالی از Grok");
       return text;
     }
+    if (aiProvider === "perplexity") {
+      // Search-grounded answers with live web sources — useful for anything that
+      // needs current information, unlike the other providers here which only
+      // know their training data.
+      if (!perplexityKey) throw new Error("کلید Perplexity وارد نشده");
+      let res, data;
+      try {
+        res = await fetch("https://api.perplexity.ai/chat/completions", {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${perplexityKey}` },
+          body: JSON.stringify({ model: "sonar", messages: [{ role: "user", content: prompt }] }),
+        });
+      } catch (netErr) { throw new Error("اتصال به Perplexity برقرار نشد (احتمالاً مرورگر درخواست مستقیم را مسدود کرده — CORS)"); }
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `خطای Perplexity (کد ${res.status})`);
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text) throw new Error("پاسخ خالی از Perplexity");
+      return text;
+    }
     if (!geminiKey) throw new Error("کلید Gemini وارد نشده");
     const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
     let lastErr = null;
@@ -712,7 +734,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, splitShares, setSplitShares, simpleMode, setSimpleMode,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
-    openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
   };
 
@@ -1917,59 +1939,34 @@ function NbaOutcomePicker({ c, options, onSubmit, onCancel }) {
   );
 }
 
-// A daily-horoscope-style reading under the greeting — for a good-morning mood
-// lift, presented as a calm, professional card (not a novelty effect). Generated
-// once a day by AI and cached; falls back to a rotating deterministic reading if
-// no AI key is set, so it's never empty.
-const VIBE_FALLBACKS = [
-  "امروز روزیه که پیگیری‌های نیمه‌کاره سرانجام جواب می‌دن. یک تماس قدیمی را دوباره امتحان کن.",
-  "انرژی امروز برای مذاکره و بستن قرارها مساعده. با اعتمادبه‌نفس جلو برو.",
-  "امروز فرصت‌های کوچیک، بزرگ می‌شن. به یک سرنخ ساده بیشتر توجه کن.",
-  "امروز روز خوبیه برای شفاف‌حرف‌زدن با یک مشتری مردد — صداقت جواب می‌ده.",
-  "امروز صبر و پیگیری، بیشتر از عجله جواب می‌ده. آروم و پیوسته پیش برو.",
-  "امروز یک ارتباط قدیمی می‌تواند به یک فرصت تازه تبدیل شود.",
-  "امروز روز مناسبیه برای بستن یک قرارداد معلق — دنبالش کن.",
-];
-function DailyVibeLine({ ctx }) {
-  const { c, hasAiKey, callAI, agentName } = ctx;
-  const [text, setText] = useState("");
-  useEffect(() => {
-    (async () => {
-      try {
-        const cached = await dbGet(DAILY_VIBE_KEY);
-        if (cached?.date === todayISO()) { setText(cached.text); return; }
-      } catch (e) {}
-      const [jy, jm, jd] = isoToJalali(todayISO());
-      if (!hasAiKey) {
-        const startOfYear = new Date(new Date().getFullYear(), 0, 0);
-        const dayOfYear = Math.floor((new Date() - startOfYear) / 86400000);
-        setText(VIBE_FALLBACKS[dayOfYear % VIBE_FALLBACKS.length]);
-        return;
-      }
-      try {
-        const prompt = `امروز ${faDigits(jd)} ${MONTHS_FA[jm - 1]} است. مثل یک طالع‌بین حرفه‌ای، یک فال روزانه‌ی کوتاه (۱۵ تا ۲۵ کلمه، یک یا دو جمله) برای ${agentName || "یک مشاور املاک"} بنویس — با لحن جدی و دلگرم‌کننده، نه شوخی. می‌تواند به مذاکره، معامله، پیگیری یا فرصت‌های امروز اشاره کند. فقط همان متن را بدون گیومه برگردان.`;
-        const raw = await callAI(prompt);
-        const clean = raw.trim().replace(/^"|"$/g, "");
-        setText(clean);
-        dbSet(DAILY_VIBE_KEY, { date: todayISO(), text: clean }).catch(() => {});
-      } catch (e) {
-        setText(VIBE_FALLBACKS[jd % VIBE_FALLBACKS.length]);
-      }
-    })();
-  }, [hasAiKey]); // eslint-disable-line
-
-  if (!text) return null;
+// Tappable profile photo — a shared default icon until the agent sets their own.
+// Uses the same compressImage pipeline as property photos, since this one
+// genuinely should stay small (it's rendered everywhere, not downloaded raw).
+function AgentAvatar({ ctx, size = 52 }) {
+  const { c, agentPhoto, setAgentPhoto, notify } = ctx;
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const pick = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try { setAgentPhoto(await compressImage(file)); notify("عکس پروفایل ذخیره شد"); }
+    catch (e) { notify("آپلود عکس با خطا مواجه شد"); }
+    setUploading(false);
+  };
   return (
-    <div className="relative overflow-hidden flora-rise" style={{ marginTop: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c, 18) }}>
-      <span style={{ position: "absolute", top: "-50%", left: "-10%", width: 100, height: 100, borderRadius: "50%", background: `radial-gradient(circle, ${c.purple}1f, transparent 70%)`, pointerEvents: "none" }} />
-      <div className="flex items-start relative" style={{ gap: SP.sm }}>
-        <div className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: RAD.sm, background: c.purpleSoft }}><Moon size={13} color={c.purple} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 10.5, color: c.muted, fontWeight: FW.bold, letterSpacing: ".02em", marginBottom: 3 }}>طالع امروز</p>
-          <p style={{ fontSize: FS.caption + 0.5, color: c.ink, lineHeight: 1.8 }}>{text}</p>
+    <button onClick={() => fileRef.current?.click()} className="press relative shrink-0" style={{ width: size, height: size, borderRadius: "50%" }}>
+      <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
+      {agentPhoto ? (
+        <img src={agentPhoto} alt="" style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: `2px solid ${c.border}` }} />
+      ) : (
+        <div className="flex items-center justify-center" style={{ width: size, height: size, borderRadius: "50%", background: c.primarySoft, border: `2px solid ${c.border}` }}>
+          <UserCircle2 size={Math.round(size * 0.6)} color={c.primary} />
         </div>
-      </div>
-    </div>
+      )}
+      <span className="flex items-center justify-center" style={{ position: "absolute", bottom: -2, left: -2, width: 20, height: 20, borderRadius: "50%", background: c.primary, border: `2px solid ${c.bg}` }}>
+        {uploading ? <Loader2 size={10} className="animate-spin" color="#fff" /> : <Camera size={10} color="#fff" />}
+      </span>
+    </button>
   );
 }
 
@@ -1987,13 +1984,19 @@ function HomeTab({ ctx }) {
 
   return (
     <div style={{ paddingTop: SP.xl }}>
-      {/* Greeting */}
-      <div style={{ marginBottom: SP.lg, paddingInline: SP.xs }}>
-        <p style={{ fontSize: FS.caption, color: c.muted, letterSpacing: ".02em" }}>{fmtJalali(todayISO())}</p>
-        <h1 style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.02em", marginTop: SP.xs, lineHeight: 1.15 }}>
-          {greetingPhrase()}{agentName ? `، ${agentName}` : ""}
-        </h1>
-        <DailyVibeLine ctx={ctx} />
+      {/* Header — profile photo, greeting, and location (matches the reference layout) */}
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.xl, paddingInline: SP.xs }}>
+        <div className="flex items-center" style={{ gap: SP.md }}>
+          <AgentAvatar ctx={ctx} />
+          <div>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>{greetingPhrase()}</p>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{agentName || "مشاور"}</p>
+          </div>
+        </div>
+        <div className="text-left">
+          <p style={{ fontSize: FS.caption, color: c.muted }}>موقعیت مکانی</p>
+          <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{agencyCity || "سرعین"}</p>
+        </div>
       </div>
 
       {/* Live market strip */}
@@ -3906,7 +3909,24 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
     setPhase("done");
   };
 
-  const downloadImage = (dataUrl, name) => { const a = document.createElement("a"); a.href = dataUrl; a.download = name; a.click(); };
+  // The download attribute only works reliably for same-origin/blob/data URLs —
+  // if AvalAI returns a hosted https:// URL instead of an inline data URI, a plain
+  // <a href download> silently gets ignored by the browser and just opens/does
+  // nothing. Fetching it into a local blob first sidesteps that entirely.
+  const downloadImage = async (dataUrl, name) => {
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl; a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+    } catch (e) {
+      // Some hosts block cross-origin fetch even though <img> can display them —
+      // open it directly so the agent can at least long-press → save manually.
+      window.open(dataUrl, "_blank");
+      notify("دانلود خودکار نشد — عکس تو تب جدید باز شد، نگهش دار");
+    }
+  };
   const STEP_ORDER = ["receiving", "analyzing", "profile", "generating"];
 
   return (
@@ -5923,11 +5943,12 @@ function FormSheet({ sheetVal, ctx, onClose }) {
 }
 
 function AiSettingsSheet({ ctx, onClose }) {
-  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, agentName, setAgentName, notify } = ctx;
+  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, agentName, setAgentName, notify } = ctx;
   const [provider, setProvider] = useState(aiProvider);
   const [gKey, setGKey] = useState(geminiKey || "");
   const [oKey, setOKey] = useState(openaiKey || "");
   const [xKey, setXKey] = useState(grokKey || "");
+  const [pKey, setPKey] = useState(perplexityKey || "");
   const [aKey, setAKey] = useState(avalaiKey || "");
   const [aModel, setAModel] = useState(avalaiModel || "gpt-4o-mini");
   const [name, setName] = useState(agentName || "");
@@ -5936,6 +5957,7 @@ function AiSettingsSheet({ ctx, onClose }) {
     { id: "gemini", label: "Gemini", hint: "کلید رایگان: aistudio.google.com — ممکن است از ایران بدون فیلترشکن کار نکند" },
     { id: "openai", label: "GPT", hint: "کلید: platform.openai.com — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
     { id: "grok", label: "Grok", hint: "کلید: console.x.ai — ممکن است مرورگر تماس مستقیم را مسدود کند" },
+    { id: "perplexity", label: "Perplexity", hint: "کلید: perplexity.ai/settings/api — جواب‌ها همراه با جستجوی زنده‌ی وب و منبع است، برای سوال‌های نیازمند اطلاعات به‌روز مناسب‌تر است" },
   ];
   const AVALAI_MODELS = [
     { value: "gpt-4o-mini", label: "GPT-4o mini (ارزان و سریع)" },
@@ -5944,8 +5966,8 @@ function AiSettingsSheet({ ctx, onClose }) {
     { value: "claude-3-5-sonnet-20240620-v1:0", label: "Claude 3.5 Sonnet" },
     { value: "deepseek-chat", label: "DeepSeek" },
   ];
-  const keyByProvider = { avalai: aKey, openai: oKey, grok: xKey, gemini: gKey };
-  const setKeyByProvider = { avalai: setAKey, openai: setOKey, grok: setXKey, gemini: setGKey };
+  const keyByProvider = { avalai: aKey, openai: oKey, grok: xKey, gemini: gKey, perplexity: pKey };
+  const setKeyByProvider = { avalai: setAKey, openai: setOKey, grok: setXKey, gemini: setGKey, perplexity: setPKey };
   const currentKey = keyByProvider[provider];
   const setCurrentKey = setKeyByProvider[provider];
   return (
@@ -5969,7 +5991,7 @@ function AiSettingsSheet({ ctx, onClose }) {
       <Field c={c} label="کلید API"><input style={inputStyle(c)} dir="ltr" value={currentKey} onChange={(e) => setCurrentKey(e.target.value)} placeholder="کلید را اینجا وارد کن" /></Field>
       <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.9, marginBottom: SP.md }}>{providers.find((p) => p.id === provider)?.hint} — کلید فقط روی همین گوشی ذخیره می‌شود.</p>
       <SubmitBtn c={c} label="ذخیره" disabled={!currentKey.trim()} onClick={() => {
-        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim()); setAvalaiKey(aKey.trim()); setAvalaiModel(aModel); setAgentName(name.trim());
+        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim()); setPerplexityKey(pKey.trim()); setAvalaiKey(aKey.trim()); setAvalaiModel(aModel); setAgentName(name.trim());
         notify("تنظیمات هوش مصنوعی ذخیره شد"); onClose();
       }} />
     </SheetShell>
