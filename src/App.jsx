@@ -773,9 +773,9 @@ export default function FloraCRM() {
            sheet/modal rendered inside it. "backwards" still prevents the entry
            flash but drops the transform once the animation ends. */
         .flora-door { animation: floraDoorOpen .4s cubic-bezier(.22,1,.36,1) backwards; }
-        .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) both; }
-        .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) both; }
-        .flora-pop { animation: floraPop .2s ease both; }
+        .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) backwards; }
+        .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) backwards; }
+        .flora-pop { animation: floraPop .2s ease backwards; }
         .nba-blob { position:absolute; top:-30px; left:-20px; width:200px; height:200px; border-radius:50%; filter: blur(30px); opacity:.32; pointer-events:none; animation: liquidMove 4s ease-in-out infinite; }
         @keyframes liquidMove { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(60px,20px) scale(1.25);} 66% { transform: translate(20px,45px) scale(.85);} }
         .flora-orb-breathe { animation: floraOrbBreathe 2.6s ease-in-out infinite; }
@@ -794,7 +794,7 @@ export default function FloraCRM() {
 
         /* Lists reveal one after another instead of snapping in all at once */
         @keyframes floraStagger { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform: translateY(0) scale(1);} }
-        .flora-stagger > * { animation: floraStagger .42s cubic-bezier(.22,1,.36,1) both; }
+        .flora-stagger > * { animation: floraStagger .42s cubic-bezier(.22,1,.36,1) backwards; }
         .flora-stagger > *:nth-child(1) { animation-delay: .02s }
         .flora-stagger > *:nth-child(2) { animation-delay: .07s }
         .flora-stagger > *:nth-child(3) { animation-delay: .12s }
@@ -815,7 +815,7 @@ export default function FloraCRM() {
         @keyframes floraCoin { 0%,100% { transform: rotateY(0deg);} 50% { transform: rotateY(180deg);} }
         .flora-coin { animation: floraCoin 3.2s ease-in-out infinite; transform-style: preserve-3d; }
         @keyframes floraRise { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
-        .flora-rise { animation: floraRise .5s cubic-bezier(.22,1,.36,1) both; }
+        .flora-rise { animation: floraRise .5s cubic-bezier(.22,1,.36,1) backwards; }
 
         /* A real physical "drop and settle" bounce — several decreasing oscillations,
            not just a single overshoot — for moments that deserve extra weight
@@ -828,7 +828,7 @@ export default function FloraCRM() {
           92%  { transform: scale(0.98); }
           100% { transform: scale(1); }
         }
-        .flora-bounce { animation: floraBounceIn .65s cubic-bezier(.34,1.56,.64,1) both; }
+        .flora-bounce { animation: floraBounceIn .65s cubic-bezier(.34,1.56,.64,1) backwards; }
 
         select { -webkit-appearance: none; appearance: none; }
       `}</style>
