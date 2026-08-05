@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
 import {
   Home, Building2, Users, Search, Plus, X, Moon, Sun, Sparkles, MapPin, Ruler,
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
@@ -307,6 +306,37 @@ const FS = { caption: 11, body: 13, subtitle: 15, title: 20, hero: 28, display: 
 const FW = { regular: 500, medium: 600, bold: 700, heavy: 800 };
 const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
+
+// A full-screen overlay nested deep in the app tree can be clipped or offset by
+// any ancestor that creates a containing block (a transform, filter, etc.) —
+// which is what kept letting the home screen show through behind these panels.
+// Rendering into <body> via a portal escapes that entirely.
+//
+// react-dom is a real dependency of this app, so the portal path is what runs in
+// production. Some lightweight preview sandboxes don't provide react-dom though,
+// and a hard top-level import would fail the whole bundle there — so it's
+// resolved at runtime, falling back to plain inline rendering (visually
+// imperfect in that sandbox, but never a crash).
+let _createPortal = null;
+try {
+  // eslint-disable-next-line
+  _createPortal = (typeof require === "function" ? require("react-dom") : window.ReactDOM)?.createPortal || null;
+} catch (e) { _createPortal = null; }
+
+function BodyPortal({ children }) {
+  // The host is created during the first render, not in an effect. Doing it in
+  // an effect leaves one paint where `host` is still null — the panel either
+  // renders inside the app tree (clipped by ancestors) or flashes as nothing,
+  // which showed up as an intermittent failure roughly one run in five.
+  const [host] = useState(() => (typeof document === "undefined" ? null : document.createElement("div")));
+  useEffect(() => {
+    if (!_createPortal || !host) return;
+    document.body.appendChild(host);
+    return () => { if (host.parentNode) host.parentNode.removeChild(host); };
+  }, [host]);
+  if (!_createPortal || !host) return <>{children}</>;
+  return _createPortal(children, host);
+}
 
 const glass = (c) => ({
   background: c.surface,
@@ -1299,7 +1329,8 @@ function CelebrationOverlay({ c, celebration }) {
     return { x: Math.round(Math.cos(angle) * dist), y: Math.round(Math.sin(angle) * dist), delay: i * 0.02, color: [c.primary, c.success, c.purple, c.attn][i % 4] };
   }) : [];
 
-  return createPortal(
+  return (
+    <BodyPortal>
     <div className="fixed inset-0 z-[99] flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.55)" }}>
       <div className="flex flex-col items-center" style={{ padding: SP.xl, borderRadius: RAD.lg, ...glass(c, 24) }}>
         <div className="relative flex items-center justify-center" style={{ width: 72, height: 72, marginBottom: SP.md }}>
@@ -1314,8 +1345,8 @@ function CelebrationOverlay({ c, celebration }) {
         <p style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.ink, textAlign: "center" }}>{label}</p>
       </div>
       <style>{`@keyframes floraConfetti { from { transform: translate(0,0) scale(1); opacity: 1; } to { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; } }`}</style>
-    </div>,
-    document.body
+    </div>
+    </BodyPortal>
   );
 }
 
@@ -1368,7 +1399,8 @@ function FocusMode({ ctx }) {
 
   const accent = "#22d3ee";
 
-  return createPortal(
+  return (
+    <BodyPortal>
     <div className="fixed inset-0 z-[95] flex flex-col flora-pop" style={{ background: c.bg }}>
       {/* ambient depth glow, echoes the Deal Coach card it came from */}
       <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
@@ -1447,8 +1479,8 @@ function FocusMode({ ctx }) {
           </div>
         )}
       </div>
-    </div>,
-    document.body
+    </div>
+    </BodyPortal>
   );
 }
 
@@ -1520,9 +1552,15 @@ function DivarSearchTile({ ctx }) {
 // remount the real <input> DOM node on every character — which is exactly
 // what drops keyboard focus after a single letter.
 function DivarSearchInputRow({ c, input, setInput, send, loading, style }) {
+  // RTL fields can silently inject invisible bidi-control characters around
+  // pasted LTR text (like a URL) — harmless to look at, but it breaks a plain
+  // string match like /divar\.ir\/v\// against the value. Switching to ltr for
+  // link-looking input avoids the browser inserting them in the first place;
+  // stripping known bidi marks on top of that covers whatever's already there.
+  const looksLikeLink = /^https?:\/\//i.test(input.trim()) || /divar\.ir/i.test(input);
   return (
     <div className="flex items-center" style={{ gap: SP.sm, width: "100%", ...style }}>
-      <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="هرچی می‌خوای بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
+      <input value={input} dir={looksLikeLink ? "ltr" : "rtl"} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="هرچی می‌خوای بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
       <button onClick={send} disabled={loading || !input.trim()} className="press flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: "50%", background: c.primary }}><Send size={17} color="#fff" /></button>
     </div>
   );
@@ -1544,7 +1582,7 @@ function DivarSearchSheet({ ctx, onClose }) {
   };
 
   const send = async () => {
-    const q = input.trim();
+    const q = input.trim().replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, "");
     if (!q) return;
     if (!perplexityKey) { notify("اول کلید Perplexity را در تنظیمات هوش مصنوعی وارد کن"); return; }
     setMessages((prev) => [...prev, { role: "user", text: q }]);
@@ -1574,7 +1612,8 @@ function DivarSearchSheet({ ctx, onClose }) {
     setLoading(false);
   };
 
-  return createPortal(
+  return (
+    <BodyPortal>
     <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
         <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
@@ -1628,8 +1667,8 @@ function DivarSearchSheet({ ctx, onClose }) {
           </div>
         </>
       )}
-    </div>,
-    document.body
+    </div>
+    </BodyPortal>
   );
 }
 
@@ -1869,7 +1908,8 @@ ${activeListings}
     extracted.reminder && `یادآوری: ${extracted.reminder}`,
   ].filter(Boolean) : [];
 
-  return createPortal(
+  return (
+    <BodyPortal>
     <div className="fixed inset-0 z-[95] flex flex-col flora-pop" style={{ background: c.bg }}>
       <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
         <span style={{ position: "absolute", top: "-15%", left: "50%", transform: "translateX(-50%)", width: 340, height: 340, borderRadius: "50%", background: `radial-gradient(circle, #22d3ee22, transparent 70%)`, filter: "blur(10px)" }} />
@@ -2014,8 +2054,8 @@ ${activeListings}
         </div>
       )}
       </div>
-    </div>,
-    document.body
+    </div>
+    </BodyPortal>
   );
 }
 
@@ -3765,7 +3805,8 @@ function Lightbox({ item, onClose }) {
   const atStart = idx === 0, atEnd = idx === media.length - 1;
   const go = (d) => setIdx((i) => Math.max(0, Math.min(media.length - 1, i + d)));
 
-  return createPortal(
+  return (
+    <BodyPortal>
     <div className="fixed inset-0 z-[90] flex flex-col flora-pop" style={{ background: "rgba(0,0,0,0.94)" }} onClick={onClose}>
       {/* top bar: close + counter, clear of the notch */}
       <div className="flex items-center justify-between px-5 shrink-0" style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: 12 }} onClick={(e) => e.stopPropagation()}>
@@ -3817,8 +3858,8 @@ function Lightbox({ item, onClose }) {
           ))}
         </div>
       )}
-    </div>,
-    document.body
+    </div>
+    </BodyPortal>
   );
 }
 
@@ -4083,7 +4124,8 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
   };
   const STEP_ORDER = ["receiving", "analyzing", "profile", "generating"];
 
-  return createPortal(
+  return (
+    <BodyPortal>
     <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
         <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
@@ -4185,8 +4227,8 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
           </div>
         )}
       </div>
-    </div>,
-    document.body
+    </div>
+    </BodyPortal>
   );
 }
 
