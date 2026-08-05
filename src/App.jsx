@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Home, Building2, Users, Search, Plus, X, Moon, Sun, Sparkles, MapPin, Ruler,
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
@@ -776,6 +777,16 @@ export default function FloraCRM() {
         .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) backwards; }
         .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) backwards; }
         .flora-pop { animation: floraPop .2s ease backwards; }
+        /* Full-screen focus panels. Deliberately NOT a slide: any translateY
+           briefly uncovers an edge of the viewport, letting the screen behind
+           show through mid-animation. Scaling from the center keeps all four
+           edges pinned to the viewport on every frame, so it still feels like
+           it "opens into place" without ever exposing what's underneath. */
+        @keyframes floraFullscreenUp {
+          from { opacity: 0; transform: scale(1.03); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+        .flora-focus-in { animation: floraFullscreenUp .3s cubic-bezier(.22,1,.36,1) backwards; }
         .nba-blob { position:absolute; top:-30px; left:-20px; width:200px; height:200px; border-radius:50%; filter: blur(30px); opacity:.32; pointer-events:none; animation: liquidMove 4s ease-in-out infinite; }
         @keyframes liquidMove { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(60px,20px) scale(1.25);} 66% { transform: translate(20px,45px) scale(.85);} }
         .flora-orb-breathe { animation: floraOrbBreathe 2.6s ease-in-out infinite; }
@@ -1288,7 +1299,7 @@ function CelebrationOverlay({ c, celebration }) {
     return { x: Math.round(Math.cos(angle) * dist), y: Math.round(Math.sin(angle) * dist), delay: i * 0.02, color: [c.primary, c.success, c.purple, c.attn][i % 4] };
   }) : [];
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[99] flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.55)" }}>
       <div className="flex flex-col items-center" style={{ padding: SP.xl, borderRadius: RAD.lg, ...glass(c, 24) }}>
         <div className="relative flex items-center justify-center" style={{ width: 72, height: 72, marginBottom: SP.md }}>
@@ -1303,7 +1314,8 @@ function CelebrationOverlay({ c, celebration }) {
         <p style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.ink, textAlign: "center" }}>{label}</p>
       </div>
       <style>{`@keyframes floraConfetti { from { transform: translate(0,0) scale(1); opacity: 1; } to { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; } }`}</style>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1356,7 +1368,7 @@ function FocusMode({ ctx }) {
 
   const accent = "#22d3ee";
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[95] flex flex-col flora-pop" style={{ background: c.bg }}>
       {/* ambient depth glow, echoes the Deal Coach card it came from */}
       <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
@@ -1435,7 +1447,8 @@ function FocusMode({ ctx }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1500,6 +1513,21 @@ function DivarSearchTile({ ctx }) {
   );
 }
 
+// Defined at the top level on purpose: an input row like this must NOT be
+// declared inside DivarSearchSheet's own function body. If it were, every
+// keystroke (which changes `input` state and re-renders the parent) would
+// redefine this as a "new" component type, so React would unmount and
+// remount the real <input> DOM node on every character — which is exactly
+// what drops keyboard focus after a single letter.
+function DivarSearchInputRow({ c, input, setInput, send, loading, style }) {
+  return (
+    <div className="flex items-center" style={{ gap: SP.sm, width: "100%", ...style }}>
+      <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="هرچی می‌خوای بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
+      <button onClick={send} disabled={loading || !input.trim()} className="press flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: "50%", background: c.primary }}><Send size={17} color="#fff" /></button>
+    </div>
+  );
+}
+
 function DivarSearchSheet({ ctx, onClose }) {
   const { c, perplexityKey, agencyCity, notify, setSheet } = ctx;
   const [messages, setMessages] = useState([]);
@@ -1546,56 +1574,62 @@ function DivarSearchSheet({ ctx, onClose }) {
     setLoading(false);
   };
 
-  return (
-    <div className="fixed inset-0 z-[96] flex flex-col" style={{ background: c.bg }}>
+  return createPortal(
+    <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
         <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>جستجوی دیوار با AI</h2>
         <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><Globe size={16} color={c.ink} /></a>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center" style={{ paddingTop: SP.xxl, textAlign: "center" }}>
-            <div className="flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: "50%", background: c.primarySoft, marginBottom: SP.md }}><Search size={26} color={c.primary} /></div>
-            <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, maxWidth: 280 }}>بپرس، مثلاً «۵ تا فایل امروزیِ فروش آپارتمان سرعین رو بگو»، یا یه لینک آگهی دیوار پیست کن تا تحلیلش کنم.</p>
-          </div>
-        )}
-        <div className="flex flex-col" style={{ gap: SP.md }}>
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div style={{ maxWidth: "88%", padding: SP.md, borderRadius: RAD.md, background: m.role === "user" ? c.primary : c.surface2, color: m.role === "user" ? "#fff" : c.ink }}>
-                <p style={{ fontSize: FS.body, lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{m.text}</p>
-                {m.citations?.length > 0 && (
-                  <div className="flex flex-col" style={{ gap: 4, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
-                    {m.citations.slice(0, 5).map((u, j) => (
-                      <a key={j} href={u} target="_blank" rel="noreferrer" style={{ fontSize: FS.caption, color: c.primary, direction: "ltr", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u}</a>
-                    ))}
-                  </div>
-                )}
-                {m.listingLinks?.length > 0 && (
-                  <div className="flex flex-col" style={{ gap: SP.xs, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
-                    {m.listingLinks.slice(0, 5).map((u, j) => (
-                      <button key={j} onClick={() => addLinkToFiles(u)} className="press flex items-center justify-center" style={{ gap: 5, paddingBlock: 7, borderRadius: RAD.sm, background: c.primarySoft }}>
-                        <Plus size={12} color={c.primary} /><span style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>افزودن آگهی {faDigits(j + 1)} به فایل‌ها</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start"><div style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}><Loader2 size={16} className="animate-spin" color={c.primary} /></div></div>
-          )}
+      {messages.length === 0 ? (
+        // Nothing to scroll to yet — put the search box right where the eye already
+        // is (under the hint text, mid-screen) instead of making it hunt all the
+        // way down to a bar pinned at the bottom of an otherwise-empty page.
+        <div className="flex-1 flex flex-col items-center justify-center" style={{ padding: SP.xl, textAlign: "center" }}>
+          <div className="flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: "50%", background: c.primarySoft, marginBottom: SP.md }}><Search size={26} color={c.primary} /></div>
+          <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, maxWidth: 280, marginBottom: SP.xl }}>بپرس، مثلاً «۵ تا فایل امروزیِ فروش آپارتمان سرعین رو بگو»، یا یه لینک آگهی دیوار پیست کن تا تحلیلش کنم.</p>
+          <DivarSearchInputRow c={c} input={input} setInput={setInput} send={send} loading={loading} style={{ maxWidth: 320 }} />
         </div>
-      </div>
-
-      <div className="flex items-center shrink-0" style={{ gap: SP.sm, padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))`, borderTop: `1px solid ${c.border}` }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="هرچی می‌خوای بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
-        <button onClick={send} disabled={loading || !input.trim()} className="press flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: "50%", background: c.primary }}><Send size={17} color="#fff" /></button>
-      </div>
-    </div>
+      ) : (
+        <>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
+            <div className="flex flex-col" style={{ gap: SP.md }}>
+              {messages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div style={{ maxWidth: "88%", padding: SP.md, borderRadius: RAD.md, background: m.role === "user" ? c.primary : c.surface2, color: m.role === "user" ? "#fff" : c.ink }}>
+                    <p style={{ fontSize: FS.body, lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{m.text}</p>
+                    {m.citations?.length > 0 && (
+                      <div className="flex flex-col" style={{ gap: 4, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
+                        {m.citations.slice(0, 5).map((u, j) => (
+                          <a key={j} href={u} target="_blank" rel="noreferrer" style={{ fontSize: FS.caption, color: c.primary, direction: "ltr", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u}</a>
+                        ))}
+                      </div>
+                    )}
+                    {m.listingLinks?.length > 0 && (
+                      <div className="flex flex-col" style={{ gap: SP.xs, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
+                        {m.listingLinks.slice(0, 5).map((u, j) => (
+                          <button key={j} onClick={() => addLinkToFiles(u)} className="press flex items-center justify-center" style={{ gap: 5, paddingBlock: 7, borderRadius: RAD.sm, background: c.primarySoft }}>
+                            <Plus size={12} color={c.primary} /><span style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>افزودن آگهی {faDigits(j + 1)} به فایل‌ها</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div className="flex justify-start"><div style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}><Loader2 size={16} className="animate-spin" color={c.primary} /></div></div>
+              )}
+            </div>
+          </div>
+          <div className="shrink-0" style={{ padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))`, borderTop: `1px solid ${c.border}` }}>
+            <DivarSearchInputRow c={c} input={input} setInput={setInput} send={send} loading={loading} />
+          </div>
+        </>
+      )}
+    </div>,
+    document.body
   );
 }
 
@@ -1835,7 +1869,7 @@ ${activeListings}
     extracted.reminder && `یادآوری: ${extracted.reminder}`,
   ].filter(Boolean) : [];
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[95] flex flex-col flora-pop" style={{ background: c.bg }}>
       <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
         <span style={{ position: "absolute", top: "-15%", left: "50%", transform: "translateX(-50%)", width: 340, height: 340, borderRadius: "50%", background: `radial-gradient(circle, #22d3ee22, transparent 70%)`, filter: "blur(10px)" }} />
@@ -1980,7 +2014,8 @@ ${activeListings}
         </div>
       )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -3730,7 +3765,7 @@ function Lightbox({ item, onClose }) {
   const atStart = idx === 0, atEnd = idx === media.length - 1;
   const go = (d) => setIdx((i) => Math.max(0, Math.min(media.length - 1, i + d)));
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[90] flex flex-col flora-pop" style={{ background: "rgba(0,0,0,0.94)" }} onClick={onClose}>
       {/* top bar: close + counter, clear of the notch */}
       <div className="flex items-center justify-between px-5 shrink-0" style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: 12 }} onClick={(e) => e.stopPropagation()}>
@@ -3782,7 +3817,8 @@ function Lightbox({ item, onClose }) {
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -4047,8 +4083,8 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
   };
   const STEP_ORDER = ["receiving", "analyzing", "profile", "generating"];
 
-  return (
-    <div className="fixed inset-0 z-[96] flex flex-col" style={{ background: c.bg }}>
+  return createPortal(
+    <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
         <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>استیجینگ مجازی</h2>
@@ -4149,7 +4185,8 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -6354,7 +6391,46 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error?.message || `خطای Perplexity (کد ${res.status})`);
       const raw = data?.choices?.[0]?.message?.content || "";
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      // Perplexity (sonar-pro especially) often wraps the JSON in a sentence or
+      // two even when told not to — pulling out the first {...} block is far
+      // more reliable than assuming the whole response is clean JSON, which was
+      // silently failing the entire extraction whenever any extra text appeared.
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("پاسخ AI فرمت قابل‌خواندنی نداشت");
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      // Fetch the photo first (if any) so it can be saved together with the
+      // property in one shot, rather than patched in after the fact.
+      let extractedMedia = [];
+      if (parsed.imageUrl) {
+        try {
+          const blob = await (await fetch(parsed.imageUrl)).blob();
+          const file = new File([blob], "divar.jpg", { type: blob.type || "image/jpeg" });
+          extractedMedia = [{ id: uid(), type: "image", url: await compressImage(file) }];
+        } catch (imgErr) { /* some CDNs block cross-origin reads even though <img> can display them — skip silently, handled below */ }
+      }
+
+      const hasEssentials = parsed.title && parsed.price;
+      if (hasEssentials) {
+        // Enough to stand on its own — save it directly instead of routing
+        // through form state (which wouldn't be updated yet on this same tick).
+        const payload = {
+          title: parsed.title, type: TYPE_FILTERS.includes(parsed.type) ? parsed.type : "آپارتمان",
+          deal: ["فروش", "پیش‌فروش"].includes(parsed.deal) ? parsed.deal : "فروش",
+          area: toNum(parsed.area), pricePerMeter: parsed.area ? Math.round(parsed.price / parsed.area) : 0, price: toNum(parsed.price),
+          rooms: toNum(parsed.rooms), floor: parsed.floor != null ? toNum(parsed.floor) : 1, furnished: parsed.furnished || "بدون لوازم",
+          address: parsed.address || "", desc: parsed.description || "", builderId: "", ownerId: "", media: extractedMedia, lat: null, lng: null,
+          preDown: 0, preMonths: 0, preDelivery: 0, preDeed: 0, buildStage: BUILD_STAGES[0],
+        };
+        setProperties((prev) => [{ id: uid(), stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
+        celebrate({ kind: "file", label: "فایل از دیوار اضافه شد" });
+        if (parsed.imageUrl && extractedMedia.length === 0) notify("فایل ثبت شد، ولی عکس خودکار نیومد — از داخل فایل دستی اضافه‌اش کن");
+        onClose();
+        return;
+      }
+
+      // Missing something essential (title/price) — pre-fill what we have and
+      // let the agent finish and review manually rather than saving a half-empty file.
       setF((prev) => ({
         ...prev,
         title: parsed.title || prev.title,
@@ -6366,21 +6442,11 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
         floor: parsed.floor != null ? String(parsed.floor) : prev.floor,
         furnished: parsed.furnished || prev.furnished,
         address: parsed.address || prev.address,
+        desc: parsed.description || prev.desc,
       }));
-      if (parsed.description) setF((prev) => ({ ...prev, desc: parsed.description }));
-      // Best-effort image fetch — some CDNs block cross-origin reads even though
-      // <img> can display them; if this fails we just skip the photo silently
-      // for the fetch itself, but do tell the agent so they know to add it by hand.
-      if (parsed.imageUrl) {
-        try {
-          const blob = await (await fetch(parsed.imageUrl)).blob();
-          const file = new File([blob], "divar.jpg", { type: blob.type || "image/jpeg" });
-          const compressed = await compressImage(file);
-          setMedia((prev) => [...prev, { id: uid(), type: "image", url: compressed }]);
-        } catch (imgErr) { notify("اطلاعات استخراج شد، ولی عکس خودکار نیومد — دستی اضافه کن"); }
-      }
+      if (extractedMedia.length) setMedia((prev) => [...prev, ...extractedMedia]);
       setShowDivar(false);
-      notify("اطلاعات با AI استخراج شد — پایین فرم را برای تایید بررسی کن");
+      notify("اطلاعات ناقص بود — پایین فرم رو تکمیل و ثبت کن");
     } catch (e) { notify(`استخراج ناموفق بود: ${e.message || "خطای نامشخص"}`); }
     setAiExtracting(false);
   };
