@@ -2319,34 +2319,17 @@ function BuildingScrollHero({ ctx }) {
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const findScroller = (el) => {
-      let n = el?.parentElement;
-      while (n && n !== document.body) {
-        const oy = getComputedStyle(n).overflowY;
-        if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 4) return n;
-        n = n.parentElement;
-      }
-      return null;
-    };
-    const container = findScroller(wrap);
+
     const readProgress = () => {
       // Progress tracks the hero's travel through the viewport: 0 when its top
       // edge first appears at the bottom of the screen, 1 once it has risen to
-      // sit comfortably in view. Tying this to raw scroll distance instead
-      // meant the whole sequence could finish while the element was still
-      // below the fold, so only the final frame was ever seen.
+      // sit comfortably in view.
       const r = wrap.getBoundingClientRect();
       const vh = window.innerHeight || 800;
       const enter = vh;                 // just about to appear
       const settle = vh * 0.35;         // comfortably in view
       return Math.min(1, Math.max(0, (enter - r.top) / (enter - settle)));
     };
-    // Listen on every plausible source. Which element actually emits scroll
-    // depends on the page's CSS (height:100% + an inner overflow container vs a
-    // normally-scrolling document), and guessing wrong means the whole
-    // animation silently never runs — which is exactly what happened before.
-    const listeners = [window, document];
-    if (container) listeners.push(container);
 
     const paint = (p) => {
       // Dusk: the sky deepens and the sun sinks behind the skyline.
@@ -2386,12 +2369,31 @@ function BuildingScrollHero({ ctx }) {
 
     if (prefersReduced) { paint(1); return; }
 
+    // A rAF loop rather than scroll listeners. iOS Safari is unreliable about
+    // firing scroll events during momentum scrolling and inside nested scroll
+    // containers — reading the position every frame can't miss them. The
+    // observer keeps that loop from running while the hero is off screen, so
+    // it costs nothing when it isn't visible.
     let raf = 0;
-    const apply = () => { raf = 0; paint(readProgress()); };
-    const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply); };
-    listeners.forEach((el) => el.addEventListener("scroll", onScroll, { passive: true }));
-    apply();
-    return () => { listeners.forEach((el) => el.removeEventListener("scroll", onScroll)); if (raf) cancelAnimationFrame(raf); };
+    let running = false;
+    const tick = () => {
+      paint(readProgress());
+      if (running) raf = requestAnimationFrame(tick);
+    };
+    const start = () => { if (!running) { running = true; raf = requestAnimationFrame(tick); } };
+    const stop = () => { running = false; if (raf) cancelAnimationFrame(raf); raf = 0; };
+
+    let io = null;
+    if (typeof IntersectionObserver !== "undefined") {
+      io = new IntersectionObserver((entries) => {
+        entries.forEach((e) => (e.isIntersecting ? start() : (stop(), paint(readProgress()))));
+      }, { rootMargin: "200px 0px" });
+      io.observe(wrap);
+    } else {
+      start(); // no observer support: just always run
+    }
+    paint(readProgress());
+    return () => { stop(); if (io) io.disconnect(); };
   }, [prefersReduced, towers.length]);
 
   let winIdx = 0;

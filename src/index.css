@@ -3,7 +3,6 @@
 @tailwind utilities;
 
 html, body, #root {
-  height: 100%;
   margin: 0;
   /* The rubber-band bounce reveals the page background, so it must match the app */
   background: #0A0E1A;
@@ -11,9 +10,15 @@ html, body, #root {
 
 html {
   background-color: #0A0E1A;
+  /* min-height, not height: a fixed 100% here fights the app shell's
+     min-h-screen child, which leaves the page in a state where neither the
+     document nor any container is a clean scroll root — scroll-linked effects
+     then read a position that never changes. */
+  min-height: 100%;
 }
 
 body {
+  min-height: 100%;
   /* Bounce is left ON deliberately: it's what makes hitting the end feel soft
      instead of hitting a wall. Painting the background above is what stops the
      white flash — killing the bounce was the wrong fix. */
