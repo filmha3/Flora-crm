@@ -2266,33 +2266,55 @@ function AgentAvatar({ ctx, size = 52 }) {
 }
 
 // ---------------------------------------------------------------------------
-// Signature element: an architect's blueprint that draws itself.
+// Signature element: the agent's own portfolio, drawn as a skyline at dusk.
 //
-// The subject here is a working estate agent, and the artifact they actually
-// live with is the floor plan — so the hero is a real plan (walls, door swing,
-// window breaks, dimension lines, hatched balcony), rendered in drafting-pen
-// language rather than generic app shapes.
+// Every tower is a real listing. Its height is that listing's price relative to
+// the largest one, its lit windows are its bedrooms, its colour is its stage
+// (active / negotiating / sold). So the shape of this skyline is literally the
+// shape of this agent's book of business — it changes as their portfolio does,
+// which is what separates it from decoration.
 //
-// Motion is one orchestrated moment, not scattered effects: the pen draws the
-// plan as you scroll (stroke-dashoffset, the way a plotter lays ink down), then
-// the drawing recedes and the portfolio's real figures settle into the rooms
-// they describe. Everything is written straight to the DOM inside a rAF, so a
-// scroll never triggers a React render.
+// Scrolling moves the sun: the sky darkens, windows warm up one by one, and the
+// figures resolve. All writing is DOM-direct inside a rAF (never React state),
+// and every label is real HTML — Persian text inside <text> in SVG doesn't shape
+// or join correctly, so type is layered over the artwork instead.
 // ---------------------------------------------------------------------------
 function BuildingScrollHero({ ctx }) {
   const { c, properties, customers, appointments, calls, setTab, goProperties, setDetail } = ctx;
   const wrapRef = useRef(null);
-  const inkRefs = useRef([]);
-  const labelRefs = useRef([]);
-  const planRef = useRef(null);
-  const gridRef = useRef(null);
+  const skyRef = useRef(null);
+  const sunRef = useRef(null);
+  const towerRefs = useRef([]);
+  const windowRefs = useRef([]);
   const statsRef = useRef(null);
-  const penRef = useRef(null);
+  const headRef = useRef(null);
   const prefersReduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
   const todayAppts = appointments.filter((a) => a.date === todayISO()).length;
   const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
+
+  // Build the skyline out of real listings, tallest-priced in the middle so the
+  // composition reads as a city centre rather than a random bar chart.
+  const towers = useMemo(() => {
+    const src = properties.slice(0, 9);
+    const maxPrice = Math.max(1, ...src.map((p) => p.price || 0));
+    const built = src.map((p, i) => {
+      const ratio = (p.price || 0) / maxPrice;
+      return {
+        id: p.id,
+        h: 26 + ratio * 84,                                   // price → height
+        floors: Math.max(2, Math.min(6, p.rooms || 2)),       // bedrooms → lit floors
+        tone: p.stage === "فروخته شد" ? c.success : p.stage === "در حال مذاکره" ? c.attn : c.primary,
+        price: p.price || 0,
+      };
+    });
+    // tallest toward the centre
+    built.sort((a, b) => b.h - a.h);
+    const arranged = [];
+    built.forEach((t, i) => (i % 2 ? arranged.push(t) : arranged.unshift(t)));
+    return arranged;
+  }, [properties, c]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -2307,136 +2329,109 @@ function BuildingScrollHero({ ctx }) {
       return null;
     };
     const container = findScroller(wrap);
-    const target = container || window;
-    const readScroll = () => (container ? container.scrollTop : (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0));
+    const readProgress = () => {
+      // Progress is based on the hero's position on screen — the rect is always
+      // correct no matter which element scrolls. It starts as soon as the page
+      // moves at all, so the sequence plays while the hero is still in full
+      // view rather than after it has scrolled off the top.
+      const r = wrap.getBoundingClientRect();
+      const startAt = r.height * 0.55;   // where it sits at rest, roughly
+      const travel = r.height * 1.1;
+      return Math.min(1, Math.max(0, startAt - r.top) / travel);
+    };
+    // Listen on every plausible source. Which element actually emits scroll
+    // depends on the page's CSS (height:100% + an inner overflow container vs a
+    // normally-scrolling document), and guessing wrong means the whole
+    // animation silently never runs — which is exactly what happened before.
+    const listeners = [window, document];
+    if (container) listeners.push(container);
 
-    if (prefersReduced) {
-      // Reduced motion: show the finished drawing, skip the choreography.
-      inkRefs.current.forEach((el) => el && (el.style.strokeDashoffset = "0"));
-      labelRefs.current.forEach((el) => el && (el.style.opacity = "1"));
-      const capEl = inkRefs.current[STROKES.length + 1];
-      if (capEl) capEl.style.opacity = "1";
-      if (penRef.current) penRef.current.style.opacity = "0";
-      return;
-    }
-
-    let raf = 0;
-    const apply = () => {
-      raf = 0;
-      const p = Math.min(1, Math.max(0, readScroll()) / 320);
-
-      // Act I — the pen lays down ink, stroke by stroke, in drawing order.
-      // The outer shell starts already drawn: arriving on a blank rectangle
-      // reads as a loading failure, not a design.
-      let lastDrawn = 0;
-      inkRefs.current.forEach((el, i) => {
-        if (!el || !el.getTotalLength) return;
-        const len = el.getTotalLength();
-        if (i < 4) { el.style.strokeDasharray = String(len); el.style.strokeDashoffset = "0"; return; }
-        const start = (i - 4) * 0.09;
-        const t = Math.max(0, Math.min(1, (p - start) / 0.2));
-        el.style.strokeDasharray = String(len);
-        el.style.strokeDashoffset = String(len * (1 - t));
-        if (t > 0 && t < 1) lastDrawn = i;
+    const paint = (p) => {
+      // Dusk: the sky deepens and the sun sinks behind the skyline.
+      if (skyRef.current) {
+        const t = Math.min(1, p * 1.2);
+        skyRef.current.style.opacity = String(0.55 + t * 0.45);
+      }
+      if (sunRef.current) {
+        sunRef.current.style.transform = `translateY(${p * 62}px)`;
+        sunRef.current.style.opacity = String(Math.max(0, 1 - p * 1.5));
+      }
+      // Towers rise, tallest first — the skyline assembling itself.
+      towerRefs.current.forEach((el, i) => {
+        if (!el) return;
+        const t = Math.max(0, Math.min(1, (p - i * 0.045) / 0.3));
+        el.style.transform = `scaleY(${0.12 + t * 0.88})`;
+        el.style.opacity = String(0.25 + t * 0.75);
       });
-
-      // The pen tip rides along whichever stroke is currently being drawn.
-      if (penRef.current) {
-        const active = inkRefs.current[lastDrawn];
-        const drawing = p > 0.02 && p < 0.62;
-        penRef.current.style.opacity = drawing ? "1" : "0";
-        if (active?.getPointAtLength) {
-          const len = active.getTotalLength();
-          const start = (lastDrawn - 4) * 0.09;
-          const t = Math.max(0, Math.min(1, (p - start) / 0.2));
-          const pt = active.getPointAtLength(len * t);
-          penRef.current.setAttribute("cx", pt.x);
-          penRef.current.setAttribute("cy", pt.y);
-        }
-      }
-
-      // Room labels arrive once the walls that define them exist.
-      const labelT = Math.max(0, Math.min(1, (p - 0.34) / 0.2));
-      labelRefs.current.forEach((el) => el && (el.style.opacity = String(labelT)));
-      const capEl = inkRefs.current[STROKES.length + 1];
-      if (capEl) capEl.style.opacity = String(Math.max(0, Math.min(1, (p - 0.5) / 0.18)));
-
-      // Act II — the drawing recedes; the figures it describes come forward.
-      const reveal = Math.max(0, (p - 0.6) / 0.4);
-      if (planRef.current) {
-        planRef.current.style.opacity = String(1 - reveal * 0.88);
-        planRef.current.style.transform = `scale(${1 + reveal * 0.14})`;
-      }
-      if (gridRef.current) gridRef.current.style.opacity = String(0.5 - reveal * 0.5);
+      // Then the windows warm up, one at a time.
+      windowRefs.current.forEach((el, i) => {
+        if (!el) return;
+        const t = Math.max(0, Math.min(1, (p - 0.3 - i * 0.012) / 0.16));
+        el.style.opacity = String(t);
+      });
+      // Finally the numbers settle in. The caption clears out first so the two
+      // never overlap, and the panel reaches FULL opacity partway through —
+      // a panel stuck at 0.75 lets the skyline show through behind the text
+      // no matter how it's stacked.
+      if (headRef.current) headRef.current.style.opacity = String(Math.max(0, 1 - Math.max(0, (p - 0.42) / 0.16)));
       if (statsRef.current) {
-        const t = Math.min(1, reveal * 1.5);
+        const t = Math.max(0, Math.min(1, (p - 0.6) / 0.22));
         statsRef.current.style.opacity = String(t);
-        statsRef.current.style.transform = `translateY(${(1 - t) * 12}px)`;
+        statsRef.current.style.transform = `translateY(${(1 - t) * 10}px)`;
         statsRef.current.style.pointerEvents = t > 0.6 ? "auto" : "none";
       }
     };
+
+    if (prefersReduced) { paint(1); return; }
+
+    let raf = 0;
+    const apply = () => { raf = 0; paint(readProgress()); };
     const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply); };
-    target.addEventListener("scroll", onScroll, { passive: true });
+    listeners.forEach((el) => el.addEventListener("scroll", onScroll, { passive: true }));
     apply();
-    return () => { target.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
-  }, [prefersReduced]);
+    return () => { listeners.forEach((el) => el.removeEventListener("scroll", onScroll)); if (raf) cancelAnimationFrame(raf); };
+  }, [prefersReduced, towers.length]);
 
-  // Drawing order matters: outer shell, interior partitions, then openings and
-  // annotations — the order a person actually drafts a plan in.
-  const STROKES = [
-    "M 24 30 L 296 30",                       // north wall
-    "M 296 30 L 296 148",                     // east wall
-    "M 296 148 L 24 148",                     // south wall
-    "M 24 148 L 24 30",                       // west wall
-    "M 168 30 L 168 100",                     // partition: living / bedroom
-    "M 168 100 L 296 100",                    // partition: bedroom / kitchen
-    "M 90 148 L 90 100 L 168 100",            // partition: hall
-    "M 168 78 A 22 22 0 0 1 190 100",         // door swing
-    "M 60 30 L 108 30 M 210 30 L 258 30",     // window breaks, north
-    "M 24 66 L 24 100",                       // window break, west
-  ];
-
-  const rooms = [
-    { x: 96, y: 66, label: "پذیرایی" },
-    { x: 232, y: 62, label: "خواب" },
-    { x: 232, y: 126, label: "آشپزخانه" },
-  ];
+  let winIdx = 0;
 
   return (
-    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 232, marginBottom: SP.xl, borderRadius: RAD.lg, background: c.surface, border: `1px solid ${c.border}` }}>
-      {/* drafting grid — the paper the plan is drawn on */}
-      <svg ref={gridRef} className="absolute inset-0 w-full h-full" style={{ opacity: 0.5 }} aria-hidden="true">
-        <defs>
-          <pattern id="floraGrid" width="16" height="16" patternUnits="userSpaceOnUse">
-            <path d="M 16 0 L 0 0 0 16" fill="none" stroke={c.primary} strokeWidth="0.5" opacity="0.14" />
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#floraGrid)" />
-      </svg>
+    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 210, marginBottom: SP.xl, borderRadius: RAD.lg, border: `1px solid ${c.border}`, background: c.surface }}>
+      {/* dusk sky */}
+      <div ref={skyRef} className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${c.purple}22 0%, ${c.primary}14 45%, transparent 78%)`, opacity: 0.55, willChange: "opacity" }} />
+      {/* the sun, sinking */}
+      <div ref={sunRef} className="absolute" style={{ top: 34, left: "50%", width: 46, height: 46, marginLeft: -23, borderRadius: "50%", background: `radial-gradient(circle, ${c.attn}cc, ${c.attn}22 62%, transparent 72%)`, willChange: "transform, opacity" }} />
 
-      {/* the plan itself */}
-      <svg ref={planRef} viewBox="0 0 320 178" className="absolute inset-0 w-full h-full" style={{ willChange: "transform, opacity" }} aria-hidden="true">
-        {STROKES.map((d, i) => (
-          <path key={i} ref={(el) => (inkRefs.current[i] = el)} d={d} fill="none"
-            stroke={i < 4 ? c.primary : c.purple} strokeWidth={i < 4 ? 2.4 : 1.4}
-            strokeLinecap="square" strokeLinejoin="miter"
-            style={{ strokeDasharray: 400, strokeDashoffset: 400 }} />
+      {/* skyline — every tower is one real listing */}
+      <div className="absolute flex items-end justify-center" style={{ left: 0, right: 0, bottom: 0, height: 150, gap: 5, paddingInline: SP.lg }}>
+        {towers.map((t, i) => (
+          <div key={t.id} ref={(el) => (towerRefs.current[i] = el)}
+            className="relative flex flex-col-reverse items-center"
+            style={{ width: 26, height: t.h, borderRadius: "3px 3px 0 0", background: `linear-gradient(180deg, ${t.tone}3a, ${t.tone}12)`, borderTop: `2px solid ${t.tone}`, transformOrigin: "bottom", transform: "scaleY(0.12)", opacity: 0.25, willChange: "transform, opacity", gap: 4, paddingBottom: 6 }}>
+            {Array.from({ length: t.floors }).map((_, f) => (
+              <span key={f} ref={(el) => (windowRefs.current[winIdx++] = el)}
+                style={{ width: 12, height: 3.5, borderRadius: 1, background: c.attn, boxShadow: `0 0 6px ${c.attn}aa`, opacity: 0, willChange: "opacity" }} />
+            ))}
+          </div>
         ))}
-        {/* dimension line — reads as a real drafting annotation, not decoration */}
-        <path ref={(el) => (inkRefs.current[STROKES.length] = el)} d="M 24 164 L 296 164 M 24 160 L 24 168 M 296 160 L 296 168"
-          fill="none" stroke={c.muted} strokeWidth="1" style={{ strokeDasharray: 400, strokeDashoffset: 400 }} />
-        <text x="160" y="176" textAnchor="middle" fill={c.muted} ref={(el) => (inkRefs.current[STROKES.length + 1] = el)} style={{ fontSize: 9, letterSpacing: "0.06em", opacity: 0 }}>پلان تیپ</text>
-        {rooms.map((r, i) => (
-          <text key={i} x={r.x} y={r.y} textAnchor="middle" fill={c.muted} ref={(el) => (labelRefs.current[i] = el)} style={{ fontSize: 9.5, letterSpacing: "0.04em", opacity: 0 }}>{r.label}</text>
-        ))}
-        {/* the pen tip, riding the stroke being drawn */}
-        <circle ref={penRef} r="2.6" fill={c.primary} style={{ opacity: 0 }} />
-      </svg>
+        {towers.length === 0 && (
+          <div className="flex items-end" style={{ gap: 5, opacity: 0.25 }}>
+            {[30, 52, 40, 66, 44].map((h, i) => <div key={i} style={{ width: 26, height: h, borderRadius: "3px 3px 0 0", background: c.surface2, borderTop: `2px solid ${c.border}` }} />)}
+          </div>
+        )}
+      </div>
+      {/* ground line */}
+      <div className="absolute" style={{ left: SP.lg, right: SP.lg, bottom: 0, height: 1, background: c.border }} />
 
-      {/* Act II: the portfolio, laid into the plan it describes */}
-      <div ref={statsRef} className="absolute inset-0 flex flex-col justify-center" style={{ opacity: 0, padding: SP.xl, willChange: "transform, opacity" }}>
-        <div className="flex items-baseline" style={{ gap: SP.sm, marginBottom: SP.md }}>
-          <span style={{ width: 18, height: 1.5, background: c.primary, display: "inline-block" }} />
+      {/* resting caption — real HTML, so Persian shapes correctly */}
+      <div ref={headRef} className="absolute" style={{ top: SP.lg, right: SP.lg, willChange: "opacity" }}>
+        <p style={{ fontSize: 10, color: c.muted, letterSpacing: "0.14em" }}>{agencyCityLabel(ctx)}</p>
+        <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginTop: 3 }}>{faDigits(towers.length)} فایل روی خط آسمان</p>
+      </div>
+
+      {/* revealed figures */}
+      <div ref={statsRef} className="absolute inset-0 flex flex-col justify-center" style={{ opacity: 0, padding: SP.xl, willChange: "transform, opacity", background: c.bg, zIndex: 2 }}>
+        <div className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.md }}>
+          <span style={{ width: 16, height: 1.5, background: c.primary }} />
           <p style={{ fontSize: 10, color: c.muted, letterSpacing: "0.14em" }}>دفتر امروز</p>
         </div>
         <div className="flex" style={{ gap: SP.xl }}>
@@ -2447,13 +2442,13 @@ function BuildingScrollHero({ ctx }) {
           ].map((s, i) => (
             <button key={i} onClick={s.go} className="press text-right">
               <p style={{ fontSize: 30, fontWeight: FW.heavy, letterSpacing: "-0.03em", lineHeight: 1 }}>{faDigits(s.v)}</p>
-              <p style={{ fontSize: 10, color: c.muted, marginTop: 5, letterSpacing: "0.02em" }}>{s.l}</p>
+              <p style={{ fontSize: 10, color: c.muted, marginTop: 5 }}>{s.l}</p>
             </button>
           ))}
         </div>
         {pendingCalls > 0 && (
           <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center" style={{ gap: 6, marginTop: SP.lg, alignSelf: "flex-start" }}>
-            <span style={{ width: 5, height: 5, borderRadius: 99, background: c.attn }} />
+            <span className="flora-pulse" style={{ width: 5, height: 5, borderRadius: 99, background: c.attn }} />
             <span style={{ fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس در انتظار پیگیری</span>
           </button>
         )}
@@ -2461,6 +2456,8 @@ function BuildingScrollHero({ ctx }) {
     </div>
   );
 }
+
+const agencyCityLabel = (ctx) => ctx.agencyCity || "سرعین";
 
 
 function HomeTab({ ctx }) {
