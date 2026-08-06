@@ -2329,16 +2329,17 @@ function BuildingScrollHero({ ctx }) {
       return null;
     };
     const container = findScroller(wrap);
-    // Captured once: where the hero naturally sits before any scrolling. Using
-    // an absolute screen position instead meant that on a taller phone the hero
-    // already sat past the "finished" threshold, so the sequence appeared
-    // complete on arrival and the skyline was never visible at all.
-    let restTop = null;
     const readProgress = () => {
+      // Progress tracks the hero's travel through the viewport: 0 when its top
+      // edge first appears at the bottom of the screen, 1 once it has risen to
+      // sit comfortably in view. Tying this to raw scroll distance instead
+      // meant the whole sequence could finish while the element was still
+      // below the fold, so only the final frame was ever seen.
       const r = wrap.getBoundingClientRect();
-      if (restTop === null) restTop = r.top;
-      const travel = r.height * 1.15;
-      return Math.min(1, Math.max(0, restTop - r.top) / travel);
+      const vh = window.innerHeight || 800;
+      const enter = vh;                 // just about to appear
+      const settle = vh * 0.35;         // comfortably in view
+      return Math.min(1, Math.max(0, (enter - r.top) / (enter - settle)));
     };
     // Listen on every plausible source. Which element actually emits scroll
     // depends on the page's CSS (height:100% + an inner overflow container vs a
@@ -2484,11 +2485,6 @@ function HomeTab({ ctx }) {
       {/* Live market strip */}
       <div style={{ marginBottom: SP.xl }}><MarketWidget c={c} /></div>
 
-      {/* Scroll-driven hero — absorbs the old "یک نگاه" stats grid and the
-          today-focus cards, which were three separate blocks showing the
-          same handful of numbers. */}
-      <BuildingScrollHero ctx={ctx} />
-
       {!simpleMode && <div style={{ marginBottom: SP.xl }}><MomentumCard ctx={ctx} /></div>}
 
       {/* Deal Coach — the first actionable thing the agent sees */}
@@ -2514,6 +2510,11 @@ function HomeTab({ ctx }) {
         <HomeStagingTile ctx={ctx} />
         <DivarSearchTile ctx={ctx} />
       </div>
+
+      {/* The skyline sits here on purpose: far enough down that reaching it
+          requires real scrolling, so its build-up is actually watched rather
+          than being over before the agent's first swipe. */}
+      <div style={{ marginTop: SP.xl }}><BuildingScrollHero ctx={ctx} /></div>
 
       {/* Latest files */}
       <div className="flex items-baseline justify-between" style={{ marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>
