@@ -2329,15 +2329,16 @@ function BuildingScrollHero({ ctx }) {
       return null;
     };
     const container = findScroller(wrap);
+    // Captured once: where the hero naturally sits before any scrolling. Using
+    // an absolute screen position instead meant that on a taller phone the hero
+    // already sat past the "finished" threshold, so the sequence appeared
+    // complete on arrival and the skyline was never visible at all.
+    let restTop = null;
     const readProgress = () => {
-      // Progress is based on the hero's position on screen — the rect is always
-      // correct no matter which element scrolls. It starts as soon as the page
-      // moves at all, so the sequence plays while the hero is still in full
-      // view rather than after it has scrolled off the top.
       const r = wrap.getBoundingClientRect();
-      const startAt = r.height * 0.55;   // where it sits at rest, roughly
-      const travel = r.height * 1.1;
-      return Math.min(1, Math.max(0, startAt - r.top) / travel);
+      if (restTop === null) restTop = r.top;
+      const travel = r.height * 1.15;
+      return Math.min(1, Math.max(0, restTop - r.top) / travel);
     };
     // Listen on every plausible source. Which element actually emits scroll
     // depends on the page's CSS (height:100% + an inner overflow container vs a
