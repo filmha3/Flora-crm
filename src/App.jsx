@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak", MARKET_INSIGHT_KEY = "flora-market-insight";
+const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak", MARKET_INSIGHT_KEY = "flora-market-insight", DIVAR_CHAT_KEY = "flora-divar-chat";
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -1567,18 +1567,80 @@ function DivarSearchInputRow({ c, input, setInput, send, loading, style }) {
 }
 
 function DivarSearchSheet({ ctx, onClose }) {
-  const { c, perplexityKey, agencyCity, notify, setSheet } = ctx;
+  const { c, perplexityKey, agencyCity, notify, setSheet, canStage, avalaiKey, avalaiModel } = ctx;
   const [messages, setMessages] = useState([]);
+  const [loadedHistory, setLoadedHistory] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [adShots, setAdShots] = useState([]); // up to 3 screenshots for ad diagnosis
   const scrollRef = useRef(null);
+  const shotRef = useRef(null);
   const DIVAR_URL_RE = /https?:\/\/(www\.)?divar\.ir\/v\/\S+/g;
 
+  // Chat survives closing the sheet — cleared only by the trash button.
+  useEffect(() => {
+    (async () => {
+      try { const saved = await dbGet(DIVAR_CHAT_KEY); if (saved?.messages) setMessages(saved.messages); } catch (e) {}
+      setLoadedHistory(true);
+    })();
+  }, []);
+  useEffect(() => { if (loadedHistory) dbSet(DIVAR_CHAT_KEY, { messages }).catch(() => {}); }, [loadedHistory, messages]);
+
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, loading]);
+
+  const clearChat = () => {
+    if (messages.length === 0) return;
+    setMessages([]);
+    dbSet(DIVAR_CHAT_KEY, { messages: [] }).catch(() => {});
+    notify("گفتگو پاک شد");
+  };
 
   const addLinkToFiles = (url) => {
     onClose();
     setSheet({ kind: "property", prefillDivarLink: url });
+  };
+
+  const addShots = async (fileList) => {
+    const room = 3 - adShots.length;
+    if (room <= 0) { notify("حداکثر ۳ عکس"); return; }
+    const files = Array.from(fileList).slice(0, room);
+    const items = await Promise.all(files.map(async (f) => ({ id: uid(), url: await compressImage(f) })));
+    setAdShots((prev) => [...prev, ...items]);
+  };
+
+  // Ad diagnosis runs on AvalAI's vision model, not Perplexity: Perplexity's
+  // sonar models are search-grounded and don't accept image input, so sending
+  // screenshots there would silently do nothing useful.
+  const diagnoseAd = async () => {
+    if (adShots.length === 0) return;
+    if (!canStage) { notify("این قابلیت به کلید AvalAI نیاز دارد — در تنظیمات هوش مصنوعی واردش کن"); return; }
+    setMessages((prev) => [...prev, { role: "user", text: `تحلیل آگهی از روی ${faDigits(adShots.length)} عکس`, shots: adShots.map((s) => s.url) }]);
+    const shots = adShots;
+    setAdShots([]);
+    setLoading(true);
+    try {
+      const content = [
+        { type: "text", text: `این تصاویر اسکرین‌شات یک آگهی ملکی در دیوار است (عنوان و قیمت، متن آگهی، و آمار بازدید/تماس). به‌عنوان یک متخصص فروش املاک تحلیل کن که چرا این آگهی با وجود بازدید، تماس کمی گرفته. دقیقاً به این موارد بپرداز:
+۱. عنوان: آیا جذاب و جستجوپذیر است؟ چه عنوان بهتری پیشنهاد می‌دهی (دقیقاً بنویس)؟
+۲. قیمت: نسبت به بازار چطور به‌نظر می‌رسد؟
+۳. متن آگهی: چه چیزی کم دارد، چه چیزی زیادی است، لحنش چطور است؟
+۴. آمار: نسبت بازدید به تماس چه می‌گوید؟
+۵. سه اقدام مشخص و فوری که همین امروز باید انجام دهد.
+کوتاه، صریح و به فارسی جواب بده — بدون تعارف.` },
+        ...shots.map((s) => ({ type: "image_url", image_url: { url: s.url } })),
+      ];
+      const res = await fetch("https://api.avalai.ir/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
+        body: JSON.stringify({ model: avalaiModel && avalaiModel.startsWith("gpt-4o") ? avalaiModel : "gpt-4o", messages: [{ role: "user", content }] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `خطا (کد ${res.status})`);
+      const text = data?.choices?.[0]?.message?.content || "پاسخی دریافت نشد";
+      setMessages((prev) => [...prev, { role: "assistant", text }]);
+    } catch (e) {
+      setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}`, error: true }]);
+    }
+    setLoading(false);
   };
 
   const send = async () => {
@@ -1618,17 +1680,53 @@ function DivarSearchSheet({ ctx, onClose }) {
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
         <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>جستجوی دیوار با AI</h2>
-        <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><Globe size={16} color={c.ink} /></a>
+        <button onClick={clearChat} disabled={messages.length === 0} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: messages.length === 0 ? 0.4 : 1 }}><Trash2 size={16} color={messages.length === 0 ? c.muted : c.danger} /></button>
       </div>
 
       {messages.length === 0 ? (
-        // Nothing to scroll to yet — put the search box right where the eye already
-        // is (under the hint text, mid-screen) instead of making it hunt all the
-        // way down to a bar pinned at the bottom of an otherwise-empty page.
-        <div className="flex-1 flex flex-col items-center justify-center" style={{ padding: SP.xl, textAlign: "center" }}>
-          <div className="flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: "50%", background: c.primarySoft, marginBottom: SP.md }}><Search size={26} color={c.primary} /></div>
-          <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, maxWidth: 280, marginBottom: SP.xl }}>بپرس، مثلاً «۵ تا فایل امروزیِ فروش آپارتمان سرعین رو بگو»، یا یه لینک آگهی دیوار پیست کن تا تحلیلش کنم.</p>
-          <DivarSearchInputRow c={c} input={input} setInput={setInput} send={send} loading={loading} style={{ maxWidth: 320 }} />
+        <div className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
+          {/* Big, obvious entry to Divar's own site */}
+          <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, background: "linear-gradient(135deg,#c8102e,#e63946)", boxShadow: "0 14px 30px -10px rgba(200,16,46,0.45)" }}>
+            <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.2)" }}><Globe size={24} color="#fff" /></div>
+            <div className="flex-1 text-right">
+              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: "#fff" }}>ورود به وب دیوار</p>
+              <p style={{ fontSize: FS.caption, color: "rgba(255,255,255,0.88)", marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
+            </div>
+            <ChevronLeft size={20} color="rgba(255,255,255,0.75)" />
+          </a>
+
+          {/* Ad diagnosis — 3 screenshots */}
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c, 22) }}>
+            <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>چرا آگهی‌ام زنگ نمی‌خوره؟</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>سه اسکرین‌شات از آگهی دیوارت بفرست: ۱) عنوان و قیمت ۲) متن آگهی ۳) آمار بازدید — تحلیل می‌کنم چرا تماس نمی‌گیرن.</p>
+            <input ref={shotRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files?.length) addShots(e.target.files); e.target.value = ""; }} />
+            <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
+              {[0, 1, 2].map((i) => {
+                const shot = adShots[i];
+                const labels = ["عنوان و قیمت", "متن آگهی", "آمار بازدید"];
+                return shot ? (
+                  <button key={i} onClick={() => setAdShots((prev) => prev.filter((s) => s.id !== shot.id))} className="press relative" style={{ aspectRatio: "1", borderRadius: RAD.md, overflow: "hidden", border: `1px solid ${c.border}` }}>
+                    <img src={shot.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <span className="absolute flex items-center justify-center" style={{ top: 4, left: 4, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)" }}><X size={10} color="#fff" /></span>
+                  </button>
+                ) : (
+                  <button key={i} onClick={() => shotRef.current?.click()} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: c.surface2, border: `1px dashed ${c.border}` }}>
+                    <ImagePlus size={16} color={c.muted} />
+                    <span style={{ fontSize: 8.5, color: c.muted, marginTop: 4, textAlign: "center", paddingInline: 2 }}>{labels[i]}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={diagnoseAd} disabled={adShots.length === 0 || loading} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: adShots.length ? c.primary : c.surface2, color: adShots.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}تحلیل حرفه‌ای آگهی
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="flex flex-col items-center" style={{ textAlign: "center" }}>
+            <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, maxWidth: 300, marginBottom: SP.md }}>یا بپرس، مثلاً «۵ تا فایل امروزیِ فروش آپارتمان سرعین رو بگو» — یا یه لینک آگهی پیست کن.</p>
+            <DivarSearchInputRow c={c} input={input} setInput={setInput} send={send} loading={loading} />
+          </div>
         </div>
       ) : (
         <>
@@ -1637,6 +1735,11 @@ function DivarSearchSheet({ ctx, onClose }) {
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div style={{ maxWidth: "88%", padding: SP.md, borderRadius: RAD.md, background: m.role === "user" ? c.primary : c.surface2, color: m.role === "user" ? "#fff" : c.ink }}>
+                    {m.shots?.length > 0 && (
+                      <div className="flex" style={{ gap: 4, marginBottom: SP.sm }}>
+                        {m.shots.map((u, j) => <img key={j} src={u} alt="" style={{ width: 46, height: 46, borderRadius: RAD.sm, objectFit: "cover" }} />)}
+                      </div>
+                    )}
                     <p style={{ fontSize: FS.body, lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{m.text}</p>
                     {m.citations?.length > 0 && (
                       <div className="flex flex-col" style={{ gap: 4, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
@@ -2162,17 +2265,206 @@ function AgentAvatar({ ctx, size = 52 }) {
   );
 }
 
-function HomeTab({ ctx }) {
-  const { c, properties, customers, appointments, calls, setDetail, setTab, goProperties, agentName, agencyName, agencyCity, simpleMode, setSheet } = ctx;
+// ---------------------------------------------------------------------------
+// Signature element: an architect's blueprint that draws itself.
+//
+// The subject here is a working estate agent, and the artifact they actually
+// live with is the floor plan — so the hero is a real plan (walls, door swing,
+// window breaks, dimension lines, hatched balcony), rendered in drafting-pen
+// language rather than generic app shapes.
+//
+// Motion is one orchestrated moment, not scattered effects: the pen draws the
+// plan as you scroll (stroke-dashoffset, the way a plotter lays ink down), then
+// the drawing recedes and the portfolio's real figures settle into the rooms
+// they describe. Everything is written straight to the DOM inside a rAF, so a
+// scroll never triggers a React render.
+// ---------------------------------------------------------------------------
+function BuildingScrollHero({ ctx }) {
+  const { c, properties, customers, appointments, calls, setTab, goProperties, setDetail } = ctx;
+  const wrapRef = useRef(null);
+  const inkRefs = useRef([]);
+  const labelRefs = useRef([]);
+  const planRef = useRef(null);
+  const gridRef = useRef(null);
+  const statsRef = useRef(null);
+  const penRef = useRef(null);
+  const prefersReduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
-  const todayAppts = appointments.filter((a) => a.date === todayISO());
+  const todayAppts = appointments.filter((a) => a.date === todayISO()).length;
   const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
-  const stats = [
-    { label: "مشتری", value: customers.length, icon: Users, color: c.primary, onClick: () => setTab("customers") },
-    { label: "فایل فعال", value: activeProps, icon: Building2, color: c.purple, onClick: () => goProperties("فعال") },
-    { label: "تماس در انتظار", value: pendingCalls, icon: PhoneCall, color: c.attn, onClick: () => setTab("more") },
-    { label: "بازدید امروز", value: todayAppts.length, icon: CalendarDays, color: c.success, onClick: () => setTab("calendar") },
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const findScroller = (el) => {
+      let n = el?.parentElement;
+      while (n && n !== document.body) {
+        const oy = getComputedStyle(n).overflowY;
+        if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 4) return n;
+        n = n.parentElement;
+      }
+      return null;
+    };
+    const container = findScroller(wrap);
+    const target = container || window;
+    const readScroll = () => (container ? container.scrollTop : (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0));
+
+    if (prefersReduced) {
+      // Reduced motion: show the finished drawing, skip the choreography.
+      inkRefs.current.forEach((el) => el && (el.style.strokeDashoffset = "0"));
+      labelRefs.current.forEach((el) => el && (el.style.opacity = "1"));
+      const capEl = inkRefs.current[STROKES.length + 1];
+      if (capEl) capEl.style.opacity = "1";
+      if (penRef.current) penRef.current.style.opacity = "0";
+      return;
+    }
+
+    let raf = 0;
+    const apply = () => {
+      raf = 0;
+      const p = Math.min(1, Math.max(0, readScroll()) / 320);
+
+      // Act I — the pen lays down ink, stroke by stroke, in drawing order.
+      // The outer shell starts already drawn: arriving on a blank rectangle
+      // reads as a loading failure, not a design.
+      let lastDrawn = 0;
+      inkRefs.current.forEach((el, i) => {
+        if (!el || !el.getTotalLength) return;
+        const len = el.getTotalLength();
+        if (i < 4) { el.style.strokeDasharray = String(len); el.style.strokeDashoffset = "0"; return; }
+        const start = (i - 4) * 0.09;
+        const t = Math.max(0, Math.min(1, (p - start) / 0.2));
+        el.style.strokeDasharray = String(len);
+        el.style.strokeDashoffset = String(len * (1 - t));
+        if (t > 0 && t < 1) lastDrawn = i;
+      });
+
+      // The pen tip rides along whichever stroke is currently being drawn.
+      if (penRef.current) {
+        const active = inkRefs.current[lastDrawn];
+        const drawing = p > 0.02 && p < 0.62;
+        penRef.current.style.opacity = drawing ? "1" : "0";
+        if (active?.getPointAtLength) {
+          const len = active.getTotalLength();
+          const start = (lastDrawn - 4) * 0.09;
+          const t = Math.max(0, Math.min(1, (p - start) / 0.2));
+          const pt = active.getPointAtLength(len * t);
+          penRef.current.setAttribute("cx", pt.x);
+          penRef.current.setAttribute("cy", pt.y);
+        }
+      }
+
+      // Room labels arrive once the walls that define them exist.
+      const labelT = Math.max(0, Math.min(1, (p - 0.34) / 0.2));
+      labelRefs.current.forEach((el) => el && (el.style.opacity = String(labelT)));
+      const capEl = inkRefs.current[STROKES.length + 1];
+      if (capEl) capEl.style.opacity = String(Math.max(0, Math.min(1, (p - 0.5) / 0.18)));
+
+      // Act II — the drawing recedes; the figures it describes come forward.
+      const reveal = Math.max(0, (p - 0.6) / 0.4);
+      if (planRef.current) {
+        planRef.current.style.opacity = String(1 - reveal * 0.88);
+        planRef.current.style.transform = `scale(${1 + reveal * 0.14})`;
+      }
+      if (gridRef.current) gridRef.current.style.opacity = String(0.5 - reveal * 0.5);
+      if (statsRef.current) {
+        const t = Math.min(1, reveal * 1.5);
+        statsRef.current.style.opacity = String(t);
+        statsRef.current.style.transform = `translateY(${(1 - t) * 12}px)`;
+        statsRef.current.style.pointerEvents = t > 0.6 ? "auto" : "none";
+      }
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply); };
+    target.addEventListener("scroll", onScroll, { passive: true });
+    apply();
+    return () => { target.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, [prefersReduced]);
+
+  // Drawing order matters: outer shell, interior partitions, then openings and
+  // annotations — the order a person actually drafts a plan in.
+  const STROKES = [
+    "M 24 30 L 296 30",                       // north wall
+    "M 296 30 L 296 148",                     // east wall
+    "M 296 148 L 24 148",                     // south wall
+    "M 24 148 L 24 30",                       // west wall
+    "M 168 30 L 168 100",                     // partition: living / bedroom
+    "M 168 100 L 296 100",                    // partition: bedroom / kitchen
+    "M 90 148 L 90 100 L 168 100",            // partition: hall
+    "M 168 78 A 22 22 0 0 1 190 100",         // door swing
+    "M 60 30 L 108 30 M 210 30 L 258 30",     // window breaks, north
+    "M 24 66 L 24 100",                       // window break, west
   ];
+
+  const rooms = [
+    { x: 96, y: 66, label: "پذیرایی" },
+    { x: 232, y: 62, label: "خواب" },
+    { x: 232, y: 126, label: "آشپزخانه" },
+  ];
+
+  return (
+    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 232, marginBottom: SP.xl, borderRadius: RAD.lg, background: c.surface, border: `1px solid ${c.border}` }}>
+      {/* drafting grid — the paper the plan is drawn on */}
+      <svg ref={gridRef} className="absolute inset-0 w-full h-full" style={{ opacity: 0.5 }} aria-hidden="true">
+        <defs>
+          <pattern id="floraGrid" width="16" height="16" patternUnits="userSpaceOnUse">
+            <path d="M 16 0 L 0 0 0 16" fill="none" stroke={c.primary} strokeWidth="0.5" opacity="0.14" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#floraGrid)" />
+      </svg>
+
+      {/* the plan itself */}
+      <svg ref={planRef} viewBox="0 0 320 178" className="absolute inset-0 w-full h-full" style={{ willChange: "transform, opacity" }} aria-hidden="true">
+        {STROKES.map((d, i) => (
+          <path key={i} ref={(el) => (inkRefs.current[i] = el)} d={d} fill="none"
+            stroke={i < 4 ? c.primary : c.purple} strokeWidth={i < 4 ? 2.4 : 1.4}
+            strokeLinecap="square" strokeLinejoin="miter"
+            style={{ strokeDasharray: 400, strokeDashoffset: 400 }} />
+        ))}
+        {/* dimension line — reads as a real drafting annotation, not decoration */}
+        <path ref={(el) => (inkRefs.current[STROKES.length] = el)} d="M 24 164 L 296 164 M 24 160 L 24 168 M 296 160 L 296 168"
+          fill="none" stroke={c.muted} strokeWidth="1" style={{ strokeDasharray: 400, strokeDashoffset: 400 }} />
+        <text x="160" y="176" textAnchor="middle" fill={c.muted} ref={(el) => (inkRefs.current[STROKES.length + 1] = el)} style={{ fontSize: 9, letterSpacing: "0.06em", opacity: 0 }}>پلان تیپ</text>
+        {rooms.map((r, i) => (
+          <text key={i} x={r.x} y={r.y} textAnchor="middle" fill={c.muted} ref={(el) => (labelRefs.current[i] = el)} style={{ fontSize: 9.5, letterSpacing: "0.04em", opacity: 0 }}>{r.label}</text>
+        ))}
+        {/* the pen tip, riding the stroke being drawn */}
+        <circle ref={penRef} r="2.6" fill={c.primary} style={{ opacity: 0 }} />
+      </svg>
+
+      {/* Act II: the portfolio, laid into the plan it describes */}
+      <div ref={statsRef} className="absolute inset-0 flex flex-col justify-center" style={{ opacity: 0, padding: SP.xl, willChange: "transform, opacity" }}>
+        <div className="flex items-baseline" style={{ gap: SP.sm, marginBottom: SP.md }}>
+          <span style={{ width: 18, height: 1.5, background: c.primary, display: "inline-block" }} />
+          <p style={{ fontSize: 10, color: c.muted, letterSpacing: "0.14em" }}>دفتر امروز</p>
+        </div>
+        <div className="flex" style={{ gap: SP.xl }}>
+          {[
+            { v: activeProps, l: "فایل فعال", go: () => goProperties("فعال") },
+            { v: customers.length, l: "مشتری", go: () => setTab("customers") },
+            { v: todayAppts, l: "بازدید امروز", go: () => setTab("calendar") },
+          ].map((s, i) => (
+            <button key={i} onClick={s.go} className="press text-right">
+              <p style={{ fontSize: 30, fontWeight: FW.heavy, letterSpacing: "-0.03em", lineHeight: 1 }}>{faDigits(s.v)}</p>
+              <p style={{ fontSize: 10, color: c.muted, marginTop: 5, letterSpacing: "0.02em" }}>{s.l}</p>
+            </button>
+          ))}
+        </div>
+        {pendingCalls > 0 && (
+          <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center" style={{ gap: 6, marginTop: SP.lg, alignSelf: "flex-start" }}>
+            <span style={{ width: 5, height: 5, borderRadius: 99, background: c.attn }} />
+            <span style={{ fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس در انتظار پیگیری</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+function HomeTab({ ctx }) {
+  const { c, properties, setDetail, setTab, agentName, agencyCity, simpleMode, setSheet } = ctx;
 
   return (
     <div style={{ paddingTop: SP.xl }}>
@@ -2194,7 +2486,11 @@ function HomeTab({ ctx }) {
       {/* Live market strip */}
       <div style={{ marginBottom: SP.xl }}><MarketWidget c={c} /></div>
 
-      {/* Local stats — right under the dollar/gold strip, same "market pulse" idea */}
+      {/* Scroll-driven hero — absorbs the old "یک نگاه" stats grid and the
+          today-focus cards, which were three separate blocks showing the
+          same handful of numbers. */}
+      <BuildingScrollHero ctx={ctx} />
+
       {!simpleMode && <div style={{ marginBottom: SP.xl }}><MomentumCard ctx={ctx} /></div>}
 
       {/* Deal Coach — the first actionable thing the agent sees */}
@@ -2220,46 +2516,6 @@ function HomeTab({ ctx }) {
         <HomeStagingTile ctx={ctx} />
         <DivarSearchTile ctx={ctx} />
       </div>
-
-      {/* Today's focus — quiet action cards */}
-      {(todayAppts.length > 0 || pendingCalls > 0) && (
-        <>
-          <div className="flex" style={{ gap: SP.md, marginTop: SP.xl }}>
-          {todayAppts.length > 0 && (
-            <button onClick={() => setTab("calendar")} className="press flex-1 text-right flex items-center" style={{ gap: SP.md, paddingInline: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, ...glass(c, 20) }}>
-              <span style={{ width: 4, height: 30, borderRadius: RAD.sm, background: c.success, flexShrink: 0 }} />
-              <div className="min-w-0">
-                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{faDigits(todayAppts.length)} بازدید امروز</p>
-                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>اولین: {todayAppts.sort((a, b) => a.time.localeCompare(b.time))[0].time}</p>
-              </div>
-            </button>
-          )}
-          {pendingCalls > 0 && (
-            <button onClick={() => setDetail({ type: "calls" })} className="press flex-1 text-right flex items-center" style={{ gap: SP.md, paddingInline: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, ...glass(c, 20) }}>
-              <span style={{ width: 4, height: 30, borderRadius: RAD.sm, background: c.attn, flexShrink: 0 }} />
-              <div className="min-w-0">
-                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس معوق</p>
-                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>نیاز به پیگیری</p>
-              </div>
-            </button>
-          )}
-          </div>
-        </>
-      )}
-
-      {/* Stats */}
-      {!simpleMode && <>
-      <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em", marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>یک نگاه</h2>
-      <div className="grid grid-cols-2 flora-stagger" style={{ gap: SP.md }}>
-        {stats.map((s, i) => (
-          <button key={i} onClick={s.onClick} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
-            <div className="flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: RAD.pill, background: s.color + "1f", marginBottom: SP.md }}><s.icon size={17} color={s.color} /></div>
-            <p style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.02em" }}>{faDigits(s.value)}</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{s.label}</p>
-          </button>
-        ))}
-      </div>
-      </>}
 
       {/* Latest files */}
       <div className="flex items-baseline justify-between" style={{ marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>
