@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Home, Building2, Users, Search, Plus, X, Moon, Sun, Sparkles, MapPin, Ruler,
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
@@ -317,11 +318,7 @@ const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
 // and a hard top-level import would fail the whole bundle there — so it's
 // resolved at runtime, falling back to plain inline rendering (visually
 // imperfect in that sandbox, but never a crash).
-let _createPortal = null;
-try {
-  // eslint-disable-next-line
-  _createPortal = (typeof require === "function" ? require("react-dom") : window.ReactDOM)?.createPortal || null;
-} catch (e) { _createPortal = null; }
+const _createPortal = createPortal;
 
 function BodyPortal({ children }) {
   // The host is created during the first render, not in an effect. Doing it in
