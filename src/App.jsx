@@ -1620,8 +1620,16 @@ function DivarSearchSheet({ ctx, onClose }) {
     setLoading(true);
     try {
       const content = [
-        { type: "text", text: `این تصاویر اسکرین‌شات یک آگهی ملکی در دیوار است (عنوان و قیمت، متن آگهی، و آمار بازدید/تماس). به‌عنوان یک متخصص فروش املاک تحلیل کن که چرا این آگهی با وجود بازدید، تماس کمی گرفته. دقیقاً به این موارد بپرداز:
-۱. عنوان: آیا جذاب و جستجوپذیر است؟ چه عنوان بهتری پیشنهاد می‌دهی (دقیقاً بنویس)؟
+        { type: "text", text: `این تصاویر اسکرین‌شات یک آگهی ملکی در دیوار است (عنوان و قیمت، متن آگهی، و آمار بازدید/تماس). به‌عنوان یک متخصص فروش املاک تحلیل کن که چرا این آگهی با وجود بازدید، تماس کمی گرفته.
+
+این آگهی را دقیقاً با این معیارها بسنج:
+- قانون اوگیلوی: آیا کلمات توخالی («سوپرلوکس»، «سلطنتی»، «بی‌نظیر») دارد؟ هر ادعای بدون عدد یا جنس مشخص را نام ببر و جایگزین واقعی پیشنهاد بده.
+- سه ترس خریدار ایرانی: آیا به واقعی‌بودن عکس‌ها، وضعیت سند، و شفافیت شرایط پرداخت اشاره شده؟ هرکدام که غایب است را بگو.
+- قانون ۳ ثانیه: آیا با بولت و شکست خط در ۳ ثانیه اسکن می‌شود یا پاراگراف طولانی و خسته‌کننده است؟
+- دعوت به اقدام: آیا دلیل مشخصی برای تماس داده (ویدیو، بررسی سند، بازدید) یا فقط شماره گذاشته؟
+
+سپس دقیقاً به این موارد بپرداز:
+۱. عنوان: آیا لوکیشن + مشخصه‌ی یکتا + قلاب مالی را دارد؟ عنوان بهتر را دقیقاً بنویس.
 ۲. قیمت: نسبت به بازار چطور به‌نظر می‌رسد؟
 ۳. متن آگهی: چه چیزی کم دارد، چه چیزی زیادی است، لحنش چطور است؟
 ۴. آمار: نسبت بازدید به تماس چه می‌گوید؟
@@ -2266,202 +2274,150 @@ function AgentAvatar({ ctx, size = 52 }) {
 }
 
 // ---------------------------------------------------------------------------
-// Signature element: the agent's own portfolio, drawn as a skyline at dusk.
+// Signature element: the agent's portfolio as a living skyline at dusk.
 //
-// Every tower is a real listing. Its height is that listing's price relative to
-// the largest one, its lit windows are its bedrooms, its colour is its stage
-// (active / negotiating / sold). So the shape of this skyline is literally the
-// shape of this agent's book of business — it changes as their portfolio does,
-// which is what separates it from decoration.
+// Every tower is a real listing — height is its price relative to the largest,
+// lit windows are its bedrooms, colour is its stage. The skyline's silhouette
+// IS this agent's book of business, so it looks different for every user and
+// changes as they work. That's what separates it from decoration.
 //
-// Scrolling moves the sun: the sky darkens, windows warm up one by one, and the
-// figures resolve. All writing is DOM-direct inside a rAF (never React state),
-// and every label is real HTML — Persian text inside <text> in SVG doesn't shape
-// or join correctly, so type is layered over the artwork instead.
+// Triggered by IntersectionObserver (a one-shot "has it been seen" flag), then
+// played entirely in CSS. Deliberately NOT scroll-position-linked: continuously
+// mapping scroll offset to animation progress proved unreliable on iOS Safari
+// inside this app's nested-scroll layout. A binary "is it visible" check is the
+// one thing that works everywhere.
 // ---------------------------------------------------------------------------
 function BuildingScrollHero({ ctx }) {
-  const { c, properties, customers, appointments, calls, setTab, goProperties, setDetail } = ctx;
+  const { c, properties, customers, appointments, calls, setTab, goProperties, setDetail, agencyCity } = ctx;
   const wrapRef = useRef(null);
-  const skyRef = useRef(null);
-  const sunRef = useRef(null);
-  const towerRefs = useRef([]);
-  const windowRefs = useRef([]);
-  const statsRef = useRef(null);
-  const headRef = useRef(null);
-  const prefersReduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const [seen, setSeen] = useState(false);
 
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
   const todayAppts = appointments.filter((a) => a.date === todayISO()).length;
   const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
 
-  // Build the skyline out of real listings, tallest-priced in the middle so the
-  // composition reads as a city centre rather than a random bar chart.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") { setSeen(true); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect(); }
+    }, { threshold: 0.25 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   const towers = useMemo(() => {
     const src = properties.slice(0, 9);
     const maxPrice = Math.max(1, ...src.map((p) => p.price || 0));
-    const built = src.map((p, i) => {
-      const ratio = (p.price || 0) / maxPrice;
-      return {
-        id: p.id,
-        h: 26 + ratio * 84,                                   // price → height
-        floors: Math.max(2, Math.min(6, p.rooms || 2)),       // bedrooms → lit floors
-        tone: p.stage === "فروخته شد" ? c.success : p.stage === "در حال مذاکره" ? c.attn : c.primary,
-        price: p.price || 0,
-      };
-    });
-    // tallest toward the centre
+    const built = src.map((p) => ({
+      id: p.id,
+      h: 30 + ((p.price || 0) / maxPrice) * 76,
+      floors: Math.max(2, Math.min(5, p.rooms || 2)),
+      tone: p.stage === "فروخته شد" ? c.success : p.stage === "در حال مذاکره" ? c.attn : c.primary,
+    }));
     built.sort((a, b) => b.h - a.h);
     const arranged = [];
     built.forEach((t, i) => (i % 2 ? arranged.push(t) : arranged.unshift(t)));
     return arranged;
   }, [properties, c]);
 
-  useEffect(() => {
-    const wrap = wrapRef.current;
-    if (!wrap) return;
-
-    const readProgress = () => {
-      // Progress tracks the hero's travel through the viewport: 0 when its top
-      // edge first appears at the bottom of the screen, 1 once it has risen to
-      // sit comfortably in view.
-      const r = wrap.getBoundingClientRect();
-      const vh = window.innerHeight || 800;
-      const enter = vh;                 // just about to appear
-      const settle = vh * 0.35;         // comfortably in view
-      return Math.min(1, Math.max(0, (enter - r.top) / (enter - settle)));
-    };
-
-    const paint = (p) => {
-      // Dusk: the sky deepens and the sun sinks behind the skyline.
-      if (skyRef.current) {
-        const t = Math.min(1, p * 1.2);
-        skyRef.current.style.opacity = String(0.55 + t * 0.45);
-      }
-      if (sunRef.current) {
-        sunRef.current.style.transform = `translateY(${p * 62}px)`;
-        sunRef.current.style.opacity = String(Math.max(0, 1 - p * 1.5));
-      }
-      // Towers rise, tallest first — the skyline assembling itself.
-      towerRefs.current.forEach((el, i) => {
-        if (!el) return;
-        const t = Math.max(0, Math.min(1, (p - i * 0.045) / 0.3));
-        el.style.transform = `scaleY(${0.12 + t * 0.88})`;
-        el.style.opacity = String(0.25 + t * 0.75);
-      });
-      // Then the windows warm up, one at a time.
-      windowRefs.current.forEach((el, i) => {
-        if (!el) return;
-        const t = Math.max(0, Math.min(1, (p - 0.3 - i * 0.012) / 0.16));
-        el.style.opacity = String(t);
-      });
-      // Finally the numbers settle in. The caption clears out first so the two
-      // never overlap, and the panel reaches FULL opacity partway through —
-      // a panel stuck at 0.75 lets the skyline show through behind the text
-      // no matter how it's stacked.
-      if (headRef.current) headRef.current.style.opacity = String(Math.max(0, 1 - Math.max(0, (p - 0.42) / 0.16)));
-      if (statsRef.current) {
-        const t = Math.max(0, Math.min(1, (p - 0.6) / 0.22));
-        statsRef.current.style.opacity = String(t);
-        statsRef.current.style.transform = `translateY(${(1 - t) * 10}px)`;
-        statsRef.current.style.pointerEvents = t > 0.6 ? "auto" : "none";
-      }
-    };
-
-    if (prefersReduced) { paint(1); return; }
-
-    // A rAF loop rather than scroll listeners. iOS Safari is unreliable about
-    // firing scroll events during momentum scrolling and inside nested scroll
-    // containers — reading the position every frame can't miss them. The
-    // observer keeps that loop from running while the hero is off screen, so
-    // it costs nothing when it isn't visible.
-    let raf = 0;
-    let running = false;
-    const tick = () => {
-      paint(readProgress());
-      if (running) raf = requestAnimationFrame(tick);
-    };
-    const start = () => { if (!running) { running = true; raf = requestAnimationFrame(tick); } };
-    const stop = () => { running = false; if (raf) cancelAnimationFrame(raf); raf = 0; };
-
-    let io = null;
-    if (typeof IntersectionObserver !== "undefined") {
-      io = new IntersectionObserver((entries) => {
-        entries.forEach((e) => (e.isIntersecting ? start() : (stop(), paint(readProgress()))));
-      }, { rootMargin: "200px 0px" });
-      io.observe(wrap);
-    } else {
-      start(); // no observer support: just always run
-    }
-    paint(readProgress());
-    return () => { stop(); if (io) io.disconnect(); };
-  }, [prefersReduced, towers.length]);
-
-  let winIdx = 0;
+  let winKey = 0;
+  const on = seen ? " flora-sky-go" : "";
 
   return (
-    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 210, marginBottom: SP.xl, borderRadius: RAD.lg, border: `1px solid ${c.border}`, background: c.surface }}>
-      {/* dusk sky */}
-      <div ref={skyRef} className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${c.purple}22 0%, ${c.primary}14 45%, transparent 78%)`, opacity: 0.55, willChange: "opacity" }} />
-      {/* the sun, sinking */}
-      <div ref={sunRef} className="absolute" style={{ top: 34, left: "50%", width: 46, height: 46, marginLeft: -23, borderRadius: "50%", background: `radial-gradient(circle, ${c.attn}cc, ${c.attn}22 62%, transparent 72%)`, willChange: "transform, opacity" }} />
+    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 212, borderRadius: RAD.lg, border: `1px solid ${c.border}`, background: c.surface }}>
+      {/* dusk gradient */}
+      <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${c.purple}26 0%, ${c.primary}16 46%, transparent 78%)` }} />
 
-      {/* skyline — every tower is one real listing */}
-      <div className="absolute flex items-end justify-center" style={{ left: 0, right: 0, bottom: 0, height: 150, gap: 5, paddingInline: SP.lg }}>
+      {/* stars — only meaningful once the sky darkens, so they fade in late */}
+      {[[38,26],[92,18],[150,32],[232,22],[290,30],[330,16]].map(([x, y], i) => (
+        <span key={i} className={"flora-sky-star" + on} style={{ position: "absolute", left: x, top: y, width: 2, height: 2, borderRadius: 99, background: "#fff", animationDelay: `${1.3 + i * 0.11}s` }} />
+      ))}
+
+      {/* sun, settling into the skyline */}
+      <div className={"flora-sky-sun absolute" + on} style={{ top: 26, left: "50%", width: 44, height: 44, marginLeft: -22, borderRadius: "50%", background: `radial-gradient(circle, ${c.attn}cc, ${c.attn}22 62%, transparent 72%)` }} />
+
+      {/* skyline — one tower per listing */}
+      <div className="absolute flex items-end justify-center" style={{ left: 0, right: 0, bottom: 0, height: 152, gap: 5, paddingInline: SP.lg }}>
         {towers.map((t, i) => (
-          <div key={t.id} ref={(el) => (towerRefs.current[i] = el)}
-            className="relative flex flex-col-reverse items-center"
-            style={{ width: 26, height: t.h, borderRadius: "3px 3px 0 0", background: `linear-gradient(180deg, ${t.tone}3a, ${t.tone}12)`, borderTop: `2px solid ${t.tone}`, transformOrigin: "bottom", transform: "scaleY(0.12)", opacity: 0.25, willChange: "transform, opacity", gap: 4, paddingBottom: 6 }}>
+          <div key={t.id} className={"flora-sky-tower relative flex flex-col-reverse items-center" + on}
+            style={{ width: 26, height: t.h, borderRadius: "3px 3px 0 0", background: `linear-gradient(180deg, ${t.tone}42, ${t.tone}14)`, borderTop: `2px solid ${t.tone}`, gap: 4, paddingBottom: 6, animationDelay: `${0.08 + i * 0.085}s` }}>
             {Array.from({ length: t.floors }).map((_, f) => (
-              <span key={f} ref={(el) => (windowRefs.current[winIdx++] = el)}
-                style={{ width: 12, height: 3.5, borderRadius: 1, background: c.attn, boxShadow: `0 0 6px ${c.attn}aa`, opacity: 0, willChange: "opacity" }} />
+              <span key={f} className={"flora-sky-win" + on} style={{ width: 12, height: 3.5, borderRadius: 1, background: c.attn, boxShadow: `0 0 6px ${c.attn}aa`, animationDelay: `${0.7 + winKey++ * 0.045}s` }} />
             ))}
           </div>
         ))}
         {towers.length === 0 && (
-          <div className="flex items-end" style={{ gap: 5, opacity: 0.25 }}>
-            {[30, 52, 40, 66, 44].map((h, i) => <div key={i} style={{ width: 26, height: h, borderRadius: "3px 3px 0 0", background: c.surface2, borderTop: `2px solid ${c.border}` }} />)}
+          <div className="flex items-end" style={{ gap: 5, opacity: 0.3 }}>
+            {[32, 54, 42, 68, 46].map((h, i) => <div key={i} className={"flora-sky-tower" + on} style={{ width: 26, height: h, borderRadius: "3px 3px 0 0", background: c.surface2, borderTop: `2px solid ${c.border}`, animationDelay: `${0.08 + i * 0.085}s` }} />)}
           </div>
         )}
       </div>
-      {/* ground line */}
+
+      {/* reflection: a soft wash of the skyline's own colour on the ground */}
+      <div className={"flora-sky-glow absolute" + on} style={{ left: SP.lg, right: SP.lg, bottom: 0, height: 26, background: `linear-gradient(0deg, ${c.primary}1f, transparent)` }} />
       <div className="absolute" style={{ left: SP.lg, right: SP.lg, bottom: 0, height: 1, background: c.border }} />
 
-      {/* resting caption — real HTML, so Persian shapes correctly */}
-      <div ref={headRef} className="absolute" style={{ top: SP.lg, right: SP.lg, willChange: "opacity" }}>
-        <p style={{ fontSize: 10, color: c.muted, letterSpacing: "0.14em" }}>{agencyCityLabel(ctx)}</p>
+      {/* caption then figures — real HTML, so Persian shapes and joins correctly */}
+      <div className={"flora-sky-caption absolute" + on} style={{ top: SP.lg, right: SP.lg }}>
+        <p style={{ fontSize: 10, color: c.muted, letterSpacing: "0.14em" }}>{agencyCity || "سرعین"}</p>
         <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginTop: 3 }}>{faDigits(towers.length)} فایل روی خط آسمان</p>
       </div>
 
-      {/* revealed figures */}
-      <div ref={statsRef} className="absolute inset-0 flex flex-col justify-center" style={{ opacity: 0, padding: SP.xl, willChange: "transform, opacity", background: c.bg, zIndex: 2 }}>
-        <div className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.md }}>
-          <span style={{ width: 16, height: 1.5, background: c.primary }} />
-          <p style={{ fontSize: 10, color: c.muted, letterSpacing: "0.14em" }}>دفتر امروز</p>
-        </div>
-        <div className="flex" style={{ gap: SP.xl }}>
+      <div className={"flora-sky-stats absolute" + on} style={{ left: SP.lg, right: SP.lg, bottom: SP.lg }}>
+        <div className="flex items-end justify-between">
           {[
             { v: activeProps, l: "فایل فعال", go: () => goProperties("فعال") },
             { v: customers.length, l: "مشتری", go: () => setTab("customers") },
             { v: todayAppts, l: "بازدید امروز", go: () => setTab("calendar") },
           ].map((s, i) => (
             <button key={i} onClick={s.go} className="press text-right">
-              <p style={{ fontSize: 30, fontWeight: FW.heavy, letterSpacing: "-0.03em", lineHeight: 1 }}>{faDigits(s.v)}</p>
-              <p style={{ fontSize: 10, color: c.muted, marginTop: 5 }}>{s.l}</p>
+              <p style={{ fontSize: 25, fontWeight: FW.heavy, letterSpacing: "-0.03em", lineHeight: 1, textShadow: `0 2px 12px ${c.bg}` }}>{faDigits(s.v)}</p>
+              <p style={{ fontSize: 9.5, color: c.muted, marginTop: 3 }}>{s.l}</p>
             </button>
           ))}
+          {pendingCalls > 0 && (
+            <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center" style={{ gap: 5 }}>
+              <span className="flora-pulse" style={{ width: 5, height: 5, borderRadius: 99, background: c.attn }} />
+              <span style={{ fontSize: 9.5, color: c.attn, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس</span>
+            </button>
+          )}
         </div>
-        {pendingCalls > 0 && (
-          <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center" style={{ gap: 6, marginTop: SP.lg, alignSelf: "flex-start" }}>
-            <span className="flora-pulse" style={{ width: 5, height: 5, borderRadius: 99, background: c.attn }} />
-            <span style={{ fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس در انتظار پیگیری</span>
-          </button>
-        )}
       </div>
+
+      <style>{`
+        @keyframes floraSkyRise { from { transform: scaleY(.06); opacity: .15; } to { transform: scaleY(1); opacity: 1; } }
+        @keyframes floraSkyWin  { from { opacity: 0; transform: scaleX(.4); } to { opacity: 1; transform: scaleX(1); } }
+        @keyframes floraSkySun  { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes floraSkyFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes floraSkyStar { from { opacity: 0; } to { opacity: .75; } }
+        @keyframes floraSkyGlow { from { opacity: 0; } to { opacity: 1; } }
+        /* Nothing animates until the card has actually been seen; before that
+           every piece simply holds its start state. */
+        .flora-sky-tower  { transform-origin: bottom; transform: scaleY(.06); opacity: .15; }
+        .flora-sky-win    { opacity: 0; }
+        .flora-sky-sun    { opacity: 0; }
+        .flora-sky-star   { opacity: 0; }
+        .flora-sky-glow   { opacity: 0; }
+        .flora-sky-caption, .flora-sky-stats { opacity: 0; }
+        .flora-sky-tower.flora-sky-go  { animation: floraSkyRise .8s cubic-bezier(.22,1,.36,1) both; }
+        .flora-sky-win.flora-sky-go    { animation: floraSkyWin .4s ease both; }
+        .flora-sky-sun.flora-sky-go    { animation: floraSkySun 1.1s cubic-bezier(.22,1,.36,1) both; }
+        .flora-sky-star.flora-sky-go   { animation: floraSkyStar .8s ease both; }
+        .flora-sky-glow.flora-sky-go   { animation: floraSkyGlow 1s ease .8s both; }
+        .flora-sky-caption.flora-sky-go { animation: floraSkyFade .6s ease .15s both; }
+        .flora-sky-stats.flora-sky-go   { animation: floraSkyFade .7s ease 1.1s both; }
+        @media (prefers-reduced-motion: reduce) {
+          .flora-sky-tower, .flora-sky-win, .flora-sky-sun, .flora-sky-star, .flora-sky-glow,
+          .flora-sky-caption, .flora-sky-stats { animation: none !important; opacity: 1; transform: none; }
+          .flora-sky-star { opacity: .75; }
+        }
+      `}</style>
     </div>
   );
 }
 
-const agencyCityLabel = (ctx) => ctx.agencyCity || "سرعین";
 
 
 function HomeTab({ ctx }) {
@@ -2513,9 +2469,7 @@ function HomeTab({ ctx }) {
         <DivarSearchTile ctx={ctx} />
       </div>
 
-      {/* The skyline sits here on purpose: far enough down that reaching it
-          requires real scrolling, so its build-up is actually watched rather
-          than being over before the agent's first swipe. */}
+      {/* Portfolio skyline */}
       <div style={{ marginTop: SP.xl }}><BuildingScrollHero ctx={ctx} /></div>
 
       {/* Latest files */}
@@ -4168,10 +4122,24 @@ function DivarAdCard({ ctx, p }) {
         : "نقد و توافقی";
       const prompt = `تو برترین آگهی‌نویس ملک در دنیا هستی. هدف تو ساخت آگهی‌هایی است که بالاترین نرخ کلیک (View) و بیشترین زنگ‌خور (Call) را در پلتفرم‌هایی مثل دیوار و شیپور ایجاد کنند. برای این ملک باید یک آگهی بی‌نظیر بسازی — دقیقاً طبق این قوانین:
 
+قانون اوگیلوی (بدون کلمات توخالی) — مهم‌ترین قانون:
+- کلمات پوچ و تبلیغاتی مثل «سوپرلوکس»، «سلطنتی»، «شاهانه»، «الیت»، «بی‌نظیر»، «بی‌همتا»، «رویایی» اکیداً ممنوع است.
+- به‌جای ادعا، همیشه از عدد دقیق، جنس مشخص و واقعیت قابل‌اندازه‌گیری استفاده کن. مثال: به‌جای «کف لوکس» بنویس «سرامیک پرسلان فوق‌پولیش ۱۲۰×۱۲۰».
+- هر ادعایی که نمی‌توانی با عدد یا جنس پشتیبانی کنی، حذفش کن.
+
+سه ترس اصلی خریدار ایرانی — هر سه باید در متن پاسخ داده شوند:
+۱. ترس از آگهی فیک: این جمله را عیناً بیاور: «📸 تمام عکس‌ها ۱۰۰٪ واقعی، مربوط به همین ملک و بدون ادیت است.»
+۲. ترس از مشکل سند: وضعیت سند را صریح بنویس (مثلاً «سند تک‌برگ شش‌دانگ، آماده‌ی انتقال فوری»). اگر سند در جریان است، همان را شفاف بگو — دروغ ننویس.
+۳. ترس از قیمت بالا: شرایط پرداخت را شفاف کن و انعطاف (اقساط بلندمدت، معاوضه، تخفیف نقدی) را برجسته کن.
+
 قوانین تیتر (Headline — ۸۰٪ موفقیت آگهی):
 - ممنوعیت‌ها: کلمات شاعرانه، مبهم و کلیشه‌ای مثل «جلال و آرامش» یا «بهترین فایل منطقه» اکیداً ممنوع است.
-- اجزای الزامی: تیتر باید شامل یک قلاب روانی + مشخصات فنی اصلی (متراژ یا طبقه یا لوکیشن) + یک برگ‌برنده‌ی مالی یا تفریحی باشد.
+- اجزای الزامی تیتر: لوکیشن/موقعیت + مشخصه‌ی یکتای اصلی (مثلاً حیاط ۱۲۰ متری) + قلاب مالی (مثلاً اقساط).
 - کلمات کلیدی جذاب که در جای مناسب استفاده کن: اقساط بلندمدت، زیر فی، کلاب تفریحی، بدون ۱ ریال خرج، معاوضه، تحویل نزدیک، ویو ابدی، کلید نخورده.
+
+قانون ۳ ثانیه (خوانایی موبایل):
+- از بولت (✅) و شکست خط تمیز استفاده کن تا در ۳ ثانیه اسکن شود. پاراگراف طولانی ممنوع.
+- نکات «بدون اصطکاک» را برجسته کن (مثل «بدون ۱ ریال خرج اضافه»، «نصب کامل برندها»).
 
 قوانین بدنه (Body Text) — بسته به نوع ملک یکی از این دو فرمول را استفاده کن:
 فرمول AIDA (برای املاک لوکس، نوساز و فرنیش‌شده): Attention با یک جمله‌ی چالش‌برانگیز یا حل یک دردسر بزرگ؛ Interest با مشخصات کلیدی (متراژ، خواب، طبقه، برند سازنده)؛ Desire با تصویرسازی ذهنی از کیفیت زندگی و امکانات خاص؛ Action با دعوت مستقیم به تماس با حس فوریت.
@@ -4181,8 +4149,8 @@ function DivarAdCard({ ctx, p }) {
 ۱. حذف اصطکاک: اگر فول‌فرنیش است روی «بدون ۱ ریال خرج» و «فقط با چمدان بیاورید» مانور بده.
 ۲. اعتمادسازی: به سوابق سازنده، واقعی‌بودن آگهی، یا درصد پیشرفت کار اشاره کن.
 ۳. مزیت مالی واضح: اعداد اقساط، پیش‌پرداخت یا درصد تخفیف را شفاف بنویس.
-۴. حس فوریت و کمیابی: عباراتی مثل «تنها ۲ بازدید تا فروش» یا «فقط یک واحد باقی‌مانده» بگنجان.
-۵. دعوت به اقدام مشخص: در پایان دقیقاً بگو برای چه کاری تماس بگیرند (دریافت فیلم کامل، جدول اقساط، هماهنگی بازدید) و ساعت پاسخگویی را ذکر کن.
+۴. کمیابی منطقی (روش کریس ووس): هشدار کمیابی باید دلیل منطقی داشته باشد، نه اغراق. مثال: «ملکی با حیاط اختصاصی ۱۲۰ متری روی میدان اصلی، زیاد در بازار نمی‌ماند.»
+۵. دعوت به اقدام مشخص (روش جردن بلفورت): در پایان دقیقاً بگو برای چه کاری تماس بگیرند — «برای دریافت ویدیوی بدون ادیت، بررسی سند، یا هماهنگی بازدید اختصاصی همین حالا تماس بگیرید» — و ساعت پاسخگویی را ذکر کن.
 
 مشخصات این ملک:
 نوع ملک: ${p.type}
@@ -4193,6 +4161,8 @@ function DivarAdCard({ ctx, p }) {
 شرایط پرداخت: ${payment}
 ${builderName ? `نام سازنده: ${builderName}` : ""}
 قیمت کل: ${fmtToman(p.price)}
+
+نکته‌ی مهم: فقط از همین اطلاعات واقعی بالا استفاده کن. جزئیاتی که به تو داده نشده (مثل جنس کف، برند آسانسور یا متراژ حیاط) را از خودت نساز — اگر لازم بود، به‌جای عدد ساختگی بنویس که برای جزئیات تماس بگیرند.
 
 سه مدل آگهی متفاوت بساز و دقیقاً همین JSON خام را برگردان (بدون توضیح، بدون markdown):
 {"variants":[
