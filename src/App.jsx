@@ -2299,12 +2299,45 @@ function BuildingScrollHero({ ctx }) {
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    if (typeof IntersectionObserver === "undefined") { setSeen(true); return; }
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect(); }
-    }, { threshold: 0.25 });
-    io.observe(el);
-    return () => io.disconnect();
+
+    // The card sits inside the app's own scrolling container, not the page.
+    // IntersectionObserver watches the viewport by default, which either never
+    // fires or fires wrongly in that setup — the root has to be that container.
+    const findScrollRoot = (node) => {
+      let n = node.parentElement;
+      while (n && n !== document.body) {
+        const oy = getComputedStyle(n).overflowY;
+        if (oy === "auto" || oy === "scroll") return n;
+        n = n.parentElement;
+      }
+      return null;
+    };
+
+    const isVisible = () => {
+      const r = el.getBoundingClientRect();
+      const root = findScrollRoot(el);
+      const rb = root ? root.getBoundingClientRect() : null;
+      // Clamp against BOTH the scroll container and the real screen. The
+      // container can be taller than the viewport, so sitting inside it is not
+      // the same as being on screen — checking only the container made this
+      // fire while the card was still far below the fold.
+      const top = Math.max(0, rb ? rb.top : 0);
+      const bottom = Math.min(window.innerHeight, rb ? rb.bottom : window.innerHeight);
+      return r.top < bottom - 40 && r.bottom > top;
+    };
+
+    if (isVisible()) { setSeen(true); return; }
+
+    // A small poll rather than IntersectionObserver. The observer's root has to
+    // be this app's scroll container, but that container is taller than the
+    // screen — so it reports the card as "intersecting" while it's still far
+    // below the fold, firing the animation before anyone can see it. Measuring
+    // the rect against the real viewport is the only check that stays honest,
+    // and at 200ms it costs nothing.
+    const poll = setInterval(() => {
+      if (isVisible()) { setSeen(true); clearInterval(poll); }
+    }, 200);
+    return () => clearInterval(poll);
   }, []);
 
   const towers = useMemo(() => {
