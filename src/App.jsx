@@ -789,6 +789,11 @@ export default function FloraCRM() {
         ::-webkit-scrollbar { display: none; }
         .press { transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease, opacity .18s ease; }
         .press:active { transform: scale(0.955); opacity: .92; }
+        /* Tiles in the tool rail get a lift instead of a flat shrink — the card
+           rises toward the finger, which reads as physical rather than "pressed
+           into the screen". Snap keeps a tile edge-aligned after a flick. */
+        .flora-tile { scroll-snap-align: start; transition: transform .28s cubic-bezier(.34,1.4,.64,1), box-shadow .28s ease; }
+        .flora-tile:active { transform: translateY(-4px) scale(1.02); box-shadow: 0 14px 28px -12px rgba(0,0,0,.55); opacity: 1; }
         @keyframes floraUp { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
         @keyframes floraSheet { from { transform: translateY(100%);} to { transform: translateY(0);} }
         @keyframes floraPop { from { opacity:0; transform: scale(.95);} to { opacity:1; transform: scale(1);} }
@@ -1488,7 +1493,7 @@ function FocusMode({ ctx }) {
 function VoiceAssistantTile({ ctx }) {
   const { c, setSheet } = ctx;
   return (
-    <button onClick={() => setSheet("voice-note")} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setSheet("voice-note")} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
       <div className="relative flex items-center justify-center" style={{ width: 42, height: 42, marginBottom: SP.md }}>
         <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
         <div className="flex items-center justify-center" style={{ position: "relative", width: 42, height: 42, borderRadius: "50%", background: c.primarySoft, border: `1px solid ${c.primary}33` }}><Mic size={19} color={c.primary} /></div>
@@ -1501,7 +1506,7 @@ function VoiceAssistantTile({ ctx }) {
 function SalesCoachTile({ ctx }) {
   const { c, setDetail } = ctx;
   return (
-    <button onClick={() => setDetail({ type: "copilot" })} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setDetail({ type: "copilot" })} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
       <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Bot size={20} color={c.purple} /></div>
       <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>دستیار فروش</p>
       <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>نگاه مدیر فروش</p>
@@ -1512,12 +1517,57 @@ function SalesCoachTile({ ctx }) {
 // Standalone entry — no property attached, so the source photos never go
 // through the app's own compression pipeline and results are just downloaded,
 // not stored in the app's own (size-limited) data store.
+// The document catalogue from the spec — nine categories an Iranian estate
+// agent actually needs. The app supplies structure, auto-fill and printing;
+// the wording of each contract is AI-drafted and then edited by the agent,
+// because shipping ~55 pre-written legal texts would be irresponsible.
+const DOC_CATEGORIES = [
+  { id: "sale", label: "خرید و فروش", icon: FileText, tone: "primary", docs: ["مبایعه‌نامه", "قولنامه", "قرارداد پیش‌فروش", "قرارداد خرید آپارتمان", "قرارداد خرید زمین", "قرارداد خرید ویلا", "قرارداد خرید مغازه", "قرارداد خرید دفتر اداری"] },
+  { id: "rent", label: "اجاره", icon: Home, tone: "success", docs: ["قرارداد اجاره مسکونی", "قرارداد اجاره تجاری", "قرارداد اجاره اداری", "تمدید اجاره", "فسخ اجاره", "تخلیه"] },
+  { id: "build", label: "مشارکت در ساخت", icon: Building2, tone: "purple", docs: ["قرارداد مشارکت در ساخت", "الحاقیه", "تقسیم واحدها", "توافق‌نامه تغییرات", "صورت‌جلسه تحویل"] },
+  { id: "contractor", label: "پیمانکاری", icon: Hammer, tone: "attn", docs: ["قرارداد پیمانکاری", "قرارداد بازسازی", "قرارداد دکوراسیون", "قرارداد برق", "قرارداد لوله‌کشی", "قرارداد کابینت", "قرارداد نما", "قرارداد نظارت"] },
+  { id: "invest", label: "سرمایه‌گذاری و شراکت", icon: TrendingUp, tone: "purple", docs: ["قرارداد شراکت", "قرارداد سرمایه‌گذاری", "تقسیم سود", "تسویه شرکا", "مشارکت مالی"] },
+  { id: "agency", label: "خدمات مشاور املاک", icon: Landmark, tone: "primary", docs: ["قرارداد حق‌الزحمه", "قرارداد انحصاری فروش", "قرارداد انحصاری اجاره", "قرارداد معرفی خریدار", "قرارداد معرفی مستأجر", "قرارداد بازاریابی ملک"] },
+  { id: "admin", label: "فرم‌های اداری", icon: FileCheck, tone: "muted", docs: ["رسید دریافت وجه", "رسید دریافت چک", "رسید بیعانه", "تعهدنامه", "رضایت‌نامه", "اقرارنامه", "وکالت‌نامه عادی", "صورت‌جلسه", "استشهادیه"] },
+  { id: "visit", label: "فرم‌های بازدید", icon: Eye, tone: "success", docs: ["فرم بازدید ملک", "تحویل کلید", "تحویل ملک", "تحویل پارکینگ", "تحویل انباری"] },
+  { id: "pay", label: "پرداخت", icon: Wallet, tone: "attn", docs: ["برنامه اقساط", "تسویه حساب", "صورت‌حساب", "رسید پرداخت", "رسید چک"] },
+];
+
+// Entry tile. The stacked-paper effect isn't decoration for its own sake — it
+// says "a pile of paperwork" at a glance, and the sheets lift apart on press.
+function DocumentsTile({ ctx }) {
+  const { c, setDetail } = ctx;
+  const total = DOC_CATEGORIES.reduce((s, g) => s + g.docs.length, 0);
+  return (
+    <button onClick={() => setDetail({ type: "documents" })} className="press text-right relative overflow-hidden flora-docs-tile flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div className="relative" style={{ width: 42, height: 42, marginBottom: SP.md }}>
+        <span className="flora-doc-sheet flora-doc-3" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.surface2, border: `1px solid ${c.border}` }} />
+        <span className="flora-doc-sheet flora-doc-2" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.primarySoft, border: `1px solid ${c.primary}33` }} />
+        <span className="flora-doc-sheet flora-doc-1 flex items-center justify-center" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.primarySoft, border: `1px solid ${c.primary}55` }}>
+          <FileText size={19} color={c.primary} />
+        </span>
+      </div>
+      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>اسناد و قراردادها</p>
+      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>{faDigits(total)} فرم آماده</p>
+      <style>{`
+        @keyframes floraDocFan1 { from { transform: translate(0,0) rotate(0deg); } to { transform: translate(0,-2px) rotate(0deg); } }
+        .flora-doc-sheet { transition: transform .35s cubic-bezier(.34,1.4,.64,1); }
+        .flora-doc-3 { transform: translate(5px, 5px) rotate(7deg); }
+        .flora-doc-2 { transform: translate(2.5px, 2.5px) rotate(3.5deg); }
+        .flora-docs-tile:active .flora-doc-3 { transform: translate(9px, 8px) rotate(12deg); }
+        .flora-docs-tile:active .flora-doc-2 { transform: translate(4px, 4px) rotate(6deg); }
+        .flora-docs-tile:active .flora-doc-1 { transform: translate(-1px, -2px); }
+      `}</style>
+    </button>
+  );
+}
+
 function HomeStagingTile({ ctx }) {
   const { c } = ctx;
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button onClick={() => setOpen(true)} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <button onClick={() => setOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
         <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Wand2 size={20} color={c.purple} /></div>
         <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>استیجینگ مجازی</p>
         <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>آپلود مستقیم، کیفیت کامل</p>
@@ -1535,7 +1585,7 @@ function DivarSearchTile({ ctx }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button onClick={() => setOpen(true)} className="press text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <button onClick={() => setOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
         <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}><Search size={20} color={c.primary} /></div>
         <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>جستجوی دیوار</p>
         <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>تحلیل آگهی‌ها با AI</p>
@@ -2259,16 +2309,30 @@ function AgentAvatar({ ctx, size = 52 }) {
   return (
     <button onClick={() => fileRef.current?.click()} className="press relative shrink-0" style={{ width: size, height: size, borderRadius: "50%" }}>
       <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
+      {/* Neon pulse: a breathing glow ring sitting behind the photo. Uses the
+          app's own accent instead of the reference's cyan so it reads as part
+          of this product rather than a pasted-in effect. */}
+      <span className="flora-neon-ring" style={{ position: "absolute", inset: -3, borderRadius: "50%", border: `2px solid ${c.primary}`, pointerEvents: "none" }} />
       {agentPhoto ? (
-        <img src={agentPhoto} alt="" style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: `2px solid ${c.border}` }} />
+        <img src={agentPhoto} alt="" style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: `2px solid ${c.border}`, position: "relative" }} />
       ) : (
-        <div className="flex items-center justify-center" style={{ width: size, height: size, borderRadius: "50%", background: c.primarySoft, border: `2px solid ${c.border}` }}>
+        <div className="flex items-center justify-center relative" style={{ width: size, height: size, borderRadius: "50%", background: c.primarySoft, border: `2px solid ${c.border}` }}>
           <UserCircle2 size={Math.round(size * 0.6)} color={c.primary} />
         </div>
       )}
-      <span className="flex items-center justify-center" style={{ position: "absolute", bottom: -2, left: -2, width: 20, height: 20, borderRadius: "50%", background: c.primary, border: `2px solid ${c.bg}` }}>
+      <span className="flex items-center justify-center" style={{ position: "absolute", bottom: -2, left: -2, width: 20, height: 20, borderRadius: "50%", background: c.primary, border: `2px solid ${c.bg}`, zIndex: 2 }}>
         {uploading ? <Loader2 size={10} className="animate-spin" color="#fff" /> : <Camera size={10} color="#fff" />}
       </span>
+      <style>{`
+        @keyframes floraNeonPulse {
+          0%, 100% { box-shadow: 0 0 4px ${c.primary}55, 0 0 8px ${c.primary}22; opacity: .55; }
+          50%      { box-shadow: 0 0 14px ${c.primary}, 0 0 28px ${c.primary}88; opacity: 1; }
+        }
+        .flora-neon-ring { animation: floraNeonPulse 2.4s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .flora-neon-ring { animation: none; box-shadow: 0 0 10px ${c.primary}66; opacity: .8; }
+        }
+      `}</style>
     </button>
   );
 }
@@ -2494,12 +2558,17 @@ function HomeTab({ ctx }) {
         </button>
       )}
 
-      {/* Quick-launch tools */}
-      <div className="grid grid-cols-2" style={{ gap: SP.md, marginTop: SP.xl }}>
-        <VoiceAssistantTile ctx={ctx} />
-        {!simpleMode && <SalesCoachTile ctx={ctx} />}
-        <HomeStagingTile ctx={ctx} />
-        <DivarSearchTile ctx={ctx} />
+      {/* Quick-launch tools. A horizontal rail rather than a grid: five tools
+          in a 2-column grid leaves a lopsided half-empty last row, and the rail
+          also means adding a sixth tool later doesn't reshuffle the layout. */}
+      <div style={{ marginTop: SP.xl }}>
+        <div className="flex" style={{ gap: SP.md, overflowX: "auto", paddingBottom: SP.xs, scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch" }}>
+          <VoiceAssistantTile ctx={ctx} />
+          {!simpleMode && <SalesCoachTile ctx={ctx} />}
+          <HomeStagingTile ctx={ctx} />
+          <DivarSearchTile ctx={ctx} />
+          <DocumentsTile ctx={ctx} />
+        </div>
       </div>
 
       {/* Portfolio skyline */}
@@ -3479,6 +3548,7 @@ function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "ai-chat") return <AiChatView ctx={ctx} onBack={onBack} />;
   if (detail.type === "finance") return <FinanceCenterView ctx={ctx} onBack={onBack} />;
   if (detail.type === "investment-center") return <InvestmentCenterView ctx={ctx} onBack={onBack} />;
+  if (detail.type === "documents") return <DocumentCenterView ctx={ctx} onBack={onBack} />;
   if (detail.type === "investment") return <InvestmentDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   return null;
 }
@@ -3550,6 +3620,176 @@ function InvestmentCard({ c, inv, onClick }) {
         </div>
       )}
     </button>
+  );
+}
+
+function DocumentCenterView({ ctx, onBack }) {
+  const { c, properties, customers, owners, agencyName, agencyCity, agentName, hasAiKey, callAI, notify } = ctx;
+  const [query, setQuery] = useState("");
+  const [openCat, setOpenCat] = useState(null);
+  const [draft, setDraft] = useState(null); // { title, propertyId, customerId, text, loading }
+
+  const results = useMemo(() => {
+    const q = query.trim();
+    if (!q) return null;
+    const hits = [];
+    DOC_CATEGORIES.forEach((g) => g.docs.forEach((d) => { if (d.includes(q)) hits.push({ cat: g, doc: d }); }));
+    return hits;
+  }, [query]);
+
+  const startDraft = (doc) => setDraft({ title: doc, propertyId: "", customerId: "", text: "", loading: false, shots: [] });
+
+  const generate = async () => {
+    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); return; }
+    setDraft((d) => ({ ...d, loading: true }));
+    try {
+      const p = properties.find((x) => x.id === draft.propertyId);
+      const owner = p ? owners.find((o) => o.id === p.ownerId) : null;
+      const cu = customers.find((x) => x.id === draft.customerId);
+      const facts = [
+        p ? `ملک: ${p.title} — ${p.type}، ${faDigits(p.area)} متر، طبقه ${faDigits(p.floor || 1)}، آدرس: ${p.address || "—"}، قیمت: ${fmtToman(p.price)}` : "",
+        owner ? `فروشنده/مالک: ${owner.name}${owner.phone ? ` — ${owner.phone}` : ""}` : "",
+        cu ? `خریدار/مستأجر: ${cu.name}${cu.phone ? ` — ${cu.phone}` : ""}` : "",
+        `دفتر: ${agencyName || "—"}${agencyCity ? `، ${agencyCity}` : ""}${agentName ? ` — مشاور: ${agentName}` : ""}`,
+      ].filter(Boolean).join("\n");
+      const prompt = `یک «${draft.title}» کامل و حرفه‌ای به فارسی بنویس، مطابق عرف قراردادهای املاک در ایران.
+اطلاعات واقعی موجود (حتماً در متن استفاده کن):
+${facts || "— اطلاعاتی انتخاب نشده —"}
+
+قوانین:
+- ساختار ماده‌بندی‌شده (ماده ۱، ماده ۲، ...) با عنوان هر ماده.
+- برای هر اطلاعاتی که در بالا داده نشده، به‌جای حدس‌زدن، نقطه‌چین بگذار (مثل: ............) تا دستی پر شود. هرگز اطلاعات ساختگی ننویس.
+- بندهای ضروری را بیاور: مشخصات طرفین، موضوع قرارداد، ثمن و نحوه پرداخت، تحویل، تعهدات طرفین، فسخ و خسارت، حل اختلاف، تعداد نسخ و امضا.
+- در پایان یک خط بنویس: «این متن پیش‌نویس است و باید پیش از امضا توسط مشاور حقوقی بررسی شود.»
+فقط خودِ متن قرارداد را برگردان، بدون توضیح اضافه.`;
+      const text = await callAI(prompt);
+      setDraft((d) => ({ ...d, text: text.trim(), loading: false }));
+    } catch (e) {
+      notify(`تولید ناموفق: ${e.message || "خطای نامشخص"}`);
+      setDraft((d) => ({ ...d, loading: false }));
+    }
+  };
+
+  const printDoc = () => {
+    const w = window.open("", "_blank");
+    if (!w) { notify("مرورگر پنجره‌ی چاپ را مسدود کرد"); return; }
+    // Attached photos print on their own pages after the text — a signed copy
+    // is what makes the printout a real record rather than just a draft.
+    const shotPages = (draft.shots || []).map((s) => `<div class="shot"><img src="${s.url}" /></div>`).join("");
+    w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>${draft.title}</title>
+      <style>@page{size:A4;margin:2cm}body{font-family:Vazirmatn,Tahoma,sans-serif;line-height:2.1;font-size:12pt;color:#111}
+      h1{font-size:15pt;text-align:center;margin-bottom:1.5em}pre{white-space:pre-wrap;font-family:inherit;font-size:inherit}
+      .shot{page-break-before:always;text-align:center}.shot img{max-width:100%;max-height:25cm;object-fit:contain}</style>
+      </head><body><h1>${draft.title}</h1><pre>${(draft.text || "").replace(/</g, "&lt;")}</pre>${shotPages}</body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 500);
+  };
+
+  const shareDoc = async () => {
+    const payload = `${draft.title}\n\n${draft.text}`;
+    if (navigator.share) { try { await navigator.share({ title: draft.title, text: payload }); return; } catch (e) { if (e?.name === "AbortError") return; } }
+    navigator.clipboard?.writeText(payload);
+    notify("متن قرارداد کپی شد");
+  };
+
+  // ---- draft editor ----
+  if (draft) {
+    return (
+      <div className="pt-2">
+        <BackHeader c={c} title={draft.title} onBack={() => setDraft(null)} />
+        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+          <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>فایل و مشتری را انتخاب کن تا اطلاعات خودکار در قرارداد بنشیند.</p>
+          <Field c={c} label="فایل ملک"><Select c={c} value={draft.propertyId} onChange={(e) => setDraft({ ...draft, propertyId: e.target.value })} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
+          <Field c={c} label="مشتری"><Select c={c} value={draft.customerId} onChange={(e) => setDraft({ ...draft, customerId: e.target.value })} placeholder="انتخاب مشتری" options={customers.map((x) => ({ value: x.id, label: x.name }))} /></Field>
+          <button onClick={generate} disabled={draft.loading} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
+            {draft.loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{draft.loading ? "در حال نوشتن..." : draft.text ? "نوشتن دوباره" : "تنظیم قرارداد با AI"}
+          </button>
+        </div>
+
+        {/* Scans of the signed contract. Kept separate from the AI draft on
+            purpose: the photo is the legally meaningful artefact, the text is
+            only a working draft. */}
+        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+          <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>عکس قرارداد</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>از نسخه‌ی امضاشده عکس بگیر — همراه متن چاپ و ذخیره می‌شود.</p>
+          <MediaGallery c={c} media={draft.shots || []} uploading={false}
+            onAdd={async (files) => { const items = await filesToMedia(files); setDraft((d) => ({ ...d, shots: [...(d.shots || []), ...items] })); }}
+            onRemove={(id) => setDraft((d) => ({ ...d, shots: (d.shots || []).filter((x) => x.id !== id) }))}
+            onView={ctx.setLightbox} accept="image/*,application/pdf" />
+        </div>
+
+        {draft.text && (
+          <div className="flora-rise">
+            <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+              <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>متن قرارداد — قبل از چاپ می‌توانی ویرایش کنی</p>
+              <textarea value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} rows={16}
+                style={{ ...inputStyle(c), resize: "vertical", lineHeight: 2, fontSize: FS.caption + 1 }} />
+            </div>
+            <div className="grid grid-cols-2" style={{ gap: SP.md, marginBottom: SP.xxl }}>
+              <button onClick={printDoc} className="press flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: c.ink, color: c.bg, fontWeight: FW.bold, fontSize: FS.body }}><FileText size={15} color={c.bg} />چاپ / PDF</button>
+              <button onClick={shareDoc} className="press flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: c.surface2, color: c.ink, fontWeight: FW.bold, fontSize: FS.body }}><Share2 size={15} color={c.ink} />ارسال</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---- catalogue ----
+  return (
+    <div className="pt-2">
+      <BackHeader c={c} title="اسناد و قراردادها" onBack={onBack} />
+      <SearchBox c={c} value={query} setValue={setQuery} />
+      <div style={{ height: SP.lg }} />
+
+      {results ? (
+        <div className="flex flex-col flora-stagger" style={{ gap: SP.sm }}>
+          {results.map(({ cat, doc }, i) => (
+            <button key={i} onClick={() => startDraft(doc)} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.md, ...glassLite(c, RAD.md) }}>
+              <cat.icon size={16} color={c[cat.tone] || c.muted} />
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{doc}</p>
+                <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>{cat.label}</p>
+              </div>
+              <ChevronLeft size={15} color={c.muted} />
+            </button>
+          ))}
+          {results.length === 0 && <EmptyLine c={c} text="سندی با این نام پیدا نشد" />}
+        </div>
+      ) : (
+        <div className="flex flex-col flora-stagger" style={{ gap: SP.md }}>
+          {DOC_CATEGORIES.map((g) => {
+            const open = openCat === g.id;
+            const tone = c[g.tone] || c.muted;
+            return (
+              <div key={g.id} style={{ borderRadius: RAD.lg, overflow: "hidden", ...glass(c, 24) }}>
+                <button onClick={() => setOpenCat(open ? null : g.id)} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.lg }}>
+                  <div className="flex items-center justify-center shrink-0" style={{ width: 38, height: 38, borderRadius: RAD.md, background: tone + "1f" }}><g.icon size={18} color={tone} /></div>
+                  <div className="flex-1 min-w-0">
+                    <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold }}>{g.label}</p>
+                    <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{faDigits(g.docs.length)} سند</p>
+                  </div>
+                  <ChevronDown size={16} color={c.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
+                </button>
+                {open && (
+                  <div className="flora-rise" style={{ paddingInline: SP.lg, paddingBottom: SP.lg }}>
+                    <div className="flex flex-col" style={{ gap: SP.sm }}>
+                      {g.docs.map((d) => (
+                        <button key={d} onClick={() => startDraft(d)} className="press w-full flex items-center justify-between text-right" style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+                          <span style={{ fontSize: FS.body, fontWeight: FW.medium }}>{d}</span>
+                          <ChevronLeft size={14} color={c.muted} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{ height: SP.xxl }} />
+    </div>
   );
 }
 
@@ -7125,6 +7365,7 @@ function BreakdownRow({ c, label, value, muted }) {
 function DealForm({ ctx, onClose, editId }) {
   const { c, properties, owners, deals, setDeals, notify } = ctx;
   const editing = editId ? deals.find((d) => d.id === editId) : null;
+  const [showMore, setShowMore] = useState(!!editing);
   const [f, setF] = useState(editing ? {
     propertyId: editing.propertyId || "", propertyTitle: editing.propertyTitle, sellerName: editing.sellerName || "", sellerPhone: editing.sellerPhone || "",
     buyerName: editing.buyerName || "", buyerPhone: editing.buyerPhone || "", price: String(editing.price),
@@ -7141,31 +7382,55 @@ function DealForm({ ctx, onClose, editId }) {
   };
   const valid = f.propertyTitle.trim() && f.price;
 
+  // Live total, so the number the agent actually cares about updates as they
+  // type instead of only appearing after the form is submitted.
+  const price = toNum(f.price);
+  const sideAmount = (mode, pctKey, fixedKey) => mode === "official" ? officialCommission(price).final
+    : mode === "pct" ? Math.round(price * toDecimal(f[pctKey]) / 100) : toNum(f[fixedKey]);
+  const totalCommission = sideAmount(f.sellerMode, "sellerPct", "sellerFixed") + sideAmount(f.buyerMode, "buyerPct", "buyerFixed");
+
   return (
     <SheetShell c={c} title={editing ? "ویرایش قرارداد" : "ثبت قرارداد جدید"} onClose={onClose}>
-      {!editing && <Field c={c} label="فایل ملک (اختیاری)"><Select c={c} value={f.propertyId} onChange={onPickProperty} placeholder="انتخاب فایل برای پرکردن خودکار" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>}
-      <Field c={c} label="عنوان معامله (می‌توانی مستقیم تایپ کنی)"><input style={inputStyle(c)} value={f.propertyTitle} onChange={set("propertyTitle")} placeholder="مثلاً ویلا تانیا — لواسان" /></Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field c={c} label="نام فروشنده"><input style={inputStyle(c)} value={f.sellerName} onChange={set("sellerName")} /></Field>
-        <Field c={c} label="شماره فروشنده"><input style={inputStyle(c)} dir="ltr" value={f.sellerPhone} inputMode="tel" onChange={set("sellerPhone")} /></Field>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field c={c} label="نام خریدار"><input style={inputStyle(c)} value={f.buyerName} onChange={set("buyerName")} /></Field>
-        <Field c={c} label="شماره خریدار"><input style={inputStyle(c)} dir="ltr" value={f.buyerPhone} inputMode="tel" onChange={set("buyerPhone")} /></Field>
-      </div>
-      <Field c={c} label="مبلغ معامله (تومان)">
-        <input style={inputStyle(c)} inputMode="numeric" value={f.price} onChange={set("price")} />
-        <p style={{ fontSize: 11, color: c.muted, marginTop: 6 }}>{fmtToman(toNum(f.price))}</p>
-      </Field>
-      <CommissionField c={c} f={f} setF={setF} side="seller" label="کمیسیون فروشنده" />
-      <CommissionField c={c} f={f} setF={setF} side="buyer" label="کمیسیون خریدار" />
-      <div className="grid grid-cols-2 gap-3">
-        <Field c={c} label="مشاور"><input style={inputStyle(c)} value={f.advisor} onChange={set("advisor")} /></Field>
-        <Field c={c} label="وضعیت"><Select c={c} value={f.status} onChange={set("status")} placeholder="انتخاب کنید" options={["در حال مذاکره", "در انتظار پرداخت", "تسویه شده"].map((v) => ({ value: v, label: v }))} /></Field>
-      </div>
-      <Field c={c} label="تاریخ قرارداد (برای ماه‌های قبل هم می‌توانی عقب ببری)">
-        <JalaliDatePicker c={c} value={f.dealDate} onChange={(iso) => setF((p) => ({ ...p, dealDate: iso }))} />
-      </Field>
+      {!editing && <Field c={c} label="از روی کدام فایل؟"><Select c={c} value={f.propertyId} onChange={onPickProperty} placeholder="انتخاب کن تا خودکار پر شود" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>}
+      <Field c={c} label="عنوان معامله"><input style={inputStyle(c)} value={f.propertyTitle} onChange={set("propertyTitle")} placeholder="مثلاً ویلا تانیا — لواسان" /></Field>
+      <Field c={c} label="مبلغ معامله (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.price} onChange={set("price")} placeholder="مثلاً ۵۰۰۰۰۰۰۰۰۰" /></Field>
+
+      {/* The payoff card — big, and it animates the moment a price exists */}
+      {price > 0 && (
+        <div className="flora-pop" style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.lg, background: `linear-gradient(160deg, ${c.successSoft}, ${c.surface} 65%)`, border: `1px solid ${c.success}33` }}>
+          <p style={{ fontSize: FS.caption, color: c.muted }}>کمیسیون کل این معامله</p>
+          <CountUpTomanSplit value={totalCommission} size={26} color={c.success} tomanColor={c.muted} />
+          <p style={{ fontSize: 10.5, color: c.muted, marginTop: SP.xs }}>فروشنده {fmtBudgetShort(sideAmount(f.sellerMode, "sellerPct", "sellerFixed"))} · خریدار {fmtBudgetShort(sideAmount(f.buyerMode, "buyerPct", "buyerFixed"))}</p>
+        </div>
+      )}
+
+      <button type="button" onClick={() => setShowMore((v) => !v)} className="press w-full flex items-center justify-between" style={{ padding: SP.lg, borderRadius: RAD.md, marginBottom: SP.lg, background: c.surface2 }}>
+        <span style={{ fontSize: FS.body, fontWeight: FW.bold }}>{showMore ? "بستن جزئیات" : "جزئیات بیشتر (اختیاری)"}</span>
+        <ChevronDown size={16} color={c.muted} style={{ transform: showMore ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
+      </button>
+
+      {showMore && (
+        <div className="flora-rise">
+          <div className="grid grid-cols-2 gap-3">
+            <Field c={c} label="نام فروشنده"><input style={inputStyle(c)} value={f.sellerName} onChange={set("sellerName")} /></Field>
+            <Field c={c} label="شماره فروشنده"><input style={inputStyle(c)} dir="ltr" value={f.sellerPhone} inputMode="tel" onChange={set("sellerPhone")} /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field c={c} label="نام خریدار"><input style={inputStyle(c)} value={f.buyerName} onChange={set("buyerName")} /></Field>
+            <Field c={c} label="شماره خریدار"><input style={inputStyle(c)} dir="ltr" value={f.buyerPhone} inputMode="tel" onChange={set("buyerPhone")} /></Field>
+          </div>
+          <CommissionField c={c} f={f} setF={setF} side="seller" label="کمیسیون فروشنده" />
+          <CommissionField c={c} f={f} setF={setF} side="buyer" label="کمیسیون خریدار" />
+          <div className="grid grid-cols-2 gap-3">
+            <Field c={c} label="مشاور"><input style={inputStyle(c)} value={f.advisor} onChange={set("advisor")} /></Field>
+            <Field c={c} label="وضعیت"><Select c={c} value={f.status} onChange={set("status")} placeholder="انتخاب کنید" options={["در حال مذاکره", "در انتظار پرداخت", "تسویه شده"].map((v) => ({ value: v, label: v }))} /></Field>
+          </div>
+          <Field c={c} label="تاریخ قرارداد">
+            <JalaliDatePicker c={c} value={f.dealDate} onChange={(iso) => setF((p) => ({ ...p, dealDate: iso }))} />
+          </Field>
+        </div>
+      )}
+
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ذخیره قرارداد"} disabled={!valid} onClick={() => {
         const payload = {
           propertyId: f.propertyId, propertyTitle: f.propertyTitle.trim(), sellerName: f.sellerName.trim(), sellerPhone: f.sellerPhone.trim(), buyerName: f.buyerName.trim(), buyerPhone: f.buyerPhone.trim(), price: toNum(f.price),
@@ -7185,9 +7450,10 @@ function DealForm({ ctx, onClose, editId }) {
 function PaymentForm({ ctx, onClose, prefillDealId, editId }) {
   const { c, deals, payments, setPayments, notify } = ctx;
   const editing = editId ? payments.find((p) => p.id === editId) : null;
+  const [showMore, setShowMore] = useState(false);
   const [f, setF] = useState(editing
-    ? { dealId: editing.dealId, payerType: editing.payerType, amount: String(editing.amount), date: editing.date, method: editing.method, tracking: editing.tracking || "", note: editing.note || "" }
-    : { dealId: prefillDealId || "", payerType: "seller", amount: "", date: todayISO(), method: "card", tracking: "", note: "" });
+    ? { dealId: editing.dealId, payerType: editing.payerType, amount: String(editing.amount), date: editing.date, method: editing.method, tracking: editing.tracking || "", note: editing.note || "", shots: editing.shots || [] }
+    : { dealId: prefillDealId || "", payerType: "seller", amount: "", date: todayISO(), method: "card", tracking: "", note: "", shots: [] });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.dealId && f.amount;
   return (
@@ -7216,10 +7482,49 @@ function PaymentForm({ ctx, onClose, prefillDealId, editId }) {
           ))}
         </div>
       </Field>
-      <Field c={c} label="شماره پیگیری (اختیاری)"><input style={inputStyle(c)} value={f.tracking} onChange={set("tracking")} /></Field>
-      <Field c={c} label="توضیحات (اختیاری)"><input style={inputStyle(c)} value={f.note} onChange={set("note")} /></Field>
+
+      {/* Live payoff: what this payment leaves outstanding — the number the
+          agent is actually doing arithmetic about while typing. */}
+      {(() => {
+        const deal = deals.find((d) => d.id === f.dealId);
+        if (!deal || !toNum(f.amount)) return null;
+        const owed = dealRemaining(deal, payments, f.payerType);
+        const after = Math.max(0, owed - toNum(f.amount));
+        const settled = after === 0;
+        return (
+          <div className="flora-pop" style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.lg, background: `linear-gradient(160deg, ${settled ? c.successSoft : c.attnSoft}, ${c.surface} 65%)`, border: `1px solid ${(settled ? c.success : c.attn)}33` }}>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>{settled ? "با این پرداخت تسویه کامل می‌شود" : "مانده پس از این پرداخت"}</p>
+            <CountUpTomanSplit value={after} size={24} color={settled ? c.success : c.attn} tomanColor={c.muted} />
+          </div>
+        );
+      })()}
+
+      {/* A cheque is the one payment method where the paper itself matters —
+          due date, serial, bank, signature. So the capture field appears only
+          for cheques rather than adding noise to cash or card payments. */}
+      {f.method === "check" && (
+        <div className="flora-rise" style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.lg, ...glassLite(c, RAD.lg) }}>
+          <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>عکس چک</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>از چک عکس بگیر تا تاریخ سررسید و شماره‌اش همیشه در دسترس باشد.</p>
+          <MediaGallery c={c} media={f.shots || []} uploading={false}
+            onAdd={async (files) => { const items = await filesToMedia(files); setF((prev) => ({ ...prev, shots: [...(prev.shots || []), ...items] })); }}
+            onRemove={(id) => setF((prev) => ({ ...prev, shots: (prev.shots || []).filter((x) => x.id !== id) }))}
+            onView={ctx.setLightbox} accept="image/*" />
+        </div>
+      )}
+
+      <button type="button" onClick={() => setShowMore((v) => !v)} className="press w-full flex items-center justify-between" style={{ padding: SP.lg, borderRadius: RAD.md, marginBottom: SP.lg, background: c.surface2 }}>
+        <span style={{ fontSize: FS.body, fontWeight: FW.bold }}>{showMore ? "بستن جزئیات" : "جزئیات بیشتر (اختیاری)"}</span>
+        <ChevronDown size={16} color={c.muted} style={{ transform: showMore ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
+      </button>
+      {showMore && (
+        <div className="flora-rise">
+          <Field c={c} label="شماره پیگیری"><input style={inputStyle(c)} value={f.tracking} onChange={set("tracking")} /></Field>
+          <Field c={c} label="توضیحات"><input style={inputStyle(c)} value={f.note} onChange={set("note")} /></Field>
+        </div>
+      )}
       <SubmitBtn c={c} label={editing ? "ذخیره تغییرات" : "ثبت پرداخت"} disabled={!valid} onClick={() => {
-        const payload = { dealId: f.dealId, payerType: f.payerType, amount: toNum(f.amount), date: f.date, method: f.method, tracking: f.tracking.trim(), note: f.note.trim() };
+        const payload = { dealId: f.dealId, payerType: f.payerType, amount: toNum(f.amount), date: f.date, method: f.method, tracking: f.tracking.trim(), note: f.note.trim(), shots: f.shots || [] };
         if (editing) setPayments((prev) => prev.map((p) => p.id === editId ? { ...p, ...payload } : p));
         else setPayments((prev) => [{ id: uid(), ...payload }, ...prev]);
         notify(editing ? "تغییرات پرداخت ذخیره شد" : "پرداخت ثبت شد"); onClose();
