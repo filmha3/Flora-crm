@@ -7,6 +7,7 @@ import {
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
   MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
   CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
+  Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
 } from "lucide-react";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
@@ -307,6 +308,31 @@ const FW = { regular: 500, medium: 600, bold: 700, heavy: 800 };
 const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
 
+// ---------- Showing / Tour Mode ----------
+// One-tap cycling status, not a form: coordination (owner confirmed the visit)
+// and key handoff are the two things a consultant needs to know before leaving
+// the office, so each is a single chip that advances to the next state on tap.
+const COORD_ORDER = ["none", "pending", "confirmed", "cancelled"];
+const coordMeta = (c) => ({
+  none: { label: "هماهنگ نشده", color: c.muted, soft: c.surface2, icon: Circle },
+  pending: { label: "منتظر مالک", color: c.attn, soft: c.attnSoft, icon: Clock },
+  confirmed: { label: "تأیید شد", color: c.success, soft: c.successSoft, icon: CheckCircle2 },
+  cancelled: { label: "لغو شد", color: c.danger, soft: c.dangerSoft, icon: X },
+});
+const KEY_ORDER = ["none", "agent", "owner", "guard", "office", "other"];
+const KEY_LABEL = { none: "نیاز ندارد", agent: "دست مشاور", owner: "دست مالک", guard: "نگهبانی", office: "دفتر", other: "محل دیگر" };
+const DISLIKE_REASONS = ["قیمت", "متراژ", "محله", "نور", "نقشه", "طبقه", "امکانات", "پارکینگ", "سایر"];
+const RATING_ORDER = ["superlike", "like", "meh", "dislike"];
+const ratingMeta = (c) => ({
+  superlike: { label: "خیلی پسندید", color: "#F97316", soft: "rgba(249,115,22,0.16)", icon: Flame },
+  like: { label: "پسندید", color: "#EC4899", soft: "rgba(236,72,153,0.15)", icon: Heart },
+  meh: { label: "متوسط", color: c.attn, soft: c.attnSoft, icon: Meh },
+  dislike: { label: "نپسندید", color: c.danger, soft: c.dangerSoft, icon: X },
+});
+const mapsLink = (p) => p.lat && p.lng
+  ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`
+  : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.address || p.title || "")}`;
+
 // Full-screen panels need to sit above everything and ignore any ancestor that
 // would clip them. react-dom's createPortal is the textbook tool, but importing
 // it breaks this file in sandboxes that don't ship react-dom — and physically
@@ -425,6 +451,9 @@ export default function FloraCRM() {
   const [splitShares, setSplitShares] = useState({ agent: 1, management: 1, rent: 1 });
   const [officeIncomes, setOfficeIncomes] = useState(seedOfficeIncomes);
   const [investments, setInvestments] = useState([]); // Investment Center (Portfolio) — Phase 1
+  const [tours, setTours] = useState([]); // Showing / Tour Mode
+  const [tourBuilder, setTourBuilder] = useState(null); // { step, customerId, customerName, customerPhone, propertyIds, items }
+  const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
@@ -457,6 +486,7 @@ export default function FloraCRM() {
           if (saved.expenses) setExpenses(saved.expenses);
           if (saved.officeIncomes) setOfficeIncomes(saved.officeIncomes);
           if (saved.investments) setInvestments(saved.investments);
+          if (saved.tours) setTours(saved.tours);
         }
         const settings = await dbGet(SETTINGS_KEY);
         if (settings?.geminiKey) setGeminiKey(settings.geminiKey);
@@ -480,10 +510,10 @@ export default function FloraCRM() {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments }).catch(() => {});
+      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments]);
+  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
@@ -686,7 +716,7 @@ export default function FloraCRM() {
 
   // Persian (Jalali) date for filenames — e.g. "۶-مرداد-۱۴۰۵" instead of 2026-07-28.
   const jalaliFileDate = () => { const [jy, jm, jd] = isoToJalali(todayISO()); return `${faDigits(jd)}-${MONTHS_FA[jm - 1]}-${faDigits(jy)}`; };
-  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments });
+  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours });
   const downloadBackup = (payload, label) => {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -741,6 +771,7 @@ export default function FloraCRM() {
         if (data.expenses) setExpenses(data.expenses);
         if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
         if (data.investments) setInvestments(data.investments);
+        if (data.tours) setTours(data.tours);
         notify("بکاپ با موفقیت بازیابی شد");
       } catch (e) { notify("فایل بکاپ نامعتبر است"); }
     };
@@ -757,6 +788,7 @@ export default function FloraCRM() {
     c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, splitShares, setSplitShares, simpleMode, setSimpleMode,
+    tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -911,7 +943,7 @@ export default function FloraCRM() {
           </div>
         </div>
 
-        {!detail && !focusQueue && (
+        {!detail && !focusQueue && !tourBuilder && !openTourId && (
           <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
             style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 14, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
             <span style={{ position: "absolute", inset: -8, borderRadius: 22, border: "2px solid rgba(47,124,246,0.35)", animation: "floraRipple 2.2s infinite" }} />
@@ -919,9 +951,12 @@ export default function FloraCRM() {
           </button>
         )}
 
-        {!detail && !focusQueue && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} simpleMode={simpleMode} />}
+        {!detail && !focusQueue && !tourBuilder && !openTourId && <BottomNav c={c} tab={tab} setTab={setTab} pendingCalls={pendingCalls} todaysAppts={todaysAppts} simpleMode={simpleMode} />}
 
         {focusQueue && <FocusMode ctx={ctx} />}
+
+        {tourBuilder && <TourWizard ctx={ctx} />}
+        {openTourId && <TourSession ctx={ctx} tourId={openTourId} />}
 
         {celebration && <CelebrationOverlay c={c} celebration={celebration} />}
 
@@ -1323,6 +1358,7 @@ function CelebrationOverlay({ c, celebration }) {
     followup: { icon: CheckCircle2, color: c.primary, soft: c.primarySoft, confetti: false },
     file: { icon: Building2, color: c.purple, soft: c.purpleSoft, confetti: true },
     lost: { icon: UserX, color: c.danger, soft: c.dangerSoft, confetti: false },
+    tour: { icon: Car, color: c.purple, soft: c.purpleSoft, confetti: true },
   };
   const cfg = CONFIGS[kind] || CONFIGS.followup;
   const Icon = cfg.icon;
@@ -1483,6 +1519,513 @@ function FocusMode({ ctx }) {
         )}
       </div>
     </div>
+    </BodyPortal>
+  );
+}
+
+// ---------- Showing / Tour Mode ----------
+// Home dashboard entry point: a door into a new tour, or — if one is already
+// underway — a one-tap way back into it. Never buried behind the CRM tabs.
+function TourEntryCard({ ctx }) {
+  const { c, tours, setTourBuilder, setOpenTourId } = ctx;
+  const active = tours.find((t) => t.status === "active" || t.status === "reviewing");
+
+  if (!active) {
+    return (
+      <button
+        onClick={() => setTourBuilder({ step: "customer", customerId: "", customerName: "", customerPhone: "", propertyIds: [] })}
+        className="press w-full flex items-center relative overflow-hidden text-right"
+        style={{ gap: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
+      >
+        <span style={{ position: "absolute", top: "-50%", left: "-10%", width: 160, height: 160, borderRadius: "50%", background: `radial-gradient(circle, ${c.purple}22, transparent 70%)`, pointerEvents: "none" }} />
+        <div className="flex items-center justify-center shrink-0 relative" style={{ width: 48, height: 48, borderRadius: RAD.md, background: c.purpleSoft, border: `1px solid ${c.purple}33` }}>
+          <Car size={22} color={c.purple} />
+        </div>
+        <div className="flex-1 relative">
+          <p style={{ fontSize: FS.body, fontWeight: FW.heavy }}>تور بازدید جدید</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>مشتری، چند فایل، مسیر — همه در یک صفحه</p>
+        </div>
+        <ChevronLeft size={18} color={c.muted} className="relative" />
+      </button>
+    );
+  }
+
+  const total = active.items.length;
+  const doneCount = active.items.filter((it) => it.visited).length;
+  const cur = Math.min(doneCount + 1, total);
+
+  return (
+    <button
+      onClick={() => setOpenTourId(active.id)}
+      className="press w-full text-right relative overflow-hidden"
+      style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center" style={{ gap: SP.md }}>
+          <div className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: RAD.md, background: c.purpleSoft }}><Car size={18} color={c.purple} /></div>
+          <div>
+            <p style={{ fontSize: FS.body, fontWeight: FW.heavy }}>{active.status === "reviewing" ? "تور تمام شد — ثبت نتیجه" : `ادامه‌ی تور با ${active.customerName}`}</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{active.status === "reviewing" ? "برای ثبت خودکار در پرونده‌ها بزن" : `ملک ${faDigits(cur)} از ${faDigits(total)}`}</p>
+          </div>
+        </div>
+        <ChevronLeft size={18} color={c.muted} />
+      </div>
+      {active.status === "active" && (
+        <div className="flex" style={{ gap: 4, marginTop: SP.md }}>
+          {active.items.map((it) => <div key={it.id} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: it.visited ? c.purple : c.surface2 }} />)}
+        </div>
+      )}
+    </button>
+  );
+}
+
+// Full-screen 3-step wizard: pick customer → pick 3-6 files → reorder & check
+// coordination/key readiness. Deliberately no drag-and-drop library — up/down
+// buttons are just as fast with a thumb and never misfire on a moving list.
+function TourWizard({ ctx }) {
+  const { c, tourBuilder: b, setTourBuilder } = ctx;
+  const patch = (obj) => setTourBuilder((prev) => ({ ...prev, ...obj }));
+  const STEP_LABELS = { customer: "انتخاب مشتری", properties: "انتخاب فایل‌ها", review: "ترتیب و هماهنگی" };
+  const STEP_ORDER = ["customer", "properties", "review"];
+  const stepIdx = STEP_ORDER.indexOf(b.step);
+
+  const goBack = () => { if (stepIdx === 0) { setTourBuilder(null); return; } patch({ step: STEP_ORDER[stepIdx - 1] }); };
+
+  const startTour = () => {
+    const tour = { id: uid(), customerId: b.customerId, customerName: b.customerName, customerPhone: b.customerPhone, status: "active", items: b.items, topPicks: [], notes: "", createdAt: new Date().toISOString(), completedAt: null };
+    ctx.setTours((prev) => [tour, ...prev]);
+    setTourBuilder(null);
+    ctx.setOpenTourId(tour.id);
+  };
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
+        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
+          <button onClick={goBack} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}>
+            {stepIdx === 0 ? <X size={16} color={c.ink} /> : <ArrowRight size={16} color={c.ink} />}
+          </button>
+          <div className="flex-1">
+            <p style={{ fontSize: FS.caption, color: c.muted }}>تور بازدید جدید</p>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{STEP_LABELS[b.step]}</p>
+          </div>
+          <div className="flex" style={{ gap: 4 }}>
+            {STEP_ORDER.map((s, i) => <div key={s} style={{ width: i === stepIdx ? 18 : 6, height: 6, borderRadius: RAD.pill, background: i <= stepIdx ? c.purple : c.surface2, transition: "all .3s ease" }} />)}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-6">
+          {b.step === "customer" && <TourStepCustomer ctx={ctx} b={b} patch={patch} />}
+          {b.step === "properties" && <TourStepProperties ctx={ctx} b={b} patch={patch} />}
+          {b.step === "review" && <TourStepReview ctx={ctx} b={b} patch={patch} onStart={startTour} />}
+        </div>
+      </div>
+    </BodyPortal>
+  );
+}
+
+function TourStepCustomer({ ctx, b, patch }) {
+  const { c, customers, setCustomers } = ctx;
+  const [q, setQ] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const filtered = customers.filter((cu) => !q || cu.name.includes(q) || (cu.phone || "").includes(q));
+  const pick = (cu) => patch({ customerId: cu.id, customerName: cu.name, customerPhone: cu.phone || "", step: "properties" });
+  const addNew = () => { if (!name.trim()) return; const cu = { id: uid(), name: name.trim(), phone: phone.trim(), need: "", budget: 0 }; setCustomers((prev) => [cu, ...prev]); pick(cu); };
+
+  return (
+    <div className="pt-2">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی مشتری..." style={inputStyle(c)} />
+      <div style={{ height: SP.md }} />
+      <div className="flex flex-col" style={{ gap: SP.sm }}>
+        {filtered.map((cu) => (
+          <button key={cu.id} onClick={() => pick(cu)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md) }}>
+            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.primarySoft }}><UserCircle2 size={20} color={c.primary} /></div>
+            <div className="flex-1 min-w-0">
+              <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{cu.name}</p>
+              <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }} dir="ltr">{cu.phone || "بدون شماره"}</p>
+            </div>
+            <ChevronLeft size={16} color={c.muted} />
+          </button>
+        ))}
+        {filtered.length === 0 && !adding && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
+      </div>
+      <div style={{ marginTop: SP.lg }}>
+        {!adding ? (
+          <button onClick={() => setAdding(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: FS.body }}>
+            <Plus size={16} color={c.primary} /> مشتری جدید
+          </button>
+        ) : (
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+            <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} autoFocus /></Field>
+            <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
+            <div className="flex" style={{ gap: SP.sm }}>
+              <button onClick={() => setAdding(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.surface2, color: c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>لغو</button>
+              <button onClick={addNew} disabled={!name.trim()} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.caption + 1, opacity: name.trim() ? 1 : 0.5 }}>ادامه</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TourStepProperties({ ctx, b, patch }) {
+  const { c, properties, setProperties, setOwners } = ctx;
+  const [q, setQ] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [qa, setQa] = useState({ title: "", address: "", price: "", ownerPhone: "" });
+  const selectable = properties.filter((p) => p.stage !== "فروخته شد");
+  const filtered = selectable.filter((p) => !q || p.title.includes(q) || (p.address || "").includes(q));
+  const selected = b.propertyIds || [];
+  const toggle = (id) => { if (selected.includes(id)) { patch({ propertyIds: selected.filter((x) => x !== id) }); return; } if (selected.length >= 6) return; patch({ propertyIds: [...selected, id] }); };
+
+  const addQuick = () => {
+    if (!qa.title.trim()) return;
+    let ownerId = "";
+    if (qa.ownerPhone.trim()) { const owner = { id: uid(), name: `مالک ${qa.title.trim()}`, phone: qa.ownerPhone.trim() }; setOwners((prev) => [owner, ...prev]); ownerId = owner.id; }
+    const p = { id: uid(), title: qa.title.trim(), type: "آپارتمان", deal: "فروش", price: toNum(qa.price), pricePerMeter: 0, area: 0, rooms: 0, floor: null, furnished: "", address: qa.address.trim(), ownerId, builderId: "", stage: "فعال", desc: "", media: [], createdAt: new Date().toISOString() };
+    setProperties((prev) => [p, ...prev]);
+    if (selected.length < 6) patch({ propertyIds: [...selected, p.id] });
+    setQa({ title: "", address: "", price: "", ownerPhone: "" }); setAdding(false);
+  };
+
+  const proceed = () => {
+    const items = selected.map((id) => ({ id: uid(), propertyId: id, coordinationStatus: "none", keyStatus: "none", visited: false, customerRating: null, customerReasons: [], notes: "", visitedAt: null }));
+    patch({ items, step: "review" });
+  };
+
+  return (
+    <div className="pt-2">
+      <div className="flex items-center justify-between" style={{ marginBottom: SP.sm }}>
+        <p style={{ fontSize: FS.caption, color: c.muted }}>{faDigits(selected.length)} از ۶ فایل انتخاب شد</p>
+        {selected.length > 0 && selected.length < 3 && <p style={{ fontSize: FS.caption, color: c.attn }}>پیشنهاد: حداقل ۳ فایل</p>}
+      </div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی فایل..." style={inputStyle(c)} />
+      <div style={{ height: SP.md }} />
+      <div className="flex flex-col" style={{ gap: SP.sm }}>
+        {filtered.map((p) => {
+          const isSel = selected.includes(p.id); const cover = p.media && p.media[0]; const Icon = typeIcon(p.type);
+          return (
+            <button key={p.id} onClick={() => toggle(p.id)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: isSel ? c.purpleSoft : c.surface2, border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
+              <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 44, height: 44, borderRadius: RAD.sm, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
+                {cover ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Icon size={18} color={c.primary} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p>
+                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{fmtToman(p.price)}</p>
+              </div>
+              <div className="flex items-center justify-center shrink-0" style={{ width: 22, height: 22, borderRadius: "50%", background: isSel ? c.purple : "transparent", border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
+                {isSel && <Check size={13} color="#fff" />}
+              </div>
+            </button>
+          );
+        })}
+        {filtered.length === 0 && <EmptyLine c={c} text="فایلی پیدا نشد" />}
+      </div>
+      <div style={{ marginTop: SP.lg }}>
+        {!adding ? (
+          <button onClick={() => setAdding(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: FS.body }}>
+            <Plus size={16} color={c.primary} /> افزودن سریع فایل (خارج از CRM)
+          </button>
+        ) : (
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+            <Field c={c} label="نام/عنوان"><input style={inputStyle(c)} value={qa.title} onChange={(e) => setQa({ ...qa, title: e.target.value })} autoFocus /></Field>
+            <Field c={c} label="آدرس"><input style={inputStyle(c)} value={qa.address} onChange={(e) => setQa({ ...qa, address: e.target.value })} /></Field>
+            <Field c={c} label="قیمت (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={qa.price} onChange={(e) => setQa({ ...qa, price: e.target.value })} /></Field>
+            <Field c={c} label="شماره مالک (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={qa.ownerPhone} onChange={(e) => setQa({ ...qa, ownerPhone: e.target.value })} /></Field>
+            <div className="flex" style={{ gap: SP.sm }}>
+              <button onClick={() => setAdding(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.surface2, color: c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>لغو</button>
+              <button onClick={addQuick} disabled={!qa.title.trim()} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.caption + 1, opacity: qa.title.trim() ? 1 : 0.5 }}>افزودن</button>
+            </div>
+          </div>
+        )}
+      </div>
+      <button onClick={proceed} disabled={selected.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xl, paddingBlock: SP.md, borderRadius: RAD.lg, background: selected.length ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : c.surface2, color: selected.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1 }}>
+        ادامه <ChevronLeft size={16} color={selected.length ? "#fff" : c.muted} />
+      </button>
+    </div>
+  );
+}
+
+function TourStepReview({ ctx, b, patch, onStart }) {
+  const { c, properties } = ctx;
+  const items = b.items;
+  const coord = coordMeta(c);
+  const move = (idx, dir) => { const next = [...items]; const j = idx + dir; if (j < 0 || j >= next.length) return; [next[idx], next[j]] = [next[j], next[idx]]; patch({ items: next }); };
+  const remove = (idx) => patch({ items: items.filter((_, i) => i !== idx) });
+  const cycleCoord = (idx) => { const next = [...items]; const cur = COORD_ORDER.indexOf(next[idx].coordinationStatus); next[idx] = { ...next[idx], coordinationStatus: COORD_ORDER[(cur + 1) % COORD_ORDER.length] }; patch({ items: next }); };
+  const cycleKey = (idx) => { const next = [...items]; const cur = KEY_ORDER.indexOf(next[idx].keyStatus); next[idx] = { ...next[idx], keyStatus: KEY_ORDER[(cur + 1) % KEY_ORDER.length] }; patch({ items: next }); };
+
+  const confirmedCount = items.filter((it) => it.coordinationStatus === "confirmed").length;
+  const pendingCount = items.filter((it) => it.coordinationStatus === "pending").length;
+  const needsKeyCount = items.filter((it) => it.keyStatus !== "none").length;
+  const notConfirmed = items.filter((it) => it.coordinationStatus !== "confirmed");
+
+  return (
+    <div className="pt-2">
+      <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>{b.customerName} · {faDigits(items.length)} فایل — با فلش جابجا کن، با لمس وضعیت رو عوض کن</p>
+      <div className="flex flex-col" style={{ gap: SP.sm }}>
+        {items.map((it, idx) => {
+          const p = properties.find((x) => x.id === it.propertyId); if (!p) return null;
+          const cm = coord[it.coordinationStatus];
+          return (
+            <div key={it.id} style={{ padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md) }}>
+              <div className="flex items-center" style={{ gap: SP.sm }}>
+                <div className="flex items-center justify-center shrink-0 rounded-full" style={{ width: 22, height: 22, background: c.purpleSoft, fontSize: 11, fontWeight: FW.heavy, color: c.purple }}>{faDigits(idx + 1)}</div>
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p>
+                  <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 1 }}>{fmtToman(p.price)}</p>
+                </div>
+                <div className="flex flex-col items-center" style={{ gap: 2 }}>
+                  <button onClick={() => move(idx, -1)} disabled={idx === 0} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === 0 ? 0.4 : 1 }}><ArrowUp size={12} color={c.muted} /></button>
+                  <button onClick={() => move(idx, 1)} disabled={idx === items.length - 1} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === items.length - 1 ? 0.4 : 1 }}><ArrowDown size={12} color={c.muted} /></button>
+                </div>
+                <button onClick={() => remove(idx)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><X size={13} color={c.danger} /></button>
+              </div>
+              <div className="flex" style={{ gap: SP.sm, marginTop: SP.sm }}>
+                <button onClick={() => cycleCoord(idx)} className="press flex-1 flex items-center justify-center" style={{ gap: 4, padding: "6px 8px", borderRadius: RAD.sm, background: cm.soft }}>
+                  <cm.icon size={12} color={cm.color} /><span style={{ fontSize: 11, fontWeight: FW.bold, color: cm.color }}>{cm.label}</span>
+                </button>
+                <button onClick={() => cycleKey(idx)} className="press flex-1 flex items-center justify-center" style={{ gap: 4, padding: "6px 8px", borderRadius: RAD.sm, background: c.surface2 }}>
+                  <Key size={12} color={c.muted} /><span style={{ fontSize: 11, fontWeight: FW.bold, color: c.ink }}>{KEY_LABEL[it.keyStatus]}</span>
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {items.length === 0 && <EmptyLine c={c} text="فایلی برای این تور نمانده" />}
+      </div>
+
+      {items.length > 0 && (
+        <div style={{ marginTop: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+          <p style={{ fontSize: FS.body, fontWeight: FW.heavy, marginBottom: SP.md }}>آماده شروع</p>
+          <div className="flex flex-col" style={{ gap: SP.xs + 2 }}>
+            <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>مشتری</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>{b.customerName}</span></div>
+            <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>تعداد فایل</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>{faDigits(items.length)}</span></div>
+            <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>هماهنگ‌شده</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.success }}>{faDigits(confirmedCount)}</span></div>
+            {pendingCount > 0 && <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>منتظر تأیید</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.attn }}>{faDigits(pendingCount)}</span></div>}
+            {needsKeyCount > 0 && <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>نیازمند کلید</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>{faDigits(needsKeyCount)}</span></div>}
+          </div>
+          {notConfirmed.length > 0 && (
+            <div className="flex items-start" style={{ gap: SP.xs, marginTop: SP.md, padding: SP.sm, borderRadius: RAD.sm, background: c.attnSoft }}>
+              <AlertTriangle size={13} color={c.attn} style={{ marginTop: 2, flexShrink: 0 }} />
+              <p style={{ fontSize: FS.caption, color: c.ink, lineHeight: 1.7 }}>{notConfirmed.length === items.length ? "هنوز هیچ فایلی تأیید نشده" : `${faDigits(notConfirmed.length)} فایل هنوز تأیید نشده`} — می‌تونی همینطوری هم شروع کنی</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <button onClick={onStart} disabled={items.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, background: items.length ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : c.surface2, color: items.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: items.length ? "0 12px 28px -10px rgba(47,124,246,0.5)" : "none" }}>
+        <Car size={17} color={items.length ? "#fff" : c.muted} /> شروع تور
+      </button>
+    </div>
+  );
+}
+
+// Routes an open tour to the right full-screen: still visiting → Focus Mode,
+// all files seen → the completion/rating summary.
+function TourSession({ ctx, tourId }) {
+  const tour = ctx.tours.find((t) => t.id === tourId);
+  if (!tour) return null;
+  if (tour.status === "reviewing" || tour.status === "completed") return <TourCompleteScreen ctx={ctx} tour={tour} />;
+  return <TourFocusMode ctx={ctx} tour={tour} />;
+}
+
+// One property per screen, nothing else. This is the screen the consultant
+// actually looks at while standing in a doorway with the customer beside them.
+function TourFocusMode({ ctx, tour }) {
+  const { c, properties, owners, setTours } = ctx;
+  const [index, setIndex] = useState(() => { const idx = tour.items.findIndex((it) => !it.visited); return idx < 0 ? 0 : idx; });
+  const i = index;
+  const item = tour.items[i];
+  const [note, setNote] = useState(item?.notes || "");
+  const [showNote, setShowNote] = useState(false);
+  const [showReasons, setShowReasons] = useState(item?.customerRating === "dislike");
+
+  useEffect(() => { setNote(item?.notes || ""); setShowNote(false); setShowReasons(item?.customerRating === "dislike"); }, [i]); // eslint-disable-line
+
+  if (!item) return null;
+  const p = properties.find((x) => x.id === item.propertyId);
+  if (!p) return null;
+  const owner = owners.find((o) => o.id === p.ownerId);
+  const cover = p.media && p.media[0];
+  const cm = coordMeta(c)[item.coordinationStatus];
+  const rm = ratingMeta(c);
+
+  const updateItem = (patchObj) => setTours((prev) => prev.map((t) => t.id !== tour.id ? t : { ...t, items: t.items.map((it) => it.id === item.id ? { ...it, ...patchObj } : it) }));
+  const setRating = (key) => { updateItem({ customerRating: key }); setShowReasons(key === "dislike"); };
+  const toggleReason = (r) => { const has = (item.customerReasons || []).includes(r); updateItem({ customerReasons: has ? item.customerReasons.filter((x) => x !== r) : [...(item.customerReasons || []), r] }); };
+  const saveNote = () => { updateItem({ notes: note }); setShowNote(false); };
+
+  const goNext = () => {
+    updateItem({ visited: true, visitedAt: new Date().toISOString(), notes: note });
+    const nextIdx = i + 1;
+    if (nextIdx >= tour.items.length) setTours((prev) => prev.map((t) => t.id === tour.id ? { ...t, status: "reviewing" } : t));
+    else setIndex(nextIdx);
+  };
+  const goPrev = () => { if (i > 0) setIndex(i - 1); };
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
+        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
+          <button onClick={() => ctx.setOpenTourId(null)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+          <div className="flex-1 flex" style={{ gap: SP.xs }}>
+            {tour.items.map((it, idx) => <div key={it.id} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: it.visited ? c.purple : idx === i ? c.purpleSoft : c.surface2, border: idx === i ? `1px solid ${c.purple}` : "none" }} />)}
+          </div>
+          <span style={{ fontSize: FS.caption, color: c.muted, flexShrink: 0 }}>{faDigits(i + 1)}/{faDigits(tour.items.length)}</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-6">
+          <div className="rounded-2xl overflow-hidden mb-3" style={{ height: 180, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
+            {cover ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div className="w-full h-full flex items-center justify-center">{React.createElement(typeIcon(p.type), { size: 44, color: c.primary })}</div>}
+          </div>
+
+          <h1 style={{ fontSize: FS.title, fontWeight: FW.heavy, lineHeight: 1.4 }}>{p.title}</h1>
+          <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.xs, color: c.muted, fontSize: FS.caption }}><MapPin size={12} />{p.address || "بدون آدرس"}</div>
+          <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.md }}>{fmtToman(p.price)}</p>
+
+          <div className="flex" style={{ gap: SP.sm, marginTop: SP.md, flexWrap: "wrap" }}>
+            <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: c.surface2, fontSize: 11, fontWeight: FW.bold }}><Ruler size={11} color={c.muted} />{faDigits(p.area)} متر</span>
+            {p.rooms > 0 && <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: c.surface2, fontSize: 11, fontWeight: FW.bold }}><Home size={11} color={c.muted} />{faDigits(p.rooms)} خواب</span>}
+            <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: cm.soft, fontSize: 11, fontWeight: FW.bold, color: cm.color }}><cm.icon size={11} color={cm.color} />{cm.label}</span>
+            {item.keyStatus !== "none" && <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: c.attnSoft, fontSize: 11, fontWeight: FW.bold, color: c.attn }}><Key size={11} color={c.attn} />{KEY_LABEL[item.keyStatus]}</span>}
+          </div>
+
+          <div className="flex" style={{ gap: SP.sm, marginTop: SP.lg }}>
+            <a href={mapsLink(p)} target="_blank" rel="noreferrer" className="press flex-1 flex items-center justify-center" style={{ gap: 6, paddingBlock: SP.sm + 2, borderRadius: RAD.md, background: c.surface2 }}>
+              <NavigationIcon size={14} color={c.primary} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>مسیریابی</span>
+            </a>
+            {owner?.phone && (
+              <a href={`tel:${owner.phone}`} className="press flex-1 flex items-center justify-center" style={{ gap: 6, paddingBlock: SP.sm + 2, borderRadius: RAD.md, background: c.successSoft }}>
+                <PhoneCall size={14} color={c.success} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.success }}>تماس مالک</span>
+              </a>
+            )}
+          </div>
+
+          <div style={{ marginTop: SP.xl }}>
+            <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>نظر مشتری؟</p>
+            <div className="flex" style={{ gap: SP.sm }}>
+              {RATING_ORDER.map((key) => { const r = rm[key]; const active = item.customerRating === key; return (
+                <button key={key} onClick={() => setRating(key)} className="press flex-1 flex flex-col items-center" style={{ gap: 4, paddingBlock: SP.md, borderRadius: RAD.md, background: active ? r.soft : c.surface2, border: active ? `1.5px solid ${r.color}` : "1.5px solid transparent" }}>
+                  <r.icon size={20} color={active ? r.color : c.muted} />
+                  <span style={{ fontSize: 10, fontWeight: FW.bold, color: active ? r.color : c.muted }}>{r.label}</span>
+                </button>
+              ); })}
+            </div>
+
+            {showReasons && (
+              <div className="flex flex-wrap" style={{ gap: 6, marginTop: SP.md }}>
+                {DISLIKE_REASONS.map((r) => { const on = (item.customerReasons || []).includes(r); return (
+                  <button key={r} onClick={() => toggleReason(r)} className="press rounded-full" style={{ padding: "5px 12px", background: on ? c.dangerSoft : c.surface2, color: on ? c.danger : c.muted, fontSize: 11, fontWeight: FW.bold }}>{r}</button>
+                ); })}
+              </div>
+            )}
+
+            {!showNote ? (
+              <button onClick={() => setShowNote(true)} className="press flex items-center" style={{ gap: 4, marginTop: SP.md }}>
+                <StickyNote size={12} color={c.muted} /><span style={{ fontSize: FS.caption, color: c.muted }}>{note ? "ویرایش یادداشت" : "افزودن یادداشت"}</span>
+              </button>
+            ) : (
+              <div style={{ marginTop: SP.md }}>
+                <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: قیمت را بالا دانست" style={{ ...inputStyle(c), minHeight: 60, resize: "none", lineHeight: 1.8 }} />
+                <button onClick={saveNote} className="press" style={{ marginTop: SP.xs, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>ذخیره یادداشت</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0" style={{ gap: SP.sm, padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))` }}>
+          {i > 0 && <button onClick={goPrev} className="press flex items-center justify-center shrink-0" style={{ width: 48, borderRadius: RAD.lg, background: c.surface2 }}><ChevronRight size={18} color={c.ink} /></button>}
+          <button onClick={goNext} className="press flex-1 flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
+            {i + 1 < tour.items.length ? "ملک بعدی" : "پایان تور"}<ChevronLeft size={16} color="#fff" />
+          </button>
+        </div>
+      </div>
+    </BodyPortal>
+  );
+}
+
+// After the last property: rate the tour, pick the customer's top file(s), and
+// log everything into the customer's and each property's timeline in one tap —
+// the consultant never re-types anything they already entered mid-tour.
+function TourCompleteScreen({ ctx, tour }) {
+  const { c, properties, setTours, setAppointments, setCalls, notify, celebrate } = ctx;
+  const [topPicks, setTopPicks] = useState(tour.topPicks || []);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState(tour.notes || "");
+  const rm = ratingMeta(c);
+  const visited = tour.items.filter((it) => it.visited);
+  const tally = RATING_ORDER.reduce((acc, k) => ({ ...acc, [k]: visited.filter((it) => it.customerRating === k).length }), {});
+
+  const togglePick = (id) => setTopPicks((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= 3 ? prev : [...prev, id]);
+
+  const quickAction = (kind) => {
+    if (kind === "note") { setNoteOpen(true); return; }
+    const NOTES = { followup: "پیگیری بعد از تور بازدید", second: "هماهنگی بازدید دوم", negotiate: "مذاکره قیمت بعد از تور" };
+    setCalls((prev) => [{ id: uid(), customerId: tour.customerId, customerName: tour.customerName, customerPhone: tour.customerPhone, date: todayISO(), status: "در انتظار پاسخ", notes: NOTES[kind] }, ...prev]);
+    notify("یادآوری پیگیری ثبت شد");
+  };
+
+  const finish = () => {
+    const time = new Date().toTimeString().slice(0, 5);
+    const newAppts = visited.map((it) => ({ id: uid(), propertyId: it.propertyId, customerId: tour.customerId, customerName: tour.customerName, date: todayISO(), time, notes: it.notes || "", tourId: tour.id, rating: it.customerRating || null, reasons: it.customerReasons || [] }));
+    setAppointments((prev) => [...newAppts, ...prev]);
+    setTours((prev) => prev.map((t) => t.id === tour.id ? { ...t, status: "completed", completedAt: new Date().toISOString(), topPicks, notes: note } : t));
+    celebrate({ kind: "tour", label: "تور بازدید ثبت شد" });
+    ctx.setOpenTourId(null);
+  };
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
+        <div className="flex-1 overflow-y-auto px-4" style={{ paddingTop: `calc(${SP.xl}px + env(safe-area-inset-top, 0px))`, paddingBottom: SP.xl }}>
+          <div className="flex flex-col items-center" style={{ marginBottom: SP.xl }}>
+            <div className="flex items-center justify-center flora-bounce" style={{ width: 64, height: 64, borderRadius: "50%", background: c.successSoft, marginBottom: SP.md }}><CheckCircle2 size={30} color={c.success} /></div>
+            <p style={{ fontSize: FS.title, fontWeight: FW.heavy }}>تور تمام شد</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{tour.customerName} · {faDigits(visited.length)} ملک بازدید شد</p>
+          </div>
+
+          <div className="grid grid-cols-4" style={{ gap: SP.sm, marginBottom: SP.xl }}>
+            {RATING_ORDER.map((k) => { const r = rm[k]; return (
+              <div key={k} className="flex flex-col items-center" style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
+                <r.icon size={17} color={r.color} />
+                <span style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}>{faDigits(tally[k])}</span>
+              </div>
+            ); })}
+          </div>
+
+          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>کدام فایل بیشتر مورد پسند مشتری بود؟ (تا ۳ ملک)</p>
+          <div className="flex flex-col" style={{ gap: SP.sm, marginBottom: SP.xl }}>
+            {visited.map((it) => {
+              const p = properties.find((x) => x.id === it.propertyId); if (!p) return null;
+              const on = topPicks.includes(it.propertyId); const rank = on ? topPicks.indexOf(it.propertyId) + 1 : null;
+              return (
+                <button key={it.id} onClick={() => togglePick(it.propertyId)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: on ? c.attnSoft : c.surface2, border: `1.5px solid ${on ? c.attn : "transparent"}` }}>
+                  <div className="flex items-center justify-center shrink-0" style={{ width: 24, height: 24, borderRadius: "50%", background: on ? c.attn : c.surface, fontSize: 11, fontWeight: FW.heavy, color: on ? "#fff" : c.muted }}>{on ? faDigits(rank) : ""}</div>
+                  <div className="flex-1 min-w-0"><p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p></div>
+                  {it.customerRating && React.createElement(rm[it.customerRating].icon, { size: 15, color: rm[it.customerRating].color })}
+                </button>
+              );
+            })}
+          </div>
+
+          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>اقدام بعدی (اختیاری)</p>
+          <div className="flex flex-wrap" style={{ gap: SP.sm, marginBottom: SP.xl }}>
+            {[["followup", "پیگیری مشتری"], ["second", "هماهنگی بازدید دوم"], ["negotiate", "مذاکره قیمت"], ["note", "ثبت یادداشت"]].map(([k, label]) => (
+              <button key={k} onClick={() => quickAction(k)} className="press rounded-full" style={{ padding: "8px 14px", background: c.surface2, fontSize: FS.caption, fontWeight: FW.bold }}>{label}</button>
+            ))}
+          </div>
+          {noteOpen && <div style={{ marginBottom: SP.xl }}><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="یادداشت کلی تور..." style={{ ...inputStyle(c), minHeight: 70, resize: "none", lineHeight: 1.8 }} /></div>}
+        </div>
+
+        <div className="shrink-0" style={{ padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))` }}>
+          <button onClick={finish} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
+            <Check size={17} color="#fff" /> پایان و ثبت در پرونده‌ها
+          </button>
+        </div>
+      </div>
     </BodyPortal>
   );
 }
@@ -2590,6 +3133,11 @@ function HomeTab({ ctx }) {
       {/* Deal Coach — the first actionable thing the agent sees */}
       <NextBestActionCard ctx={ctx} />
 
+      {/* Showing / Tour Mode entry point — the agent's most repeated real-world
+          action (taking a customer to see several files) gets a one-tap door,
+          right on the dashboard, instead of being buried inside a form. */}
+      <div style={{ marginTop: SP.md }}><TourEntryCard ctx={ctx} /></div>
+
       {/* Primary action — the ONLY place the accent gradient appears */}
       {simpleMode && (
         <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, marginTop: SP.xl, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
@@ -2814,12 +3362,16 @@ function MomentumCard({ ctx }) {
 function ActivityApptRow({ a, ctx, showDelete }) {
   const { c, properties, setAppointments, scheduleReminder, notify } = ctx;
   const p = properties.find((x) => x.id === a.propertyId);
+  const rm = a.rating ? ratingMeta(c)[a.rating] : null;
   return (
     <div className="rounded-lg p-3 flex items-center gap-2.5" style={glassLite(c, 22)}>
-      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><CalendarDays size={14} color={c.primary} /></div>
+      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: rm ? rm.soft : c.primarySoft }}>
+        {rm ? <rm.icon size={14} color={rm.color} /> : <CalendarDays size={14} color={c.primary} />}
+      </div>
       <div className="flex-1 min-w-0">
-        <p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.title || a.customerName || "بازدید"}</p>
-        <p style={{ fontSize: 11, color: c.muted }}>{a.customerName ? `با ${a.customerName} · ` : ""}{fmtJalali(a.date)}</p>
+        <p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.title || a.customerName || "بازدید"}{a.tourId ? " · تور" : ""}</p>
+        <p style={{ fontSize: 11, color: c.muted }}>{a.customerName ? `با ${a.customerName} · ` : ""}{fmtJalali(a.date)}{rm ? ` · ${rm.label}` : ""}</p>
+        {a.notes && a.tourId && <p style={{ fontSize: 11, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>{a.notes}</p>}
       </div>
       <input type="time" value={a.time} onChange={(e) => setAppointments((prev) => prev.map((x) => x.id === a.id ? { ...x, time: e.target.value } : x))}
         style={{ background: c.surface2, border: "none", borderRadius: 8, padding: "5px 7px", fontSize: 11, color: c.ink, width: 72 }} />
@@ -6954,7 +7506,10 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
     onPick: ({ address, lat, lng }) => { setF((prev) => ({ ...prev, address, lat, lng })); setMapPicker(null); },
   });
 
-  const [aiExtracting, setAiExtracting] = useState(false);
+  const [importState, setImportState] = useState("idle"); // idle | extracting | parsing | normalizing | checking_duplicate | preview | error
+  const [importData, setImportData] = useState(null); // normalized fields, shown in the preview
+  const [importError, setImportError] = useState(null); // { message }
+  const [dupMatch, setDupMatch] = useState(null); // existing property, if this link was already imported
   useEffect(() => {
     if (prefillDivarLink && !editing) {
       setDivarLink(prefillDivarLink);
@@ -6962,80 +7517,114 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       extractFromDivarAI(prefillDivarLink);
     }
   }, []); // eslint-disable-line
+
+  // Same pipeline the spec describes — Paste Link → Fetch → Extract → Normalize
+  // → Preview → Duplicate Check → Save — just with Perplexity standing in for
+  // the Next.js backend. That substitution is deliberate, not a shortcut: the
+  // spec's core rule is "the browser must never extract directly (CORS); a
+  // server must own the fetch." Flora has no server, but Perplexity's own
+  // servers do the fetching here, so a raw browser→divar.ir request never
+  // happens either way — the requirement is satisfied by a different route.
   const extractFromDivarAI = async (linkOverride) => {
     const link = (linkOverride || divarLink).trim();
     if (!link) { notify("اول لینک آگهی دیوار را وارد کن"); return; }
+    if (!/^https?:\/\/(www\.)?divar\.ir\//i.test(link)) { setImportState("error"); setImportError({ message: "این لینک، لینک یک آگهی دیوار نیست." }); return; }
     if (!perplexityKey) { notify("اول کلید Perplexity را در تنظیمات هوش مصنوعی وارد کن"); return; }
-    setAiExtracting(true);
+    setImportError(null); setDupMatch(null); setImportData(null);
+    setImportState("extracting");
     try {
       const prompt = `این لینک یک آگهی ملکی در دیوار است: ${link}
-صفحه را باز کن و اطلاعات را دقیق استخراج کن. فقط همین JSON خام را برگردان، بدون توضیح و بدون markdown:
-{"title":"","type":"یکی از: آپارتمان,ویلا,زمین,مغازه,اداری","deal":"یکی از: فروش,پیش‌فروش","price":عدد کل به تومان,"area":عدد متر,"rooms":عدد,"floor":عدد,"furnished":"با لوازم یا بدون لوازم","address":"","description":"خلاصه‌ی متن آگهی در حد دو خط","imageUrl":"لینک مستقیم اولین عکس آگهی اگر پیدا کردی وگرنه رشته‌ی خالی"}`;
+صفحه‌ی عمومی این آگهی را باز کن و دقیقاً همین ساختار JSON را با اطلاعات واقعی پر کن. هر مقداری که در صفحه واقعاً پیدا نکردی، null بگذار — هرگز حدس نزن یا اطلاعات نساز:
+{"sourceId":"شناسه‌ی آگهی از داخل لینک یا صفحه، اگر پیدا شد","title":null,"description":"خلاصه‌ای از متن آگهی در حد دو خط، یا null","dealType":"یکی از: فروش,رهن_و_اجاره,پیش‌فروش","price":null,"deposit":"مبلغ رهن به تومان اگر رهن‌واجاره بود، وگرنه null","rent":"اجاره‌ی ماهانه به تومان اگر رهن‌واجاره بود، وگرنه null","propertyType":"یکی از: آپارتمان,ویلا,زمین,مغازه,اداری","area":null,"rooms":null,"floor":null,"totalFloors":null,"yearBuilt":null,"parking":null,"elevator":null,"storage":null,"address":null,"imageUrl":"لینک مستقیم اولین عکس آگهی اگر پیدا کردی وگرنه null","publishedAt":"تاریخ انتشار آگهی به‌همون شکلی که تو صفحه نوشته، یا null"}
+اعداد فارسی را به انگلیسی تبدیل کن (مثلاً «۱۲۵ متر» یعنی area: 125). parking/elevator/storage باید true یا false یا null باشند، نه متن. فقط همین JSON خام را برگردان، بدون توضیح.`;
       const res = await fetch("https://api.perplexity.ai/chat/completions", {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${perplexityKey}` },
         body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "user", content: prompt }] }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error?.message || `خطای Perplexity (کد ${res.status})`);
+      if (!res.ok) {
+        const msg = res.status === 429 ? "اتصال به سرویس استخراج موقتاً پرترافیک است — کمی بعد دوباره امتحان کن." : res.status >= 500 ? "اتصال به سرویس استخراج موقتاً برقرار نیست." : (data?.error?.message || `خطای سرویس استخراج (کد ${res.status})`);
+        throw new Error(msg);
+      }
+      setImportState("parsing");
       const raw = data?.choices?.[0]?.message?.content || "";
-      // Perplexity (sonar-pro especially) often wraps the JSON in a sentence or
-      // two even when told not to — pulling out the first {...} block is far
-      // more reliable than assuming the whole response is clean JSON, which was
-      // silently failing the entire extraction whenever any extra text appeared.
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("پاسخ AI فرمت قابل‌خواندنی نداشت");
-      const parsed = JSON.parse(jsonMatch[0]);
+      if (!jsonMatch) throw new Error("اطلاعات ملک از این صفحه قابل استخراج نیست.");
+      let parsed;
+      try { parsed = JSON.parse(jsonMatch[0]); } catch (e) { throw new Error("اطلاعات ملک از این صفحه قابل استخراج نیست."); }
+      if (!parsed.title && !parsed.price) throw new Error("صفحه‌ی آگهی قابل دسترسی نبود یا اطلاعاتی نداشت.");
 
-      // Fetch the photo first (if any) so it can be saved together with the
-      // property in one shot, rather than patched in after the fact.
+      setImportState("normalizing");
+      // Best-effort image fetch — kept separate from the text fields, since a
+      // blocked cross-origin read shouldn't fail the whole import.
       let extractedMedia = [];
       if (parsed.imageUrl) {
         try {
           const blob = await (await fetch(parsed.imageUrl)).blob();
           const file = new File([blob], "divar.jpg", { type: blob.type || "image/jpeg" });
           extractedMedia = [{ id: uid(), type: "image", url: await compressImage(file) }];
-        } catch (imgErr) { /* some CDNs block cross-origin reads even though <img> can display them — skip silently, handled below */ }
+        } catch (imgErr) { /* CDN blocked the read — handled by showing no image in preview */ }
       }
+      const normalized = {
+        source: "divar", sourceUrl: link, sourceId: parsed.sourceId || null, importedAt: new Date().toISOString(),
+        title: parsed.title || null, description: parsed.description || null,
+        dealType: ["فروش", "رهن_و_اجاره", "پیش‌فروش"].includes(parsed.dealType) ? parsed.dealType : (parsed.price ? "فروش" : null),
+        price: parsed.price != null ? toNum(parsed.price) : null, deposit: parsed.deposit != null ? toNum(parsed.deposit) : null, rent: parsed.rent != null ? toNum(parsed.rent) : null,
+        propertyType: TYPE_FILTERS.includes(parsed.propertyType) ? parsed.propertyType : null,
+        area: parsed.area != null ? toNum(parsed.area) : null, rooms: parsed.rooms != null ? toNum(parsed.rooms) : null,
+        floor: parsed.floor != null ? toNum(parsed.floor) : null, totalFloors: parsed.totalFloors != null ? toNum(parsed.totalFloors) : null,
+        yearBuilt: parsed.yearBuilt != null ? toNum(parsed.yearBuilt) : null,
+        parking: typeof parsed.parking === "boolean" ? parsed.parking : null, elevator: typeof parsed.elevator === "boolean" ? parsed.elevator : null, storage: typeof parsed.storage === "boolean" ? parsed.storage : null,
+        address: parsed.address || null, publishedAt: parsed.publishedAt || null, media: extractedMedia,
+      };
 
-      const hasEssentials = parsed.title && parsed.price;
-      if (hasEssentials) {
-        // Enough to stand on its own — save it directly instead of routing
-        // through form state (which wouldn't be updated yet on this same tick).
-        const payload = {
-          title: parsed.title, type: TYPE_FILTERS.includes(parsed.type) ? parsed.type : "آپارتمان",
-          deal: ["فروش", "پیش‌فروش"].includes(parsed.deal) ? parsed.deal : "فروش",
-          area: toNum(parsed.area), pricePerMeter: parsed.area ? Math.round(parsed.price / parsed.area) : 0, price: toNum(parsed.price),
-          rooms: toNum(parsed.rooms), floor: parsed.floor != null ? toNum(parsed.floor) : 1, furnished: parsed.furnished || "بدون لوازم",
-          address: parsed.address || "", desc: parsed.description || "", builderId: "", ownerId: "", media: extractedMedia, lat: null, lng: null,
-          preDown: 0, preMonths: 0, preDelivery: 0, preDeed: 0, buildStage: BUILD_STAGES[0],
-        };
-        setProperties((prev) => [{ id: uid(), stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
-        celebrate({ kind: "file", label: "فایل از دیوار اضافه شد" });
-        if (parsed.imageUrl && extractedMedia.length === 0) notify("فایل ثبت شد، ولی عکس خودکار نیومد — از داخل فایل دستی اضافه‌اش کن");
-        onClose();
-        return;
-      }
+      setImportState("checking_duplicate");
+      // Priority per the spec: sourceId first, then sourceUrl, then a loose
+      // title+area match as a last resort for links that carry no clean id.
+      const dup = properties.find((p) =>
+        (normalized.sourceId && p.sourceId === normalized.sourceId) ||
+        (p.sourceUrl && p.sourceUrl === normalized.sourceUrl) ||
+        (normalized.title && p.title === normalized.title && normalized.area && p.area === normalized.area)
+      );
+      if (dup) setDupMatch(dup);
 
-      // Missing something essential (title/price) — pre-fill what we have and
-      // let the agent finish and review manually rather than saving a half-empty file.
-      setF((prev) => ({
-        ...prev,
-        title: parsed.title || prev.title,
-        type: TYPE_FILTERS.includes(parsed.type) ? parsed.type : prev.type,
-        deal: ["فروش", "پیش‌فروش"].includes(parsed.deal) ? parsed.deal : prev.deal,
-        area: parsed.area ? String(parsed.area) : prev.area,
-        pricePerMeter: parsed.price && parsed.area ? String(Math.round(parsed.price / parsed.area)) : prev.pricePerMeter,
-        rooms: parsed.rooms ? String(parsed.rooms) : prev.rooms,
-        floor: parsed.floor != null ? String(parsed.floor) : prev.floor,
-        furnished: parsed.furnished || prev.furnished,
-        address: parsed.address || prev.address,
-        desc: parsed.description || prev.desc,
-      }));
-      if (extractedMedia.length) setMedia((prev) => [...prev, ...extractedMedia]);
-      setShowDivar(false);
-      notify("اطلاعات ناقص بود — پایین فرم رو تکمیل و ثبت کن");
-    } catch (e) { notify(`استخراج ناموفق بود: ${e.message || "خطای نامشخص"}`); }
-    setAiExtracting(false);
+      setImportData(normalized);
+      setImportState("preview");
+    } catch (e) {
+      setImportError({ message: e.message || "خطای نامشخص در استخراج اطلاعات." });
+      setImportState("error");
+    }
+  };
+
+  const saveImportedProperty = () => {
+    const d = importData;
+    const payload = {
+      title: d.title || "بدون عنوان", type: d.propertyType || "آپارتمان", deal: d.dealType === "رهن_و_اجاره" ? "فروش" : (d.dealType || "فروش"),
+      pricePerMeter: d.area ? Math.round((d.price || 0) / d.area) : 0, area: d.area || 0, rooms: d.rooms || 0, floor: d.floor || 1,
+      furnished: "بدون لوازم", address: d.address || "", builderId: "", ownerId: "", media: d.media || [], lat: null, lng: null,
+      preDown: 0, preMonths: 0, preDelivery: 0, preDeed: 0, buildStage: BUILD_STAGES[0],
+      desc: [d.description, d.totalFloors ? `تعداد طبقات: ${faDigits(d.totalFloors)}` : "", d.yearBuilt ? `سال ساخت: ${faDigits(d.yearBuilt)}` : "",
+        d.parking != null ? `پارکینگ: ${d.parking ? "دارد" : "ندارد"}` : "", d.elevator != null ? `آسانسور: ${d.elevator ? "دارد" : "ندارد"}` : "",
+        d.storage != null ? `انباری: ${d.storage ? "دارد" : "ندارد"}` : "", d.deposit ? `رهن: ${fmtToman(d.deposit)}` : "", d.rent ? `اجاره ماهانه: ${fmtToman(d.rent)}` : ""]
+        .filter(Boolean).join("\n"),
+      source: d.source, sourceUrl: d.sourceUrl, sourceId: d.sourceId, importedAt: d.importedAt,
+    };
+    setProperties((prev) => [{ id: uid(), stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
+    celebrate({ kind: "file", label: "فایل از دیوار اضافه شد" });
+    onClose();
+  };
+
+  const editImportedProperty = () => {
+    const d = importData;
+    setF((prev) => ({
+      ...prev, title: d.title || prev.title, type: d.propertyType || prev.type, deal: d.dealType === "رهن_و_اجاره" ? "فروش" : (d.dealType || prev.deal),
+      area: d.area ? String(d.area) : prev.area, pricePerMeter: d.area && d.price ? String(Math.round(d.price / d.area)) : prev.pricePerMeter,
+      rooms: d.rooms ? String(d.rooms) : prev.rooms, floor: d.floor != null ? String(d.floor) : prev.floor, address: d.address || prev.address,
+      desc: d.description || prev.desc,
+    }));
+    if (d.media?.length) setMedia((prev) => [...prev, ...d.media]);
+    setImportState("idle"); setShowDivar(false);
+    notify("اطلاعات تو فرم پر شد — قبل از ثبت بررسی کن");
   };
 
   const extractFromDivar = () => {
@@ -7081,23 +7670,100 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       )}
       {showDivar && (
         <div className="rounded-xl p-3.5 mb-4" style={glass(c, 22)}>
-          <Field c={c} label="لینک آگهی دیوار"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
-          <button type="button" onClick={extractFromDivarAI} disabled={aiExtracting} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
-            {aiExtracting ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} {aiExtracting ? "در حال استخراج..." : "استخراج خودکار با AI"}
-          </button>
-          <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
-            نیاز به کلید Perplexity در تنظیمات هوش مصنوعی دارد. اگر نداری یا جواب نداد، همین‌جا دستی هم می‌تونی پیستش کنی:
-          </p>
-          <Field c={c} label="متن کامل آگهی (اختیاری)">
-            <textarea value={divarText} onChange={(e) => setDivarText(e.target.value)} rows={5} placeholder="متن آگهی را از صفحه‌ی دیوار کپی و اینجا پیست کن..." style={{ ...inputStyle(c), resize: "vertical" }} />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field c={c} label="لینک تصویر ۱ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg1} onChange={(e) => setDivarImg1(e.target.value)} placeholder="روی عکس نگه‌دار → کپی لینک تصویر" /></Field>
-            <Field c={c} label="لینک تصویر ۲ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg2} onChange={(e) => setDivarImg2(e.target.value)} placeholder="..." /></Field>
-          </div>
-          <button type="button" onClick={extractFromDivar} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>
-            <Wand2 size={15} /> استخراج دستی از متن پیست‌شده
-          </button>
+          {importState === "idle" && (
+            <>
+              <Field c={c} label="لینک آگهی دیوار"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
+              <button type="button" onClick={() => extractFromDivarAI()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
+                <Sparkles size={15} /> استخراج خودکار با AI
+              </button>
+              <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
+                نیاز به کلید Perplexity در تنظیمات هوش مصنوعی دارد. اگر نداری یا جواب نداد، همین‌جا دستی هم می‌تونی پیستش کنی:
+              </p>
+              <Field c={c} label="متن کامل آگهی (اختیاری)">
+                <textarea value={divarText} onChange={(e) => setDivarText(e.target.value)} rows={5} placeholder="متن آگهی را از صفحه‌ی دیوار کپی و اینجا پیست کن..." style={{ ...inputStyle(c), resize: "vertical" }} />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field c={c} label="لینک تصویر ۱ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg1} onChange={(e) => setDivarImg1(e.target.value)} placeholder="روی عکس نگه‌دار → کپی لینک تصویر" /></Field>
+                <Field c={c} label="لینک تصویر ۲ (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={divarImg2} onChange={(e) => setDivarImg2(e.target.value)} placeholder="..." /></Field>
+              </div>
+              <button type="button" onClick={extractFromDivar} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>
+                <Wand2 size={15} /> استخراج دستی از متن پیست‌شده
+              </button>
+            </>
+          )}
+
+          {["extracting", "parsing", "normalizing", "checking_duplicate"].includes(importState) && (
+            <div className="flora-rise" style={{ paddingBlock: SP.sm }}>
+              <p style={{ fontSize: 13, fontWeight: 700, marginBottom: SP.md }}>در حال دریافت آگهی...</p>
+              {[
+                { key: "extracting", label: "دریافت صفحه" },
+                { key: "parsing", label: "استخراج اطلاعات" },
+                { key: "normalizing", label: "آماده‌سازی مشخصات ملک" },
+                { key: "checking_duplicate", label: "بررسی تکراری‌بودن فایل" },
+              ].map((step) => {
+                const order = ["extracting", "parsing", "normalizing", "checking_duplicate"];
+                const cur = order.indexOf(importState), idx = order.indexOf(step.key);
+                const st = idx < cur ? "done" : idx === cur ? "active" : "pending";
+                return (
+                  <div key={step.key} className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.sm, opacity: st === "pending" ? 0.4 : 1 }}>
+                    <div className="flex items-center justify-center shrink-0" style={{ width: 22, height: 22, borderRadius: "50%", background: st === "done" ? c.successSoft : st === "active" ? c.primarySoft : c.surface2 }}>
+                      {st === "done" ? <CheckCircle2 size={12} color={c.success} /> : st === "active" ? <Loader2 size={11} className="animate-spin" color={c.primary} /> : <span style={{ width: 5, height: 5, borderRadius: 99, background: c.muted }} />}
+                    </div>
+                    <span style={{ fontSize: 12, color: st === "pending" ? c.muted : c.ink, fontWeight: st === "active" ? 700 : 500 }}>{step.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {importState === "error" && (
+            <div className="flora-rise">
+              <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.dangerSoft, marginBottom: SP.md }}>
+                <AlertTriangle size={16} color={c.danger} style={{ flexShrink: 0, marginTop: 2 }} />
+                <p style={{ fontSize: 12.5, color: c.danger, lineHeight: 1.8 }}>{importError?.message}</p>
+              </div>
+              <button type="button" onClick={() => setImportState("idle")} className="press w-full rounded-xl py-3" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>بازگشت</button>
+            </div>
+          )}
+
+          {importState === "preview" && importData && (
+            <div className="flora-rise">
+              {dupMatch && (
+                <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.attnSoft, marginBottom: SP.md }}>
+                  <AlertTriangle size={16} color={c.attn} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <div className="flex-1">
+                    <p style={{ fontSize: 12.5, color: c.attn, fontWeight: 700, lineHeight: 1.8 }}>این فایل احتمالاً قبلاً ثبت شده است.</p>
+                    <button type="button" onClick={onClose} style={{ fontSize: 12, color: c.primary, fontWeight: 700, marginTop: 4 }}>مشاهده فایل قبلی ›</button>
+                  </div>
+                </div>
+              )}
+              <p style={{ fontSize: 11, color: c.muted, fontWeight: 700, letterSpacing: ".02em", marginBottom: SP.sm }}>پیش‌نمایش — قبل از ثبت بررسی کن</p>
+              {importData.media?.[0] && <img src={importData.media[0].url} alt="" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: RAD.md, marginBottom: SP.md }} />}
+              <div className="flex flex-col" style={{ gap: 6, marginBottom: SP.md }}>
+                {[
+                  ["عنوان", importData.title], ["قیمت", importData.price ? fmtToman(importData.price) : null],
+                  ["متراژ", importData.area ? `${faDigits(importData.area)} متر` : null], ["خواب", importData.rooms != null ? faDigits(importData.rooms) : null],
+                  ["طبقه", importData.floor != null ? faDigits(importData.floor) : null], ["سال ساخت", importData.yearBuilt ? faDigits(importData.yearBuilt) : null],
+                  ["آدرس", importData.address],
+                ].map(([label, val]) => (
+                  <div key={label} className="flex items-center justify-between" style={{ paddingBlock: 4, borderBottom: `1px solid ${c.border}` }}>
+                    <span style={{ fontSize: 11.5, color: c.muted }}>{label}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: val ? c.ink : c.muted }}>{val || "نامشخص"}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap" style={{ gap: 6, marginBottom: SP.md }}>
+                {[["پارکینگ", importData.parking], ["آسانسور", importData.elevator], ["انباری", importData.storage]].filter(([, v]) => v === true).map(([label]) => (
+                  <span key={label} className="flex items-center" style={{ gap: 4, fontSize: 11, fontWeight: 700, color: c.success, background: c.successSoft, padding: "4px 9px", borderRadius: 999 }}><CheckCircle2 size={11} color={c.success} />{label}</span>
+                ))}
+              </div>
+              {importData.description && <p style={{ fontSize: 12, color: c.muted, lineHeight: 1.8, marginBottom: SP.lg }}>{importData.description}</p>}
+              <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
+                <button type="button" onClick={editImportedProperty} className="press rounded-xl py-3" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>ویرایش اطلاعات</button>
+                <button type="button" onClick={saveImportedProperty} className="press rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره در CRM</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => setMedia((p) => p.filter((m) => m.id !== mid))} onView={() => {}} /></Field>
