@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
 import {
   Home, Building2, Users, Search, Plus, X, Moon, Sun, Sparkles, MapPin, Ruler,
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
@@ -308,32 +307,29 @@ const FW = { regular: 500, medium: 600, bold: 700, heavy: 800 };
 const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
 
-// A full-screen overlay nested deep in the app tree can be clipped or offset by
-// any ancestor that creates a containing block (a transform, filter, etc.) —
-// which is what kept letting the home screen show through behind these panels.
-// Rendering into <body> via a portal escapes that entirely.
+// Full-screen panels need to sit above everything and ignore any ancestor that
+// would clip them. react-dom's createPortal is the textbook tool, but importing
+// it breaks this file in sandboxes that don't ship react-dom — and physically
+// moving the node out of React's tree (the other obvious fix) breaks unmounting,
+// leaving panels stuck open.
 //
-// react-dom is a real dependency of this app, so the portal path is what runs in
-// production. Some lightweight preview sandboxes don't provide react-dom though,
-// and a hard top-level import would fail the whole bundle there — so it's
-// resolved at runtime, falling back to plain inline rendering (visually
-// imperfect in that sandbox, but never a crash).
-const _createPortal = createPortal;
-
+// So: keep the node exactly where React put it, and neutralise the ancestors
+// instead. `position: fixed` already escapes overflow clipping; the only thing
+// that defeats it is an ancestor with a transform/filter creating a containing
+// block, and this app's animation classes all use `backwards` fill precisely so
+// no transform lingers after they finish. A very high z-index handles stacking.
 function BodyPortal({ children }) {
-  // The host is created during the first render, not in an effect. Doing it in
-  // an effect leaves one paint where `host` is still null — the panel either
-  // renders inside the app tree (clipped by ancestors) or flashes as nothing,
-  // which showed up as an intermittent failure roughly one run in five.
-  const [host] = useState(() => (typeof document === "undefined" ? null : document.createElement("div")));
-  useEffect(() => {
-    if (!_createPortal || !host) return;
-    document.body.appendChild(host);
-    return () => { if (host.parentNode) host.parentNode.removeChild(host); };
-  }, [host]);
-  if (!_createPortal || !host) return <>{children}</>;
-  return _createPortal(children, host);
+  return <div style={{ position: "fixed", inset: 0, zIndex: 2147483000, pointerEvents: "none" }}>
+    <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>{children}</div>
+  </div>;
 }
+
+// CARTO's Dark Matter basemap — OSM data, but rendered dark by design. Chosen
+// over filtering the standard light OSM tiles: filters that darken enough to
+// match this app either crush the roads to black or wash the base out, because
+// roads are the *brightest* thing on a light tile. Starting from a genuinely
+// dark tile and tinting it warm gets the midnight-blue-and-gold look cleanly.
+const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
 
 const glass = (c) => ({
   background: c.surface,
@@ -773,7 +769,7 @@ export default function FloraCRM() {
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: c.primarySoft, animation: "floraFloat 1.8s ease-in-out infinite" }}>
           <FloraMark size={40} color={c.primary} stroke={1.4} />
         </div>
-        <p style={{ fontSize: 12, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
+        <p style={{ fontSize: 13, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
       </div>
     );
   }
@@ -786,6 +782,11 @@ export default function FloraCRM() {
         ::-webkit-scrollbar { display: none; }
         .press { transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease, opacity .18s ease; }
         .press:active { transform: scale(0.955); opacity: .92; }
+        /* Map styling. Dark Matter renders near-monochrome grey on near-black;
+           a warm hue-rotate pushes the roads gold and the base navy, matching
+           the printed city-map look without touching any other part of the UI. */
+        .leaflet-container { background: #0A1628 !important; }
+        .leaflet-tile-pane { filter: sepia(0.45) hue-rotate(178deg) saturate(1.9) brightness(1.18) contrast(1.05); }
         /* Tiles in the tool rail get a lift instead of a flat shrink — the card
            rises toward the finger, which reads as physical rather than "pressed
            into the screen". Snap keeps a tile edge-aligned after a flick. */
@@ -912,7 +913,7 @@ export default function FloraCRM() {
 
         {!detail && !focusQueue && (
           <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
-            style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 18, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
+            style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 14, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
             <span style={{ position: "absolute", inset: -8, borderRadius: 22, border: "2px solid rgba(47,124,246,0.35)", animation: "floraRipple 2.2s infinite" }} />
             <Plus color="#fff" size={24} strokeWidth={2.5} />
           </button>
@@ -946,8 +947,8 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail, setT
       <div>
         {tab !== "home" && (
           <>
-            <p style={{ fontSize: 12, color: c.muted }}>خوش آمدی</p>
-            <h1 style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.015em" }}>{titles[tab] || "Flora"}</h1>
+            <p style={{ fontSize: 13, color: c.muted }}>خوش آمدی</p>
+            <h1 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-0.015em" }}>{titles[tab] || "Flora"}</h1>
           </>
         )}
       </div>
@@ -955,7 +956,7 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail, setT
         {pendingCalls > 0 && (
           <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center gap-1.5 rounded-full px-2.5 py-2" style={{ background: c.attnSoft }}>
             <PhoneCall size={12} color={c.attn} />
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: c.attn }}>{faDigits(pendingCalls)}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: c.attn }}>{faDigits(pendingCalls)}</span>
           </button>
         )}
         <button onClick={() => setDetail({ type: "ai-chat" })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><MessageCircle size={16} color={c.ink} /></button>
@@ -969,7 +970,7 @@ function SearchBox({ c, value, setValue }) {
   return (
     <div className="flex items-center rounded-lg px-3.5 py-2.5" style={glass(c, 26)}>
       <Search size={16} color={c.muted} />
-      <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="جستجوی سریع..." style={{ background: "transparent", outline: "none", color: c.ink, width: "100%", marginRight: 8, fontSize: 13.5, fontFamily: "inherit" }} />
+      <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="جستجوی سریع..." style={{ background: "transparent", outline: "none", color: c.ink, width: "100%", marginRight: 8, fontSize: 13, fontFamily: "inherit" }} />
       {value && <button onClick={() => setValue("")}><X size={15} color={c.muted} /></button>}
     </div>
   );
@@ -1010,7 +1011,7 @@ function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts, simpleMode }) {
     <div className="fixed px-3 pt-2" style={{ bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, zIndex: 20, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
       <div ref={wrapRef} className="relative flex justify-between items-center rounded-2xl px-2 py-2" style={glass(c)}>
         <div style={{
-          position: "absolute", top: 6, bottom: 6, left: pill.left + 8, width: Math.max(0, pill.width - 16), borderRadius: 16,
+          position: "absolute", top: 6, bottom: 6, left: pill.left + 8, width: Math.max(0, pill.width - 16), borderRadius: 14,
           background: c.primarySoft, border: `1px solid ${c.primary}55`,
           transition: pill.ready ? "left .45s cubic-bezier(.34,1.3,.64,1), width .45s cubic-bezier(.34,1.3,.64,1)" : "none",
           opacity: pill.ready ? 1 : 0, pointerEvents: "none", zIndex: 0,
@@ -1023,7 +1024,7 @@ function BottomNav({ c, tab, setTab, pendingCalls, todaysAppts, simpleMode }) {
               <div className="relative">
                 <Icon size={19} color={active ? c.primary : c.muted} strokeWidth={active ? 2.5 : 2}
                   style={{ transition: "transform .45s cubic-bezier(.34,1.56,.64,1)", transform: active ? "translateY(-2px) scale(1.08)" : "none" }} />
-                {it.dot && <span className="flora-pulse" style={{ position: "absolute", top: -3, left: -3, width: 7, height: 7, borderRadius: 99, background: c.attn }} />}
+                {it.dot && <span className="flora-pulse" style={{ position: "absolute", top: -3, left: -3, width: 7, height: 7, borderRadius: 999, background: c.attn }} />}
               </div>
               <span style={{ fontSize: 10, color: active ? c.primary : c.muted, fontWeight: active ? 700 : 500, transition: "color .35s ease" }}>{it.label}</span>
             </button>
@@ -1154,7 +1155,7 @@ function EmptyLine({ c, text }) {
   return (
     <div className="flex flex-col items-center justify-center" style={{ padding: "18px 2px" }}>
       <div className="flora-float" style={{ opacity: 0.4, marginBottom: 8 }}><FloraMark size={44} color={c.muted} stroke={1.2} /></div>
-      <p style={{ color: c.muted, fontSize: 12.5, textAlign: "center" }}>{text}</p>
+      <p style={{ color: c.muted, fontSize: 13, textAlign: "center" }}>{text}</p>
     </div>
   );
 }
@@ -1238,7 +1239,7 @@ function MarketWidget({ c }) {
       </div>
       <div className="flex items-center" style={{ gap: SP.xs }}>
         <span style={{ width: 5, height: 5, borderRadius: RAD.pill, background: data ? c.success : c.muted }} className={data ? "flora-pulse" : ""} />
-        <span style={{ fontSize: 9.5, color: c.muted }}>تومان</span>
+        <span style={{ fontSize: 10, color: c.muted }}>تومان</span>
       </div>
     </button>
   );
@@ -1767,7 +1768,7 @@ function DivarSearchSheet({ ctx, onClose }) {
                 ) : (
                   <button key={i} onClick={() => shotRef.current?.click()} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: c.surface2, border: `1px dashed ${c.border}` }}>
                     <ImagePlus size={16} color={c.muted} />
-                    <span style={{ fontSize: 8.5, color: c.muted, marginTop: 4, textAlign: "center", paddingInline: 2 }}>{labels[i]}</span>
+                    <span style={{ fontSize: 10, color: c.muted, marginTop: 4, textAlign: "center", paddingInline: 2 }}>{labels[i]}</span>
                   </button>
                 );
               })}
@@ -1806,7 +1807,7 @@ function DivarSearchSheet({ ctx, onClose }) {
                     {m.listingLinks?.length > 0 && (
                       <div className="flex flex-col" style={{ gap: SP.xs, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
                         {m.listingLinks.slice(0, 5).map((u, j) => (
-                          <button key={j} onClick={() => addLinkToFiles(u)} className="press flex items-center justify-center" style={{ gap: 5, paddingBlock: 7, borderRadius: RAD.sm, background: c.primarySoft }}>
+                          <button key={j} onClick={() => addLinkToFiles(u)} className="press flex items-center justify-center" style={{ gap: 4, paddingBlock: 8, borderRadius: RAD.sm, background: c.primarySoft }}>
                             <Plus size={12} color={c.primary} /><span style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>افزودن آگهی {faDigits(j + 1)} به فایل‌ها</span>
                           </button>
                         ))}
@@ -2284,7 +2285,7 @@ function NbaOutcomePicker({ c, options, onSubmit, onCancel }) {
         ); })}
       </div>
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="توضیح بیشتر (اختیاری)..." style={{ ...inputStyle(c), fontSize: FS.caption + 1, paddingBlock: 8, marginBottom: SP.sm }} />
-      <button onClick={() => sel && onSubmit(sel, note)} disabled={!sel} className="press w-full" style={{ paddingBlock: 9, borderRadius: RAD.md, background: sel ? c.primary : c.surface, color: sel ? "#fff" : c.muted, fontSize: FS.caption + 1, fontWeight: FW.bold }}>ثبت و دریافت مرحله‌ی بعدی</button>
+      <button onClick={() => sel && onSubmit(sel, note)} disabled={!sel} className="press w-full" style={{ paddingBlock: 8, borderRadius: RAD.md, background: sel ? c.primary : c.surface, color: sel ? "#fff" : c.muted, fontSize: FS.caption + 1, fontWeight: FW.bold }}>ثبت و دریافت مرحله‌ی بعدی</button>
     </div>
   );
 }
@@ -2292,6 +2293,41 @@ function NbaOutcomePicker({ c, options, onSubmit, onCancel }) {
 // Tappable profile photo — a shared default icon until the agent sets their own.
 // Uses the same compressImage pipeline as property photos, since this one
 // genuinely should stay small (it's rendered everywhere, not downloaded raw).
+// Sarein's real street network, traced from an OpenStreetMap render of the town:
+// the outer ring, the diamond of arterials inside it, and the north–south spine
+// running down to the southern roundabout. It's used as a faint backdrop rather
+// than a feature — the point is that an agent from Sarein recognises their own
+// town without the app ever announcing it.
+function SareinMap({ color, opacity = 1, strokeWidth = 1.1 }) {
+  return (
+    <svg viewBox="0 0 100 100" fill="none" style={{ width: "100%", height: "100%", opacity }} aria-hidden="true">
+      <g stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none">
+        {/* western ring, running down the left flank */}
+        <path d="M13 36 L10 40 L9 50 L10 62 L14 72 L20 82 L27 91 L34 97" />
+        {/* northern arc into the north-east junction */}
+        <path d="M13 36 L18 30 L26 25 L36 22 L46 24 L56 27 L66 26 L78 25 L90 28 L98 33" />
+        {/* eastern flank coming back down to the southern roundabout */}
+        <path d="M98 33 L92 40 L86 47 L84 56 L80 66 L72 76 L60 86 L46 94 L38 98" />
+        {/* the central diamond — the arterials through town */}
+        <path d="M30 44 L44 34 L58 40 L66 52 L58 66 L44 74 L32 64 L30 44 Z" />
+        {/* north–south spine down to the roundabout */}
+        <path d="M44 34 L46 20" />
+        <path d="M44 74 L45 88 L46 94" />
+        {/* eastern spur */}
+        <path d="M66 52 L78 50 L86 47" />
+        {/* western spur */}
+        <path d="M30 44 L18 46 L9 50" />
+      </g>
+      {/* the roundabouts that anchor the network */}
+      <g fill="none" stroke={color} strokeWidth={strokeWidth}>
+        {[[44, 34], [66, 52], [44, 74], [46, 94], [13, 36], [98, 33]].map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r="1.6" />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 function AgentAvatar({ ctx, size = 52 }) {
   const { c, agentPhoto, setAgentPhoto, notify } = ctx;
   const fileRef = useRef(null);
@@ -2424,16 +2460,21 @@ function BuildingScrollHero({ ctx }) {
       {/* dusk gradient */}
       <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${c.purple}26 0%, ${c.primary}16 46%, transparent 78%)` }} />
 
+      {/* the town's own street map as the ground the towers stand on */}
+      <div className="absolute" style={{ left: "8%", right: "8%", bottom: -14, height: 128, pointerEvents: "none", maskImage: "linear-gradient(0deg, #000 8%, transparent 78%)", WebkitMaskImage: "linear-gradient(0deg, #000 8%, transparent 78%)" }}>
+        <SareinMap color={c.attn} opacity={0.2} strokeWidth={1.1} />
+      </div>
+
       {/* stars — only meaningful once the sky darkens, so they fade in late */}
       {[[38,26],[92,18],[150,32],[232,22],[290,30],[330,16]].map(([x, y], i) => (
-        <span key={i} className={"flora-sky-star" + on} style={{ position: "absolute", left: x, top: y, width: 2, height: 2, borderRadius: 99, background: "#fff", animationDelay: `${1.3 + i * 0.11}s` }} />
+        <span key={i} className={"flora-sky-star" + on} style={{ position: "absolute", left: x, top: y, width: 2, height: 2, borderRadius: 999, background: "#fff", animationDelay: `${1.3 + i * 0.11}s` }} />
       ))}
 
       {/* sun, settling into the skyline */}
       <div className={"flora-sky-sun absolute" + on} style={{ top: 26, left: "50%", width: 44, height: 44, marginLeft: -22, borderRadius: "50%", background: `radial-gradient(circle, ${c.attn}cc, ${c.attn}22 62%, transparent 72%)` }} />
 
       {/* skyline — one tower per listing */}
-      <div className="absolute flex items-end justify-center" style={{ left: 0, right: 0, bottom: 0, height: 152, gap: 5, paddingInline: SP.lg }}>
+      <div className="absolute flex items-end justify-center" style={{ left: 0, right: 0, bottom: 0, height: 152, gap: 4, paddingInline: SP.lg }}>
         {towers.map((t, i) => (
           <div key={t.id} className={"flora-sky-tower relative flex flex-col-reverse items-center" + on}
             style={{ width: 26, height: t.h, borderRadius: "3px 3px 0 0", background: `linear-gradient(180deg, ${t.tone}42, ${t.tone}14)`, borderTop: `2px solid ${t.tone}`, gap: 4, paddingBottom: 6, animationDelay: `${0.08 + i * 0.085}s` }}>
@@ -2443,7 +2484,7 @@ function BuildingScrollHero({ ctx }) {
           </div>
         ))}
         {towers.length === 0 && (
-          <div className="flex items-end" style={{ gap: 5, opacity: 0.3 }}>
+          <div className="flex items-end" style={{ gap: 4, opacity: 0.3 }}>
             {[32, 54, 42, 68, 46].map((h, i) => <div key={i} className={"flora-sky-tower" + on} style={{ width: 26, height: h, borderRadius: "3px 3px 0 0", background: c.surface2, borderTop: `2px solid ${c.border}`, animationDelay: `${0.08 + i * 0.085}s` }} />)}
           </div>
         )}
@@ -2468,13 +2509,13 @@ function BuildingScrollHero({ ctx }) {
           ].map((s, i) => (
             <button key={i} onClick={s.go} className="press text-right">
               <p style={{ fontSize: 25, fontWeight: FW.heavy, letterSpacing: "-0.03em", lineHeight: 1, textShadow: `0 2px 12px ${c.bg}` }}>{faDigits(s.v)}</p>
-              <p style={{ fontSize: 9.5, color: c.muted, marginTop: 3 }}>{s.l}</p>
+              <p style={{ fontSize: 10, color: c.muted, marginTop: 3 }}>{s.l}</p>
             </button>
           ))}
           {pendingCalls > 0 && (
-            <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center" style={{ gap: 5 }}>
-              <span className="flora-pulse" style={{ width: 5, height: 5, borderRadius: 99, background: c.attn }} />
-              <span style={{ fontSize: 9.5, color: c.attn, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس</span>
+            <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center" style={{ gap: 4 }}>
+              <span className="flora-pulse" style={{ width: 5, height: 5, borderRadius: 999, background: c.attn }} />
+              <span style={{ fontSize: 10, color: c.attn, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس</span>
             </button>
           )}
         </div>
@@ -2519,18 +2560,25 @@ function HomeTab({ ctx }) {
 
   return (
     <div style={{ paddingTop: SP.xl }}>
-      {/* Header — profile photo, greeting, and location (matches the reference layout) */}
-      <div className="flex items-center justify-between" style={{ marginBottom: SP.xl, paddingInline: SP.xs }}>
-        <div className="flex items-center" style={{ gap: SP.md }}>
-          <AgentAvatar ctx={ctx} />
-          <div>
-            <p style={{ fontSize: FS.caption, color: c.muted }}>{greetingPhrase()}</p>
-            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{agentName || "مشاور"}</p>
-          </div>
+      {/* Header. The city's own street map sits faintly behind it — an agent
+          from Sarein recognises the shape without being told, and it turns dead
+          space above the fold into something that belongs to them. */}
+      <div className="relative" style={{ marginBottom: SP.xl, paddingInline: SP.xs }}>
+        <div className="absolute" style={{ top: -18, left: -10, width: 150, height: 150, pointerEvents: "none", maskImage: "radial-gradient(circle at 40% 45%, #000 35%, transparent 72%)", WebkitMaskImage: "radial-gradient(circle at 40% 45%, #000 35%, transparent 72%)" }}>
+          <SareinMap color={c.primary} opacity={0.16} strokeWidth={1.3} />
         </div>
-        <div className="text-left">
-          <p style={{ fontSize: FS.caption, color: c.muted }}>موقعیت مکانی</p>
-          <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{agencyCity || "سرعین"}</p>
+        <div className="flex items-center justify-between relative">
+          <div className="flex items-center" style={{ gap: SP.md }}>
+            <AgentAvatar ctx={ctx} />
+            <div>
+              <p style={{ fontSize: FS.caption, color: c.muted }}>{greetingPhrase()}</p>
+              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{agentName || "مشاور"}</p>
+            </div>
+          </div>
+          <div className="text-left">
+            <p style={{ fontSize: FS.caption, color: c.muted }}>موقعیت مکانی</p>
+            <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{agencyCity || "سرعین"}</p>
+          </div>
         </div>
       </div>
 
@@ -2677,13 +2725,13 @@ function MomentumCard({ ctx }) {
     <div className="rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c, 22), background: `linear-gradient(160deg, ${f.tone}1a, ${c.surface} 60%)` }}>
       <span style={{ position: "absolute", top: "-40%", left: "-15%", width: 140, height: 140, borderRadius: "50%", background: `radial-gradient(circle, ${f.tone}22, transparent 70%)`, pointerEvents: "none" }} />
       <div className="flex items-center justify-between relative" style={{ marginBottom: 10 }}>
-        <div className="flex items-center" style={{ gap: 6 }}>
+        <div className="flex items-center" style={{ gap: 8 }}>
           <f.icon size={13} color={f.tone} />
           <span style={{ fontSize: 11, color: c.muted, letterSpacing: ".02em" }}>{f.label}</span>
         </div>
         {streak.count > 1 && (
-          <div className="flex items-center" style={{ gap: 3, background: c.attnSoft, padding: "3px 8px", borderRadius: RAD.pill }}>
-            <Flame size={11} color={c.attn} /><span style={{ fontSize: 10.5, fontWeight: FW.heavy, color: c.attn }}>{faDigits(streak.count)}</span>
+          <div className="flex items-center" style={{ gap: 4, background: c.attnSoft, padding: "3px 8px", borderRadius: RAD.pill }}>
+            <Flame size={11} color={c.attn} /><span style={{ fontSize: 11, fontWeight: FW.heavy, color: c.attn }}>{faDigits(streak.count)}</span>
           </div>
         )}
       </div>
@@ -2691,10 +2739,10 @@ function MomentumCard({ ctx }) {
       <div key={face} className="relative flora-rise" style={{ minHeight: 44 }}>
         {face === 0 && (
           <>
-            <div className="flex items-baseline" style={{ gap: 6, marginBottom: 6 }}>
-              <CountUpNum value={thisWeekTotal} style={{ fontSize: 22, fontWeight: FW.heavy, color: c.ink }} />
+            <div className="flex items-baseline" style={{ gap: 8, marginBottom: 6 }}>
+              <CountUpNum value={thisWeekTotal} style={{ fontSize: 20, fontWeight: FW.heavy, color: c.ink }} />
               <span style={{ fontSize: 11, color: c.muted }}>فعالیت</span>
-              {prevWeekTotal > 0 && <span style={{ fontSize: 10.5, fontWeight: FW.bold, color: weekTone }}>{pct >= 0 ? "↑" : "↓"} {faDigits(Math.abs(pct))}٪</span>}
+              {prevWeekTotal > 0 && <span style={{ fontSize: 11, fontWeight: FW.bold, color: weekTone }}>{pct >= 0 ? "↑" : "↓"} {faDigits(Math.abs(pct))}٪</span>}
             </div>
             <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none">
               <defs><linearGradient id="momentumFillMini" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={weekTone} stopOpacity="0.3" /><stop offset="100%" stopColor={weekTone} stopOpacity="0" /></linearGradient></defs>
@@ -2707,13 +2755,13 @@ function MomentumCard({ ctx }) {
 
         {face === 1 && (
           <div>
-            <CountUpToman value={totalValue} style={{ fontSize: 19, fontWeight: FW.heavy, color: c.ink, direction: "ltr", display: "block", textAlign: "right" }} />
-            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 4 }}>{faDigits(activeList.length)} فایل فعال</p>
+            <CountUpToman value={totalValue} style={{ fontSize: 20, fontWeight: FW.heavy, color: c.ink, direction: "ltr", display: "block", textAlign: "right" }} />
+            <p style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>{faDigits(activeList.length)} فایل فعال</p>
           </div>
         )}
 
         {face === 2 && (
-          <div className="flex items-center" style={{ gap: 14 }}>
+          <div className="flex items-center" style={{ gap: 12 }}>
             <div className="relative shrink-0" style={{ width: 56, height: 56 }}>
               <svg width="56" height="56" viewBox="0 0 56 56">
                 <circle cx="28" cy="28" r={R} fill="none" stroke={c.border} strokeWidth="5" />
@@ -2722,7 +2770,7 @@ function MomentumCard({ ctx }) {
                   style={{ animation: `floraRingFill 1.2s cubic-bezier(.22,1,.36,1) forwards .1s`, "--ring-target": CIRC * (1 - ringFrac) }} />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center">
-                {growthPct === null ? <span style={{ fontSize: 9, color: c.muted }}>—</span> : <span style={{ fontSize: 12.5, fontWeight: FW.heavy, color: growthTone }}>{growthPct >= 0 ? "+" : ""}{faDigits(growthPct)}٪</span>}
+                {growthPct === null ? <span style={{ fontSize: 10, color: c.muted }}>—</span> : <span style={{ fontSize: 13, fontWeight: FW.heavy, color: growthTone }}>{growthPct >= 0 ? "+" : ""}{faDigits(growthPct)}٪</span>}
               </div>
             </div>
             <p style={{ fontSize: 11, color: c.ink, lineHeight: 1.8, flex: 1 }}>{growthPct === null ? "هنوز داده‌ی سه‌ماه‌قبل کافی نیست" : aiCaption || `نسبت به ۳ ماه پیش، میانگین قیمت هر متر در فایل‌های تو ${growthPct >= 0 ? "رشد" : "افت"} کرده`}</p>
@@ -2732,12 +2780,12 @@ function MomentumCard({ ctx }) {
         {face === 3 && (
           <div>
             {topStreets.length === 0 && <p style={{ fontSize: 11, color: c.muted }}>هنوز آدرسی برای مقایسه ثبت نشده</p>}
-            <div className="flex flex-col" style={{ gap: 6 }}>
+            <div className="flex flex-col" style={{ gap: 8 }}>
               {topStreets.map(([name, n], i) => (
                 <div key={name} className="flex items-center" style={{ gap: 8 }}>
-                  <span style={{ fontSize: 10.5, color: c.ink, width: 74, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0 }}>{name}</span>
-                  <div style={{ flex: 1, height: 6, borderRadius: 99, background: c.surface2, overflow: "hidden" }}>
-                    <div style={{ height: "100%", borderRadius: 99, background: c.attn, width: `${(n / maxStreet) * 100}%`, transform: "scaleX(0)", transformOrigin: "right", animation: `floraBarGrowX .6s cubic-bezier(.22,1,.36,1) forwards ${0.1 * i}s` }} />
+                  <span style={{ fontSize: 11, color: c.ink, width: 74, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0 }}>{name}</span>
+                  <div style={{ flex: 1, height: 6, borderRadius: 999, background: c.surface2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", borderRadius: 999, background: c.attn, width: `${(n / maxStreet) * 100}%`, transform: "scaleX(0)", transformOrigin: "right", animation: `floraBarGrowX .6s cubic-bezier(.22,1,.36,1) forwards ${0.1 * i}s` }} />
                   </div>
                   <span style={{ fontSize: 10, color: c.muted, flexShrink: 0 }}>{faDigits(n)}</span>
                 </div>
@@ -2747,9 +2795,9 @@ function MomentumCard({ ctx }) {
         )}
       </div>
 
-      <div className="flex items-center justify-center relative" style={{ gap: 5, marginTop: 12 }}>
+      <div className="flex items-center justify-center relative" style={{ gap: 4, marginTop: 12 }}>
         {FACES.map((_, i) => (
-          <button key={i} onClick={() => setFace(i)} style={{ width: i === face ? 14 : 5, height: 5, borderRadius: 99, background: i === face ? f.tone : c.border, transition: "all .3s ease" }} />
+          <button key={i} onClick={() => setFace(i)} style={{ width: i === face ? 14 : 5, height: 5, borderRadius: 999, background: i === face ? f.tone : c.border, transition: "all .3s ease" }} />
         ))}
       </div>
       <style>{`
@@ -2770,8 +2818,8 @@ function ActivityApptRow({ a, ctx, showDelete }) {
     <div className="rounded-lg p-3 flex items-center gap-2.5" style={glassLite(c, 22)}>
       <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><CalendarDays size={14} color={c.primary} /></div>
       <div className="flex-1 min-w-0">
-        <p style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.title || a.customerName || "بازدید"}</p>
-        <p style={{ fontSize: 10.5, color: c.muted }}>{a.customerName ? `با ${a.customerName} · ` : ""}{fmtJalali(a.date)}</p>
+        <p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p?.title || a.customerName || "بازدید"}</p>
+        <p style={{ fontSize: 11, color: c.muted }}>{a.customerName ? `با ${a.customerName} · ` : ""}{fmtJalali(a.date)}</p>
       </div>
       <input type="time" value={a.time} onChange={(e) => setAppointments((prev) => prev.map((x) => x.id === a.id ? { ...x, time: e.target.value } : x))}
         style={{ background: c.surface2, border: "none", borderRadius: 8, padding: "5px 7px", fontSize: 11, color: c.ink, width: 72 }} />
@@ -2828,14 +2876,14 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
           <button onClick={() => setMode("map")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "map" ? c.primary : "transparent" }}><MapPin size={13} color={mode === "map" ? "#fff" : c.muted} /></button>
         </div>
         <button onClick={() => setSortAsc((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2 mr-auto" style={glass(c, 20)}>
-          <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{sortAsc ? "ارزان‌ترین" : "گران‌ترین"}</span>
+          <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{sortAsc ? "ارزان‌ترین" : "گران‌ترین"}</span>
         </button>
       </div>
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-        {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
+        {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c, 18)}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
       </div>
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-        {TYPE_FILTERS.map((t) => { const active = typeFilter === t; return <button key={t} onClick={() => setTypeFilter(t)} className="press shrink-0 rounded-full px-3 py-1.5 flex items-center gap-1" style={active ? { background: c.purple } : glass(c, 18)}><span style={{ fontSize: 10.5, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t}</span></button>; })}
+        {TYPE_FILTERS.map((t) => { const active = typeFilter === t; return <button key={t} onClick={() => setTypeFilter(t)} className="press shrink-0 rounded-full px-3 py-1.5 flex items-center gap-1" style={active ? { background: c.purple } : glass(c, 18)}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t}</span></button>; })}
       </div>
 
       {mode === "list" ? (
@@ -2865,7 +2913,7 @@ function AllPropertiesMap({ c, rows, onOpen }) {
       if (cancelled || !ref.current) return;
       if (objRef.current) { objRef.current.remove(); objRef.current = null; }
       const map = L.map(ref.current, { zoomControl: false, attributionControl: false }).setView(SAREIN_CENTER, 14);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "" }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "" }).addTo(map);
 
       pinned.forEach((p) => {
         const color = DEAL_COLOR[p.deal] || "#2f7cf6";
@@ -2904,13 +2952,13 @@ function AllPropertiesMap({ c, rows, onOpen }) {
       <div className="flex flex-wrap gap-2 mt-3">
         {Object.entries(DEAL_COLOR).map(([k, v]) => (
           <span key={k} className="flex items-center gap-1.5 rounded-full px-2.5 py-1" style={{ background: c.surface2 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: v }} />
-            <span style={{ fontSize: 9.5, color: c.muted }}>{k}</span>
+            <span style={{ width: 8, height: 8, borderRadius: 999, background: v }} />
+            <span style={{ fontSize: 10, color: c.muted }}>{k}</span>
           </span>
         ))}
       </div>
       {pinned.length < rows.length && (
-        <p style={{ fontSize: 10.5, color: c.muted, marginTop: 10, lineHeight: 1.8 }}>
+        <p style={{ fontSize: 11, color: c.muted, marginTop: 10, lineHeight: 1.8 }}>
           {faDigits(rows.length - pinned.length)} فایل روی نقشه نیست، چون موقعیتشان ثبت نشده. برای افزودن، فایل را ویرایش کن و از دکمه‌ی نقشه استفاده کن.
         </p>
       )}
@@ -2960,7 +3008,7 @@ function PropertyGridCard({ p, ctx, onClick }) {
   const tint = rgb ? `${Math.round(rgb[0] * 0.55)}, ${Math.round(rgb[1] * 0.55)}, ${Math.round(rgb[2] * 0.55)}` : "18, 24, 38";
 
   const Chip = ({ children }) => (
-    <span className="flex items-center" style={{ gap: 4, fontSize: 10.5, fontWeight: FW.medium, color: "#fff", background: "rgba(255,255,255,0.18)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "4px 9px", borderRadius: RAD.pill, whiteSpace: "nowrap" }}>{children}</span>
+    <span className="flex items-center" style={{ gap: 4, fontSize: 11, fontWeight: FW.medium, color: "#fff", background: "rgba(255,255,255,0.18)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "4px 9px", borderRadius: RAD.pill, whiteSpace: "nowrap" }}>{children}</span>
   );
 
   return (
@@ -2980,16 +3028,16 @@ function PropertyGridCard({ p, ctx, onClick }) {
       <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to top, rgba(${tint},0.96) 0%, rgba(${tint},0.82) 26%, rgba(${tint},0.30) 52%, transparent 72%)`, transition: "background .5s ease" }} />
 
       {/* price pill (top-right in RTL) */}
-      <span className="absolute" style={{ top: 10, right: 10, fontSize: 11.5, fontWeight: FW.heavy, color: "#fff", background: "rgba(20,26,40,0.55)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", padding: "6px 12px", borderRadius: RAD.pill, direction: "ltr" }}>{fmtBudgetShort(p.price)}</span>
+      <span className="absolute" style={{ top: 10, right: 10, fontSize: 11, fontWeight: FW.heavy, color: "#fff", background: "rgba(20,26,40,0.55)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", padding: "6px 12px", borderRadius: RAD.pill, direction: "ltr" }}>{fmtBudgetShort(p.price)}</span>
 
       {/* content over the gradient */}
       <div className="absolute" style={{ bottom: 0, right: 0, left: 0, padding: 12 }}>
-        <p style={{ fontSize: 14, fontWeight: FW.heavy, color: "#fff", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.title}</p>
+        <p style={{ fontSize: 15, fontWeight: FW.heavy, color: "#fff", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.title}</p>
         <div className="flex items-center" style={{ gap: 4, marginTop: 4 }}>
           <Ruler size={11} color="rgba(255,255,255,0.75)" />
           <span style={{ fontSize: 11, color: "rgba(255,255,255,0.82)" }}>{faDigits(p.area)} متر{p.rooms ? ` · ${faDigits(p.rooms)} خواب` : ""}</span>
         </div>
-        <div className="flex items-center" style={{ gap: 6, marginTop: 9 }}>
+        <div className="flex items-center" style={{ gap: 8, marginTop: 9 }}>
           <Chip><Icon size={11} color="#fff" />{p.type}</Chip>
           <Chip>{p.deal}</Chip>
         </div>
@@ -3032,8 +3080,8 @@ function PipelineBoard({ rows, ctx }) {
                         {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} /></div>}
                       </div>
                       <div className="p-2.5">
-                        <p style={{ fontSize: 12.5, fontWeight: 700 }}>{p.title}</p>
-                        <p style={{ fontSize: 12, fontWeight: 700, color: c.primary, marginTop: 2 }}>{fmtToman(p.price)}</p>
+                        <p style={{ fontSize: 13, fontWeight: 700 }}>{p.title}</p>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: c.primary, marginTop: 2 }}>{fmtToman(p.price)}</p>
                       </div>
                     </button>
                     {stage !== "فروخته شد" && (
@@ -3072,7 +3120,7 @@ function CustomerCard({ cu, c, onClick }) {
         </div>
         <div className="text-left shrink-0">
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: c.primary, direction: "rtl" }}>{fmtBudgetShort(cu.budget)}</p>
-          <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>بودجه</p>
+          <p style={{ fontSize: 10, color: c.muted, marginTop: 1 }}>بودجه</p>
         </div>
       </div>
       <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
@@ -3296,7 +3344,7 @@ function PhotoOptimizeButton({ ctx }) {
   return (
     <button onClick={run} disabled={busy} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: c.attnSoft }}>
       {busy ? <Loader2 size={14} className="animate-spin" color={c.attn} /> : <ImageIcon size={14} color={c.attn} />}
-      <span style={{ fontSize: 11.5, fontWeight: 700, color: c.attn }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: c.attn }}>
         {busy ? `در حال بهینه‌سازی... ${progress ? `${faDigits(progress.done)}/${faDigits(progress.total)}` : ""}` : totalImages > 0 ? `فشرده‌سازی ${faDigits(totalImages)} عکس موجود` : "عکسی برای فشرده‌سازی نیست"}
       </span>
     </button>
@@ -3319,7 +3367,7 @@ function OfflineMapButton({ c, notify }) {
   return (
     <button onClick={run} disabled={state === "working"} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mt-2" style={{ background: c.primarySoft }}>
       <MapPin size={14} color={c.primary} />
-      <span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>
         {state === "working" ? `در حال ذخیره نقشه… ${faDigits(pct)}%` : state === "done" ? "نقشه سرعین آفلاین شد ✓" : "ذخیره نقشه سرعین برای آفلاین"}
       </span>
     </button>
@@ -3333,8 +3381,8 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
       <button onClick={() => setOpen((o) => !o)} className="press w-full text-right p-4 flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint + "22" }}><Icon size={18} color={tint} /></div>
         <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13.5, fontWeight: 700 }}>{title}</p>
-          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{subtitle}</p>
+          <p style={{ fontSize: 13, fontWeight: 700 }}>{title}</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{subtitle}</p>
         </div>
         {count != null && <span className="shrink-0" style={{ fontSize: 11, fontWeight: 800, color: tint, background: tint + "1f", padding: "3px 9px", borderRadius: 999 }}>{faDigits(count)}</span>}
         <ChevronDown size={16} color={c.muted} style={{ transition: "transform .3s cubic-bezier(.34,1.3,.64,1)", transform: open ? "rotate(180deg)" : "none", flexShrink: 0 }} />
@@ -3366,8 +3414,8 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
         <div style={{ position: "relative" }}>
           <div className="flex items-start justify-between">
             <div>
-              <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.8)" }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
-              <p style={{ fontSize: 15.5, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,.8)" }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
+              <p style={{ fontSize: 15, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
             </div>
             <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1 shrink-0" style={{ background: "rgba(255,255,255,.18)" }}>
               <Edit3 size={11} color="#fff" /><span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>ویرایش نام</span>
@@ -3377,20 +3425,20 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
             {[{ n: properties.length, l: "فایل" }, { n: customers.length, l: "مشتری" }, { n: owners.length, l: "مالک" }].map((s, i) => (
               <div key={i} className="flex-1 rounded-xl py-2 text-center" style={{ background: "rgba(255,255,255,.14)" }}>
                 <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{faDigits(s.n)}</p>
-                <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.8)" }}>{s.l}</p>
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,.8)" }}>{s.l}</p>
               </div>
             ))}
           </div>
         </div>
       ) : (
         <div className="flex flex-col gap-2.5" style={{ position: "relative" }}>
-          <p style={{ fontSize: 12.5, fontWeight: 800, color: "#fff", marginBottom: 2 }}>ویرایش مشخصات دفتر</p>
+          <p style={{ fontSize: 13, fontWeight: 800, color: "#fff", marginBottom: 2 }}>ویرایش مشخصات دفتر</p>
           <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={n} onChange={(e) => setN(e.target.value)} placeholder="نام دفتر (مثلاً املاک گنجینه)" />
           <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={ct} onChange={(e) => setCt(e.target.value)} placeholder="شهر (مثلاً سرعین)" />
           <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={ag} onChange={(e) => setAg(e.target.value)} placeholder="نام شما (مثلاً قبادی)" />
           <div className="flex gap-2">
-            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: "rgba(255,255,255,.16)", fontSize: 12, fontWeight: 700, color: "#fff" }}>لغو</button>
-            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: "#fff", fontSize: 12, fontWeight: 700, color: c.primary }}>ذخیره</button>
+            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: "rgba(255,255,255,.16)", fontSize: 13, fontWeight: 700, color: "#fff" }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: "#fff", fontSize: 13, fontWeight: 700, color: c.primary }}>ذخیره</button>
           </div>
         </div>
       )}
@@ -3412,7 +3460,7 @@ function MoreTab({ ctx }) {
         </div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>{simpleMode ? "حالت ساده" : "حالت حرفه‌ای"}</p>
-          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{simpleMode ? "فقط فایل‌ها و مشتری‌ها — تمیز و بی‌شلوغی" : "همه‌ی امکانات: مالی، کمیسیون، گزارش و AI"}</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{simpleMode ? "فقط فایل‌ها و مشتری‌ها — تمیز و بی‌شلوغی" : "همه‌ی امکانات: مالی، کمیسیون، گزارش و AI"}</p>
         </div>
         <button onClick={() => { setSimpleMode(!simpleMode); notify(simpleMode ? "حالت حرفه‌ای فعال شد" : "حالت ساده فعال شد"); }}
           className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: simpleMode ? c.border : c.primary, position: "relative", transition: "background .3s ease" }}>
@@ -3428,24 +3476,24 @@ function MoreTab({ ctx }) {
       <div className="grid grid-cols-2 gap-3 mb-3">
         <button onClick={() => setTab("calendar")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.primarySoft }}><CalendarDays size={18} color={c.primary} /></div>
-          <p style={{ fontSize: 12.5, fontWeight: 700 }}>تقویم بازدید</p>
+          <p style={{ fontSize: 13, fontWeight: 700 }}>تقویم بازدید</p>
           <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>قرارهای امروز و آینده</p>
         </button>
         <button onClick={() => setSheet("messages")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><MessageSquare size={18} color={c.purple} /></div>
-          <p style={{ fontSize: 12.5, fontWeight: 700 }}>پیام‌های آماده</p>
+          <p style={{ fontSize: 13, fontWeight: 700 }}>پیام‌های آماده</p>
           <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>متن‌های جذب مشتری</p>
         </button>
         {simpleMode && (
           <button onClick={() => setTab("finance")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.successSoft }}><Wallet size={18} color={c.success} /></div>
-            <p style={{ fontSize: 12.5, fontWeight: 700 }}>مالی و کمیسیون</p>
+            <p style={{ fontSize: 13, fontWeight: 700 }}>مالی و کمیسیون</p>
             <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>معاملات و پرداخت‌ها</p>
           </button>
         )}
         <button onClick={() => setDetail({ type: "investment-center" })} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><TrendingUp size={18} color={c.purple} /></div>
-          <p style={{ fontSize: 12.5, fontWeight: 700 }}>سرمایه‌گذاری</p>
+          <p style={{ fontSize: 13, fontWeight: 700 }}>سرمایه‌گذاری</p>
           <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>پورتفولیو و سود شرکا</p>
         </button>
       </div>
@@ -3455,7 +3503,7 @@ function MoreTab({ ctx }) {
         <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><PhoneCall size={20} color={c.attn} /></div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>پیگیری تماس‌ها</p>
-          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار` : "همه پیگیری شده"}</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار` : "همه پیگیری شده"}</p>
         </div>
         <ChevronLeft size={17} color={c.muted} />
       </button>
@@ -3466,7 +3514,7 @@ function MoreTab({ ctx }) {
           {owners.map((o) => (
             <div key={o.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
               <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.primarySoft }}><UserCircle2 size={17} color={c.primary} /></div>
-              <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 10.5, color: c.muted }} dir="ltr">{o.phone}</p></div>
+              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11, color: c.muted }} dir="ltr">{o.phone}</p></div>
               {o.phone && <a href={`tel:${o.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
               <button onClick={() => setSheet({ kind: "owner", editId: o.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
               <button onClick={() => { setOwners((prev) => prev.filter((x) => x.id !== o.id)); notify("مالک حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
@@ -3482,13 +3530,13 @@ function MoreTab({ ctx }) {
         <div className="flex flex-col gap-2">
           {builders.length > 0 && (
             <button onClick={() => setSheet("builder-broadcast")} className="press w-full rounded-xl py-2.5 flex items-center justify-center gap-2 mb-1" style={{ background: c.primarySoft }}>
-              <Send size={14} color={c.primary} /><span style={{ fontSize: 12, fontWeight: 700, color: c.primary }}>پیام تبریک گروهی به همه‌ی سازنده‌ها</span>
+              <Send size={14} color={c.primary} /><span style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>پیام تبریک گروهی به همه‌ی سازنده‌ها</span>
             </button>
           )}
           {builders.map((b) => (
             <div key={b.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
               <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.attnSoft }}><Hammer size={15} color={c.attn} /></div>
-              <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 10.5, color: c.muted }} dir="ltr">{b.phone}</p></div>
+              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 11, color: c.muted }} dir="ltr">{b.phone}</p></div>
               {b.phone && <a href={`tel:${b.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
               <button onClick={() => setSheet({ kind: "builder", editId: b.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
               <button onClick={() => { setBuilders((prev) => prev.filter((x) => x.id !== b.id)); notify("سازنده حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
@@ -3501,27 +3549,27 @@ function MoreTab({ ctx }) {
 
       {/* Collapsible: settings & backup */}
       <CollapsibleCard c={c} icon={Wallet} tint={c.purple} title="پشتیبان‌گیری و تنظیمات" subtitle="بکاپ داده‌ها و هوش مصنوعی">
-        <p style={{ fontSize: 10.5, color: c.muted, marginBottom: 8, lineHeight: 1.7 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. اگر فقط بخشی را می‌خواهی، از دکمه‌های جدا استفاده کن.</p>
+        <p style={{ fontSize: 11, color: c.muted, marginBottom: 8, lineHeight: 1.7 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. اگر فقط بخشی را می‌خواهی، از دکمه‌های جدا استفاده کن.</p>
         <button onClick={shareBackupNow} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primary }}>
-          <Send size={14} color="#fff" /><span style={{ fontSize: 11.5, fontWeight: 700, color: "#fff" }}>ارسال بکاپ (تلگرام، واتساپ، ایمیل...)</span>
+          <Send size={14} color="#fff" /><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>ارسال بکاپ (تلگرام، واتساپ، ایمیل...)</span>
         </button>
         <button onClick={exportBackup} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primarySoft }}>
-          <Download size={14} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>دانلود بکاپ کامل</span>
+          <Download size={14} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>دانلود بکاپ کامل</span>
         </button>
         <div className="flex gap-2 mb-2">
           <button onClick={exportProperties} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
-            <Building2 size={13} color={c.ink} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.ink }}>فایل‌ها و مشتری‌ها</span>
+            <Building2 size={13} color={c.ink} /><span style={{ fontSize: 11, fontWeight: 700, color: c.ink }}>فایل‌ها و مشتری‌ها</span>
           </button>
           <button onClick={exportFinance} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
-            <Wallet size={13} color={c.ink} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.ink }}>مالی</span>
+            <Wallet size={13} color={c.ink} /><span style={{ fontSize: 11, fontWeight: 700, color: c.ink }}>مالی</span>
           </button>
         </div>
         <button onClick={() => importRef.current?.click()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.attnSoft }}>
-          <Upload size={14} color={c.attn} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.attn }}>بازیابی بکاپ (هر نوع)</span>
+          <Upload size={14} color={c.attn} /><span style={{ fontSize: 11, fontWeight: 700, color: c.attn }}>بازیابی بکاپ (هر نوع)</span>
         </button>
         <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
         <button onClick={() => setSheet("ai-settings")} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.purpleSoft }}>
-          <Sparkles size={14} color={c.purple} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.purple }}>تنظیمات هوش مصنوعی</span>
+          <Sparkles size={14} color={c.purple} /><span style={{ fontSize: 11, fontWeight: 700, color: c.purple }}>تنظیمات هوش مصنوعی</span>
         </button>
         <OfflineMapButton c={c} notify={notify} />
         <PhotoOptimizeButton ctx={ctx} />
@@ -3533,7 +3581,7 @@ function MoreTab({ ctx }) {
 }
 
 function AddLink({ c, label, onClick }) {
-  return <button onClick={onClick} className="press flex items-center gap-1.5 mb-6" style={{ color: c.primary, fontSize: 12.5, fontWeight: 700 }}><Plus size={14} /> {label}</button>;
+  return <button onClick={onClick} className="press flex items-center gap-1.5 mb-6" style={{ color: c.primary, fontSize: 13, fontWeight: 700 }}><Plus size={14} /> {label}</button>;
 }
 
 // ---------- Detail view (full screen) ----------
@@ -3592,15 +3640,15 @@ function InvestmentCard({ c, inv, onClick }) {
           <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inv.title}</p>
           <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inv.address || "بدون آدرس"}</p>
         </div>
-        <span className="rounded-full shrink-0" style={{ fontSize: 9.5, fontWeight: FW.bold, color: c.purple, background: c.purpleSoft, padding: "3px 9px" }}>{inv.status || INVESTMENT_STATUSES[0]}</span>
+        <span className="rounded-full shrink-0" style={{ fontSize: 10, fontWeight: FW.bold, color: c.purple, background: c.purpleSoft, padding: "3px 9px" }}>{inv.status || INVESTMENT_STATUSES[0]}</span>
       </div>
       <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
         <div>
-          <p style={{ fontSize: 9.5, color: c.muted }}>ارزش روز</p>
+          <p style={{ fontSize: 10, color: c.muted }}>ارزش روز</p>
           <p style={{ fontSize: FS.body, fontWeight: FW.heavy, marginTop: 2 }}>{fmtBudgetShort(stats.currentValue)}</p>
         </div>
         <div className="text-left">
-          <p style={{ fontSize: 9.5, color: c.muted }}>سود / زیان</p>
+          <p style={{ fontSize: 10, color: c.muted }}>سود / زیان</p>
           <p style={{ fontSize: FS.body, fontWeight: FW.heavy, marginTop: 2, color: profitable ? c.success : c.danger, direction: "ltr" }}>
             {profitable ? "+" : ""}{fmtBudgetShort(stats.profit)} <span style={{ fontSize: FS.caption }}>({faDigits(Math.round(stats.profitPct))}٪)</span>
           </p>
@@ -3746,7 +3794,7 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
               <cat.icon size={16} color={c[cat.tone] || c.muted} />
               <div className="flex-1 min-w-0">
                 <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{doc}</p>
-                <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>{cat.label}</p>
+                <p style={{ fontSize: 10, color: c.muted, marginTop: 1 }}>{cat.label}</p>
               </div>
               <ChevronLeft size={15} color={c.muted} />
             </button>
@@ -4058,7 +4106,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
             <h3 style={{ fontSize: FS.title, fontWeight: FW.heavy }}>{inv.title}</h3>
             <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.sm, color: c.muted, fontSize: FS.caption }}><MapPin size={13} />{inv.address || "بدون آدرس"}</div>
           </div>
-          <span className="rounded-full shrink-0" style={{ fontSize: 10.5, fontWeight: FW.bold, color: c.purple, background: c.purpleSoft, padding: "4px 10px" }}>{inv.status}</span>
+          <span className="rounded-full shrink-0" style={{ fontSize: 11, fontWeight: FW.bold, color: c.purple, background: c.purpleSoft, padding: "4px 10px" }}>{inv.status}</span>
         </div>
 
         <div className="grid grid-cols-4" style={{ gap: SP.sm, marginTop: SP.lg, padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
@@ -4103,15 +4151,15 @@ function InvestmentDetail({ id, ctx, onBack }) {
       {/* Cash flow — money in vs out, and what's pending */}
       <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
         <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
-          <p style={{ fontSize: 9.5, color: c.muted }}>ورود پول</p>
+          <p style={{ fontSize: 10, color: c.muted }}>ورود پول</p>
           <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, color: c.success, marginTop: 3 }}>{fmtBudgetShort(stats.cashIn)}</p>
         </div>
         <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
-          <p style={{ fontSize: 9.5, color: c.muted }}>خروج پول</p>
+          <p style={{ fontSize: 10, color: c.muted }}>خروج پول</p>
           <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, color: c.danger, marginTop: 3 }}>{fmtBudgetShort(stats.cashOut)}</p>
         </div>
         <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
-          <p style={{ fontSize: 9.5, color: c.muted }}>مانده</p>
+          <p style={{ fontSize: 10, color: c.muted }}>مانده</p>
           <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, marginTop: 3 }}>{fmtBudgetShort(stats.cashBalance)}</p>
         </div>
       </div>
@@ -4181,7 +4229,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
                     {isCheck ? `سررسید ${fmtJalali(p.dueDate)}${p.bank ? ` · ${p.bank}` : ""}` : fmtJalali(p.date)}
                   </p>
                 </div>
-                {isCheck && <span className="rounded-full shrink-0" style={{ fontSize: 9.5, fontWeight: FW.bold, color: checkTone, background: checkTone + "1f", padding: "3px 8px" }}>{p.checkStatus}</span>}
+                {isCheck && <span className="rounded-full shrink-0" style={{ fontSize: 10, fontWeight: FW.bold, color: checkTone, background: checkTone + "1f", padding: "3px 8px" }}>{p.checkStatus}</span>}
                 <span style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.success, direction: "ltr" }}>{fmtBudgetShort(p.amount)}</span>
                 <button onClick={() => { setEditPayment(p); setShowPayment(true); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Edit3 size={12} color={c.muted} /></button>
                 <button onClick={() => removePayment(p.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
@@ -4229,20 +4277,20 @@ function OwnerReveal({ c, owner }) {
     return (
       <button onClick={() => setShown(true)} className="press flex items-center gap-1.5 mt-3 rounded-lg px-3 py-2" style={{ background: c.surface2 }}>
         <Eye size={13} color={c.primary} />
-        <span style={{ fontSize: 11.5, color: c.primary, fontWeight: 700 }}>نمایش اطلاعات مالک</span>
+        <span style={{ fontSize: 11, color: c.primary, fontWeight: 700 }}>نمایش اطلاعات مالک</span>
       </button>
     );
   }
   return (
     <div className="mt-3 rounded-lg px-3 py-2.5" style={{ background: c.surface2 }}>
-      <div className="flex items-center gap-1.5" style={{ color: c.ink, fontSize: 12.5, fontWeight: 600 }}>
+      <div className="flex items-center gap-1.5" style={{ color: c.ink, fontSize: 13, fontWeight: 600 }}>
         <UserCircle2 size={14} color={c.primary} /> {owner.name}
       </div>
       {owner.phone && (
         <div className="flex items-center justify-between mt-2">
-          <span dir="ltr" style={{ fontSize: 12.5, color: c.muted }}>{owner.phone}</span>
+          <span dir="ltr" style={{ fontSize: 13, color: c.muted }}>{owner.phone}</span>
           <a href={`tel:${owner.phone}`} className="press flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: c.successSoft }}>
-            <PhoneCall size={12} color={c.success} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.success }}>تماس</span>
+            <PhoneCall size={12} color={c.success} /><span style={{ fontSize: 11, fontWeight: 700, color: c.success }}>تماس</span>
           </a>
         </div>
       )}
@@ -4265,9 +4313,9 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading, accept = "
             {m.type === "image" ? <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : m.type === "video" ? (
               <div className="relative w-full h-full"><video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} /><div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={18} color="#fff" fill="#fff" /></div></div>
             ) : (
-              <div className="flex flex-col items-center justify-center w-full h-full" style={{ background: c.surface2, padding: 6 }}>
+              <div className="flex flex-col items-center justify-center w-full h-full" style={{ background: c.surface2, padding: 8 }}>
                 <FileText size={22} color={c.muted} />
-                <span style={{ fontSize: 8.5, color: c.muted, marginTop: 4, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{m.name || "فایل"}</span>
+                <span style={{ fontSize: 10, color: c.muted, marginTop: 4, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{m.name || "فایل"}</span>
               </div>
             )}
           </button>
@@ -4292,7 +4340,7 @@ function Lightbox({ item, onClose }) {
       {/* top bar: close + counter, clear of the notch */}
       <div className="flex items-center justify-between px-5 shrink-0" style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: 12 }} onClick={(e) => e.stopPropagation()}>
         <button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
-        {media.length > 1 && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontWeight: 600, direction: "ltr" }}>{idx + 1} / {media.length}</span>}
+        {media.length > 1 && <span style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", fontWeight: 600, direction: "ltr" }}>{idx + 1} / {media.length}</span>}
       </div>
 
       {/* image area — centered, fills the middle */}
@@ -4314,7 +4362,7 @@ function Lightbox({ item, onClose }) {
             <div className="flex flex-col items-center" style={{ gap: 12 }}>
               <FileText size={48} color="rgba(255,255,255,0.7)" />
               <p style={{ color: "#fff", fontSize: 13, fontWeight: 600, textAlign: "center" }}>{cur.name || "فایل"}</p>
-              <a href={cur.url} download={cur.name || "file"} className="press" style={{ fontSize: 12.5, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.18)", padding: "10px 20px", borderRadius: 999 }}>باز کردن / دانلود</a>
+              <a href={cur.url} download={cur.name || "file"} className="press" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.18)", padding: "10px 20px", borderRadius: 999 }}>باز کردن / دانلود</a>
             </div>
           )}
 
@@ -4335,7 +4383,7 @@ function Lightbox({ item, onClose }) {
       {media.length > 1 && (
         <div className="flex items-center justify-center gap-2 shrink-0" style={{ paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))", paddingTop: 12 }} onClick={(e) => e.stopPropagation()}>
           {media.map((_, i) => (
-            <button key={i} onClick={() => setIdx(i)} style={{ width: i === idx ? 20 : 7, height: 7, borderRadius: 99, background: i === idx ? "#fff" : "rgba(255,255,255,0.4)", transition: "all .25s ease" }} />
+            <button key={i} onClick={() => setIdx(i)} style={{ width: i === idx ? 20 : 7, height: 7, borderRadius: 999, background: i === idx ? "#fff" : "rgba(255,255,255,0.4)", transition: "all .25s ease" }} />
           ))}
         </div>
       )}
@@ -4352,7 +4400,7 @@ function PropertyMiniMap({ c, lat, lng, title }) {
     loadLeaflet().then((L) => {
       if (cancelled || !ref.current || objRef.current) return;
       const map = L.map(ref.current, { zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false }).setView([lat, lng], 16);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "" }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "" }).addTo(map);
       L.marker([lat, lng]).addTo(map);
       objRef.current = map;
     });
@@ -4362,7 +4410,7 @@ function PropertyMiniMap({ c, lat, lng, title }) {
     <div className="rounded-2xl overflow-hidden mb-3" style={glass(c, 22)}>
       <div ref={ref} style={{ width: "100%", height: 160, background: c.surface2 }} />
       <a href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`} target="_blank" rel="noreferrer"
-        className="press flex items-center justify-center gap-1.5 py-3" style={{ background: c.primarySoft, color: c.primary, fontSize: 11.5, fontWeight: 700 }}>
+        className="press flex items-center justify-center gap-1.5 py-3" style={{ background: c.primarySoft, color: c.primary, fontSize: 11, fontWeight: 700 }}>
         <MapPin size={13} /> مسیریابی به {title}
       </a>
     </div>
@@ -4500,8 +4548,8 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-center" style={{ gap: 5, marginTop: SP.md }}>
-            {variants.map((_, i) => <span key={i} style={{ width: i === active ? 16 : 6, height: 6, borderRadius: 99, background: i === active ? c.primary : c.border, transition: "all .3s ease" }} />)}
+          <div className="flex items-center justify-center" style={{ gap: 4, marginTop: SP.md }}>
+            {variants.map((_, i) => <span key={i} style={{ width: i === active ? 16 : 6, height: 6, borderRadius: 999, background: i === active ? c.primary : c.border, transition: "all .3s ease" }} />)}
           </div>
         </div>
       )}
@@ -4639,7 +4687,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
             <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ""; }} />
             <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
               <button onClick={() => fileRef.current?.click()} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: c.primarySoft, border: `1px dashed ${c.primary}55` }}>
-                <ImagePlus size={20} color={c.primary} /><span style={{ fontSize: 9.5, color: c.primary, fontWeight: FW.bold, marginTop: 4 }}>آپلود</span>
+                <ImagePlus size={20} color={c.primary} /><span style={{ fontSize: 10, color: c.primary, fontWeight: FW.bold, marginTop: 4 }}>آپلود</span>
               </button>
               {images.map((m) => {
                 const idx = selected.findIndex((x) => x.id === m.id);
@@ -4685,7 +4733,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
                 return (
                   <div key={step.key} className="flex items-center" style={{ gap: SP.md, marginBottom: SP.md, opacity: state === "pending" ? 0.4 : 1 }}>
                     <div className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: "50%", background: state === "done" ? c.successSoft : state === "active" ? c.primarySoft : c.surface2 }}>
-                      {state === "done" ? <CheckCircle2 size={14} color={c.success} /> : state === "active" ? <Loader2 size={13} className="animate-spin" color={c.primary} /> : <span style={{ width: 6, height: 6, borderRadius: 99, background: c.muted }} />}
+                      {state === "done" ? <CheckCircle2 size={14} color={c.success} /> : state === "active" ? <Loader2 size={13} className="animate-spin" color={c.primary} /> : <span style={{ width: 6, height: 6, borderRadius: 999, background: c.muted }} />}
                     </div>
                     <span style={{ fontSize: FS.caption + 1, color: state === "pending" ? c.muted : c.ink, fontWeight: state === "active" ? FW.bold : FW.medium }}>{step.label}</span>
                   </div>
@@ -4709,8 +4757,8 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
                   {r.staged ? (
                     <>
                       <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
-                        <div><img src={r.original} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 9.5, color: c.muted, textAlign: "center", marginTop: 4 }}>قبل</p></div>
-                        <div><img src={r.staged} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 9.5, color: c.primary, textAlign: "center", marginTop: 4, fontWeight: FW.bold }}>بعد از استیجینگ</p></div>
+                        <div><img src={r.original} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 10, color: c.muted, textAlign: "center", marginTop: 4 }}>قبل</p></div>
+                        <div><img src={r.staged} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 10, color: c.primary, textAlign: "center", marginTop: 4, fontWeight: FW.bold }}>بعد از استیجینگ</p></div>
                       </div>
                       <button onClick={() => downloadImage(r.staged, `staged-${i + 1}.png`)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.sm, paddingBlock: SP.sm, borderRadius: RAD.md, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: FS.caption }}><Download size={13} color={c.primary} />دانلود</button>
                     </>
@@ -4808,7 +4856,7 @@ function PropertyHero({ c, p, media, onBack, onEdit, uploading, addMedia, setLig
       </div>
 
       {/* glass filmstrip */}
-      <div className="absolute flex items-center flora-rise" style={{ left: 16, right: 16, bottom: 16, gap: 8, padding: 8, borderRadius: 20, background: "rgba(255,255,255,.14)", backdropFilter: "blur(18px) saturate(180%)", WebkitBackdropFilter: "blur(18px) saturate(180%)", border: "1px solid rgba(255,255,255,.2)", overflowX: "auto" }}>
+      <div className="absolute flex items-center flora-rise" style={{ left: 16, right: 16, bottom: 16, gap: 8, padding: 8, borderRadius: 22, background: "rgba(255,255,255,.14)", backdropFilter: "blur(18px) saturate(180%)", WebkitBackdropFilter: "blur(18px) saturate(180%)", border: "1px solid rgba(255,255,255,.2)", overflowX: "auto" }}>
         {media.slice(0, 4).map((m, i) => (
           <button key={m.id} onClick={() => setLightbox({ media, index: i })} className="press shrink-0" style={{ width: 46, height: 46, borderRadius: 14, overflow: "hidden", border: i === 0 ? "2px solid #fff" : "1px solid rgba(255,255,255,.3)" }}>
             {m.type === "image" ? <img src={m.url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
@@ -4816,7 +4864,7 @@ function PropertyHero({ c, p, media, onBack, onEdit, uploading, addMedia, setLig
         ))}
         {media.length > 4 && (
           <button onClick={() => setLightbox({ media, index: 4 })} className="press shrink-0 flex items-center justify-center" style={{ width: 46, height: 46, borderRadius: 14, background: "rgba(0,0,0,.5)" }}>
-            <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>+{faDigits(media.length - 4)}</span>
+            <span style={{ color: "#fff", fontSize: 13, fontWeight: 700 }}>+{faDigits(media.length - 4)}</span>
           </button>
         )}
         <button onClick={() => fileRef.current?.click()} className="press shrink-0 flex items-center justify-center" style={{ width: 46, height: 46, borderRadius: 14, background: "rgba(255,255,255,.16)" }}>
@@ -4958,7 +5006,7 @@ function PropertyDetail({ id, ctx, onBack }) {
       {p.deal === "پیش‌فروش" && (p.preDown || p.preDelivery || p.preDeed || p.preMonths) && (
         <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2"><Hammer size={14} color={c.purple} /><p style={{ fontSize: 12.5, fontWeight: 700 }}>شرایط پیش‌فروش</p></div>
+            <div className="flex items-center gap-2"><Hammer size={14} color={c.purple} /><p style={{ fontSize: 13, fontWeight: 700 }}>شرایط پیش‌فروش</p></div>
             {p.buildStage && <span style={{ fontSize: 10, fontWeight: 700, color: c.purple, background: c.purpleSoft, padding: "3px 9px", borderRadius: 999 }}>{p.buildStage}</span>}
           </div>
           <Row c={c} label="پرداخت اولیه" value={`${fmtToman(p.preDown)}${p.price ? ` (${faDigits(Math.round((p.preDown / p.price) * 1000) / 10)}%)` : ""}`} color={c.success} />
@@ -5032,7 +5080,7 @@ function CustomerDetail({ id, ctx, onBack }) {
       {!editing ? (
         <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 24)}>
           <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
-          <div className="flex-1"><p style={{ fontSize: 16, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 12.5, color: c.muted }} dir="ltr">{cu.phone || "بدون شماره"}</p></div>
+          <div className="flex-1"><p style={{ fontSize: 15, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 13, color: c.muted }} dir="ltr">{cu.phone || "بدون شماره"}</p></div>
           <button onClick={startEdit} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={14} color={c.muted} /></button>
           {cu.phone && (
             <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO(), lastContactTs: Date.now() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
@@ -5061,21 +5109,21 @@ function CustomerDetail({ id, ctx, onBack }) {
         </div>
       </div>
       <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press w-full rounded-xl p-3.5 mb-3 flex items-center gap-2.5" style={{ background: c.primarySoft }}>
-        <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
+        <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
       </button>
       <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => { ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO(), lastContactTs: Date.now() } : x)); celebrate({ kind: "followup", label: "پیگیری ثبت شد" }); }} />
       {!editing && (
         <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
           <div className="flex items-center justify-between">
-            <div><p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13.5 }}>{cu.need || "—"}</p></div>
+            <div><p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13 }}>{cu.need || "—"}</p></div>
             <button onClick={startEdit} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={11} color={c.muted} /></button>
           </div>
-          <p style={{ fontSize: 12, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
+          <p style={{ fontSize: 13, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
         </div>
       )}
       <SectionHeader c={c} title="تاریخچه تماس" />
       <div className="flex flex-col gap-2 mb-4">
-        {custCalls.map((cl) => <div key={cl.id} className="rounded-lg p-3 flex items-center justify-between" style={glassLite(c, 20)}><span style={{ fontSize: 12 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
+        {custCalls.map((cl) => <div key={cl.id} className="rounded-lg p-3 flex items-center justify-between" style={glassLite(c, 20)}><span style={{ fontSize: 13 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
         {custCalls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
       </div>
       <SectionHeader c={c} title="بازدیدهای برنامه‌ریزی‌شده" />
@@ -5235,10 +5283,10 @@ function MissionOfTheDay({ ctx }) {
       <div style={{ position: "absolute", top: -16, left: -12, opacity: 0.08, pointerEvents: "none" }}><FloraMark size={110} color={c.ink} /></div>
       <div className="flex items-center justify-between mb-3" style={{ position: "relative" }}>
         <div className="flex items-center gap-2">
-          <span style={{ width: 9, height: 9, borderRadius: 99, background: pct >= 100 ? c.success : c.primary }} className={pct < 100 ? "flora-pulse" : ""} />
-          <p style={{ fontSize: 14, fontWeight: 800 }}>ماموریت امروز</p>
+          <span style={{ width: 9, height: 9, borderRadius: 999, background: pct >= 100 ? c.success : c.primary }} className={pct < 100 ? "flora-pulse" : ""} />
+          <p style={{ fontSize: 15, fontWeight: 800 }}>ماموریت امروز</p>
           {streak.count > 1 && (
-            <span className="flex items-center" style={{ gap: 3, fontSize: 10.5, fontWeight: 800, color: c.attn, background: c.attnSoft, padding: "2px 8px", borderRadius: RAD.pill }}>
+            <span className="flex items-center" style={{ gap: 4, fontSize: 11, fontWeight: 800, color: c.attn, background: c.attnSoft, padding: "2px 8px", borderRadius: RAD.pill }}>
               <Flame size={11} color={c.attn} />{faDigits(streak.count)} روز
             </span>
           )}
@@ -5250,10 +5298,10 @@ function MissionOfTheDay({ ctx }) {
 
       {/* progress bar */}
       <div className="flex items-center gap-2 mb-3">
-        <div style={{ flex: 1, height: 8, borderRadius: 6, background: c.surface2, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 6, background: pct >= 100 ? c.success : "linear-gradient(90deg,#2f7cf6,#7c6ff5)", transition: "width .5s cubic-bezier(.34,1.3,.64,1)" }} />
+        <div style={{ flex: 1, height: 8, borderRadius: 8, background: c.surface2, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: pct >= 100 ? c.success : "linear-gradient(90deg,#2f7cf6,#7c6ff5)", transition: "width .5s cubic-bezier(.34,1.3,.64,1)" }} />
         </div>
-        <span style={{ fontSize: 12, fontWeight: 800, color: pct >= 100 ? c.success : c.primary }}>{faDigits(pct)}%</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: pct >= 100 ? c.success : c.primary }}>{faDigits(pct)}%</span>
       </div>
       {pct >= 100 && <p style={{ fontSize: 11, color: c.success, fontWeight: 700, marginBottom: 10 }}>آفرین! همه‌ی اهداف امروز را زدی</p>}
 
@@ -5261,7 +5309,7 @@ function MissionOfTheDay({ ctx }) {
       {mission.coach && (
         <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}>
           <Bot size={16} color="#fff" className="shrink-0" style={{ marginTop: 1 }} />
-          <p style={{ fontSize: 11.5, color: "#fff", lineHeight: 1.85, fontWeight: 500 }}>{mission.coach}</p>
+          <p style={{ fontSize: 11, color: "#fff", lineHeight: 1.85, fontWeight: 500 }}>{mission.coach}</p>
         </div>
       )}
 
@@ -5280,14 +5328,14 @@ function MissionOfTheDay({ ctx }) {
                 {floraIcon(m.icon, { size: 20, color: complete ? c.success : c.primary })}
               </div>
               <div className="flex-1 min-w-0">
-                <p style={{ fontSize: 12.5, fontWeight: 700, textDecoration: complete ? "line-through" : "none", color: complete ? c.muted : c.ink }}>{m.label}</p>
+                <p style={{ fontSize: 13, fontWeight: 700, textDecoration: complete ? "line-through" : "none", color: complete ? c.muted : c.ink }}>{m.label}</p>
                 {editing ? (
                   <div className="flex items-center gap-1.5 mt-1">
                     <span style={{ fontSize: 10, color: c.muted }}>هدف:</span>
                     <input inputMode="numeric" value={m.target} onChange={(e) => setTarget(m.id, e.target.value)} style={{ width: 46, textAlign: "center", background: c.surface, border: `1px solid ${c.border}`, borderRadius: 8, padding: "3px 4px", fontSize: 11, color: c.ink }} />
                   </div>
                 ) : (
-                  <p style={{ fontSize: 10.5, color: c.muted }}>{faDigits(Math.min(m.done, m.target))} از {faDigits(m.target)}</p>
+                  <p style={{ fontSize: 11, color: c.muted }}>{faDigits(Math.min(m.done, m.target))} از {faDigits(m.target)}</p>
                 )}
               </div>
               {!editing && (
@@ -5386,7 +5434,7 @@ function CallsView({ ctx, onBack }) {
               </button>
               <div className="flex-1 min-w-0">
                 <p style={{ fontSize: 13, fontWeight: 700, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p>
-                <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{cl.notes ? `${cl.notes} · ` : ""}{fmtJalali(cl.date)}</p>
+                <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{cl.notes ? `${cl.notes} · ` : ""}{fmtJalali(cl.date)}</p>
               </div>
               {cl.customerPhone && <a href={`tel:${cl.customerPhone}`} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
               <button onClick={() => setSheet({ kind: "call", editId: cl.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
@@ -5559,12 +5607,12 @@ ${transcript}
       <div ref={scrollRef} className="flex-1 overflow-y-auto flex flex-col gap-2.5 pb-3">
         {messages.length === 0 && (
           <div className="rounded-xl p-4" style={glass(c, 22)}>
-            <p style={{ fontSize: 12.5, color: c.muted, lineHeight: 1.9 }}>هر سوالی درباره‌ی قیمت‌گذاری، مذاکره، بازاریابی فایل، یا هر موضوع دیگری در حوزه‌ی املاک بپرس.</p>
+            <p style={{ fontSize: 13, color: c.muted, lineHeight: 1.9 }}>هر سوالی درباره‌ی قیمت‌گذاری، مذاکره، بازاریابی فایل، یا هر موضوع دیگری در حوزه‌ی املاک بپرس.</p>
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`rounded-xl p-3 ${m.role === "user" ? "self-end" : "self-start"}`} style={{ ...glassLite(c, 20), maxWidth: "85%", background: m.role === "user" ? c.primary : c.surface2 }}>
-            <p style={{ fontSize: 12.5, lineHeight: 1.9, color: m.role === "user" ? "#fff" : c.ink, whiteSpace: "pre-wrap" }}>{m.text}</p>
+            <p style={{ fontSize: 13, lineHeight: 1.9, color: m.role === "user" ? "#fff" : c.ink, whiteSpace: "pre-wrap" }}>{m.text}</p>
           </div>
         ))}
         {sending && <div className="self-start rounded-xl p-3" style={glass(c, 20)}><Loader2 size={14} className="animate-spin" color={c.primary} /></div>}
@@ -5638,9 +5686,9 @@ function splitAmounts(total, shares) {
 }
 
 function DealStatusBadge({ c, status }) {
-  if (status === "تسویه شده") return <span style={{ fontSize: 10, fontWeight: 700, color: c.success, background: c.successSoft, padding: "4px 10px", borderRadius: 10 }}>تسویه شده</span>;
-  if (status === "در حال مذاکره") return <span style={{ fontSize: 10, fontWeight: 700, color: c.primary, background: c.primarySoft, padding: "4px 10px", borderRadius: 10 }}>در حال مذاکره</span>;
-  return <span style={{ fontSize: 10, fontWeight: 700, color: c.attn, background: c.attnSoft, padding: "4px 10px", borderRadius: 10 }}>در انتظار پرداخت</span>;
+  if (status === "تسویه شده") return <span style={{ fontSize: 10, fontWeight: 700, color: c.success, background: c.successSoft, padding: "4px 10px", borderRadius: 8 }}>تسویه شده</span>;
+  if (status === "در حال مذاکره") return <span style={{ fontSize: 10, fontWeight: 700, color: c.primary, background: c.primarySoft, padding: "4px 10px", borderRadius: 8 }}>در حال مذاکره</span>;
+  return <span style={{ fontSize: 10, fontWeight: 700, color: c.attn, background: c.attnSoft, padding: "4px 10px", borderRadius: 8 }}>در انتظار پرداخت</span>;
 }
 
 // The "total balance" wallet-card look: near-black surface, a quiet label, one
@@ -5649,14 +5697,14 @@ function DealStatusBadge({ c, status }) {
 // reference without pretending to be a literal payment card.
 function BalanceCard({ c, label, value, pillIcon: PillIcon, pillLabel, pillValue, onPillClick }) {
   return (
-    <div className="relative overflow-hidden" style={{ borderRadius: 22, padding: 20, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", boxShadow: "0 16px 38px -14px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06)" }}>
+    <div className="relative overflow-hidden" style={{ borderRadius: 22, padding: 24, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", boxShadow: "0 16px 38px -14px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06)" }}>
       {/* stacked decorative cards, peeking from the right edge */}
       <div className="absolute" style={{ top: 14, left: -10, width: 92, height: 118 }}>
-        <div style={{ position: "absolute", top: 10, left: 18, width: 68, height: 96, borderRadius: 16, background: "linear-gradient(160deg,#3b5fd9,#22346e)", opacity: .9 }} />
-        <div className="relative" style={{ position: "absolute", top: 0, left: 0, width: 74, height: 104, borderRadius: 18, background: "linear-gradient(150deg,#fb923c 0%,#ec4899 100%)", boxShadow: "0 10px 22px -8px rgba(236,72,153,.5)" }}>
+        <div style={{ position: "absolute", top: 10, left: 18, width: 68, height: 96, borderRadius: 14, background: "linear-gradient(160deg,#3b5fd9,#22346e)", opacity: .9 }} />
+        <div className="relative" style={{ position: "absolute", top: 0, left: 0, width: 74, height: 104, borderRadius: 14, background: "linear-gradient(150deg,#fb923c 0%,#ec4899 100%)", boxShadow: "0 10px 22px -8px rgba(236,72,153,.5)" }}>
           <span style={{ position: "absolute", top: 12, right: 10, width: 15, height: 15, borderRadius: "50%", background: "rgba(255,255,255,.55)" }} />
           <span style={{ position: "absolute", top: 12, right: 20, width: 15, height: 15, borderRadius: "50%", background: "rgba(255,255,255,.85)" }} />
-          <span style={{ position: "absolute", bottom: 10, right: 10, left: 10, fontSize: 9, color: "rgba(255,255,255,.85)", letterSpacing: ".03em" }}>کمیسیون</span>
+          <span style={{ position: "absolute", bottom: 10, right: 10, left: 10, fontSize: 10, color: "rgba(255,255,255,.85)", letterSpacing: ".03em" }}>کمیسیون</span>
         </div>
       </div>
 
@@ -5666,10 +5714,10 @@ function BalanceCard({ c, label, value, pillIcon: PillIcon, pillLabel, pillValue
         <button onClick={onPillClick} className="press flex items-center" style={{ gap: 8, marginTop: 16, background: "rgba(255,255,255,.08)", borderRadius: RAD.pill, padding: "6px 8px 6px 12px" }}>
           <span className="flex items-center justify-center" style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,255,255,.12)", flexShrink: 0 }}><PillIcon size={11} color="#fff" /></span>
           <span dir="ltr" style={{ whiteSpace: "nowrap" }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: "#fff" }}>{pillValue.replace(" تومان", "")}</span>
-            {pillValue.includes("تومان") && <span style={{ fontSize: 9.5, fontWeight: 500, color: "rgba(255,255,255,.5)" }}> تومان</span>}
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{pillValue.replace(" تومان", "")}</span>
+            {pillValue.includes("تومان") && <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,.5)" }}> تومان</span>}
           </span>
-          <span style={{ fontSize: 10.5, color: "rgba(255,255,255,.55)" }}>{pillLabel}</span>
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)" }}>{pillLabel}</span>
           <ChevronLeft size={13} color="rgba(255,255,255,.5)" />
         </button>
       </div>
@@ -5692,13 +5740,13 @@ function RecentActivityCard({ ctx, onSeeAll }) {
     <div className="relative overflow-hidden flora-rise" style={{ borderRadius: RAD.lg, padding: SP.lg, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", border: "1px solid rgba(255,255,255,.06)" }}>
       <div className="flex items-center justify-between" style={{ marginBottom: txns.length ? SP.md : 0 }}>
         <div className="flex items-center" style={{ gap: SP.sm }}>
-          <div className="flex items-center justify-center" style={{ width: 26, height: 26, borderRadius: 9, background: `${c.primary}22` }}><Wallet size={13} color={c.primary} /></div>
-          <span style={{ fontSize: 12.5, fontWeight: FW.bold, color: "#fff" }}>آخرین تراکنش‌ها</span>
+          <div className="flex items-center justify-center" style={{ width: 26, height: 26, borderRadius: 8, background: `${c.primary}22` }}><Wallet size={13} color={c.primary} /></div>
+          <span style={{ fontSize: 13, fontWeight: FW.bold, color: "#fff" }}>آخرین تراکنش‌ها</span>
         </div>
-        {txns.length > 0 && <button onClick={onSeeAll} className="press" style={{ fontSize: 10.5, color: "rgba(255,255,255,.5)" }}>همه ‹</button>}
+        {txns.length > 0 && <button onClick={onSeeAll} className="press" style={{ fontSize: 11, color: "rgba(255,255,255,.5)" }}>همه ‹</button>}
       </div>
       {txns.length === 0 ? (
-        <p style={{ fontSize: 11.5, color: "rgba(255,255,255,.5)" }}>هنوز تراکنشی ثبت نشده</p>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,.5)" }}>هنوز تراکنشی ثبت نشده</p>
       ) : (
         <div className="flex flex-col flora-stagger" style={{ gap: SP.sm }}>
           {txns.map((t) => (
@@ -5707,12 +5755,12 @@ function RecentActivityCard({ ctx, onSeeAll }) {
                 {t.kind === "in" ? <TrendingUp size={13} color={c.success} /> : <TrendingDown size={13} color={c.danger} />}
               </div>
               <div className="flex-1 min-w-0">
-                <p style={{ fontSize: 12, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</p>
-                <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.4)", marginTop: 1 }}>{fmtJalali(t.date)}</p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</p>
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,.4)", marginTop: 1 }}>{fmtJalali(t.date)}</p>
               </div>
               <p dir="ltr" style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{Math.round(t.amount).toLocaleString("en-US")}</span>
-                <span style={{ fontSize: 9, color: "rgba(255,255,255,.4)" }}> تومان</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{Math.round(t.amount).toLocaleString("en-US")}</span>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,.4)" }}> تومان</span>
               </p>
             </div>
           ))}
@@ -5809,7 +5857,7 @@ function FinanceCenterView({ ctx, onBack }) {
       <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
         {visibleTabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: tab === t.id ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: tab === t.id ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
           </button>
         ))}
       </div>
@@ -5830,7 +5878,7 @@ function FinanceCenterView({ ctx, onBack }) {
           </div>
 
           <div className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.lg }}>
-            <span style={{ width: 6, height: 6, borderRadius: 99, background: debtors.length > 0 ? c.danger : c.success }} className={debtors.length > 0 ? "flora-pulse" : ""} />
+            <span style={{ width: 6, height: 6, borderRadius: 999, background: debtors.length > 0 ? c.danger : c.success }} className={debtors.length > 0 ? "flora-pulse" : ""} />
             <p style={{ fontSize: FS.caption, color: c.muted }}>{debtors.length > 0 ? `${faDigits(debtors.length)} نفر بدهکار نیاز به پیگیری دارند` : "همه‌ی حساب‌ها تسویه است"}</p>
           </div>
 
@@ -5864,8 +5912,8 @@ function FinanceCenterView({ ctx, onBack }) {
           <div className="flex flex-col gap-2 mb-4">
             {alerts.map((a, i) => (
               <div key={i} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: a.type === "red" ? c.dangerSoft : a.type === "yellow" ? c.attnSoft : c.successSoft }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: a.type === "red" ? c.danger : a.type === "yellow" ? c.attn : c.success, flexShrink: 0 }} />
-                <span style={{ fontSize: 11.5, color: c.ink }}>{a.text}</span>
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: a.type === "red" ? c.danger : a.type === "yellow" ? c.attn : c.success, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: c.ink }}>{a.text}</span>
               </div>
             ))}
             {alerts.length === 0 && <EmptyLine c={c} text="هشداری وجود ندارد" />}
@@ -5881,31 +5929,31 @@ function FinanceCenterView({ ctx, onBack }) {
           <div className="flex gap-2 overflow-x-auto pb-1 my-3">
             {["همه", "تسویه شده", "در انتظار پرداخت", "در حال مذاکره"].map((s) => (
               <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: statusFilter === s ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: statusFilter === s ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span>
               </button>
             ))}
           </div>
-          <button onClick={() => setSheet("deal")} className="press w-full rounded-xl py-3 mb-3 flex items-center justify-center gap-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}><Plus size={14} /> ثبت قرارداد جدید</button>
+          <button onClick={() => setSheet("deal")} className="press w-full rounded-xl py-3 mb-3 flex items-center justify-center gap-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 13 }}><Plus size={14} /> ثبت قرارداد جدید</button>
           <div className="flex flex-col gap-3 flora-stagger">
             {filteredDeals.map((d) => (
               <button key={d.id} onClick={() => setSheet({ kind: "deal-detail", dealId: d.id })} className="press w-full text-right rounded-2xl p-4" style={glass(c, 22)}>
                 <div className="flex justify-between items-start mb-2.5">
-                  <div><p style={{ fontSize: 14, fontWeight: 700 }}>{d.propertyTitle}</p></div>
+                  <div><p style={{ fontSize: 15, fontWeight: 700 }}>{d.propertyTitle}</p></div>
                   <DealStatusBadge c={c} status={d.status} />
                 </div>
                 <div className="flex gap-4 mb-2.5">
-                  <div className="flex-1"><p style={{ fontSize: 10, color: c.muted, marginBottom: 2 }}>فروشنده</p><p style={{ fontSize: 12, fontWeight: 600 }}>{d.sellerName || "—"}</p></div>
-                  <div className="flex-1"><p style={{ fontSize: 10, color: c.muted, marginBottom: 2 }}>خریدار</p><p style={{ fontSize: 12, fontWeight: 600 }}>{d.buyerName || "—"}</p></div>
+                  <div className="flex-1"><p style={{ fontSize: 10, color: c.muted, marginBottom: 2 }}>فروشنده</p><p style={{ fontSize: 13, fontWeight: 600 }}>{d.sellerName || "—"}</p></div>
+                  <div className="flex-1"><p style={{ fontSize: 10, color: c.muted, marginBottom: 2 }}>خریدار</p><p style={{ fontSize: 13, fontWeight: 600 }}>{d.buyerName || "—"}</p></div>
                 </div>
                 <div className="flex justify-between items-center pt-2.5" style={{ borderTop: `1px solid ${c.border}` }}>
                   <div className="flex items-center gap-1.5">
                     <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#fde68a,#f59e0b)" }}><Banknote size={10} color="#7c2d12" /></div>
-                    <p style={{ fontSize: 13.5, fontWeight: 800, color: c.primary, direction: "ltr" }}>{fmtToman(d.price)}</p>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: c.primary, direction: "ltr" }}>{fmtToman(d.price)}</p>
                   </div>
-                  <p style={{ fontSize: 10.5, color: c.muted }}>{d.advisor}</p>
+                  <p style={{ fontSize: 11, color: c.muted }}>{d.advisor}</p>
                 </div>
-                <div style={{ height: 5, borderRadius: 6, background: c.surface2, marginTop: 8, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${dealProgress(d, payments)}%`, borderRadius: 6, background: `linear-gradient(90deg, ${c.success}, #4ade80)` }} />
+                <div style={{ height: 5, borderRadius: 8, background: c.surface2, marginTop: 8, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${dealProgress(d, payments)}%`, borderRadius: 8, background: `linear-gradient(90deg, ${c.success}, #4ade80)` }} />
                 </div>
               </button>
             ))}
@@ -5916,7 +5964,7 @@ function FinanceCenterView({ ctx, onBack }) {
 
       {tab === "transactions" && (
         <div className="mt-4">
-          <SectionHeader c={c} title="تاریخچه پرداخت‌ها" action={<button onClick={() => setSheet("payment")} className="press flex items-center gap-1 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11.5 }}><Plus size={12} /> ثبت پرداخت</button>} />
+          <SectionHeader c={c} title="تاریخچه پرداخت‌ها" action={<button onClick={() => setSheet("payment")} className="press flex items-center gap-1 rounded-lg px-3 py-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11 }}><Plus size={12} /> ثبت پرداخت</button>} />
           <div className="flex flex-col gap-2 flora-stagger">
             {[...payments].sort((a, b) => b.date.localeCompare(a.date)).map((p) => {
               const deal = deals.find((d) => d.id === p.dealId);
@@ -5925,8 +5973,8 @@ function FinanceCenterView({ ctx, onBack }) {
               return (
                 <div key={p.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 20)}>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><method.icon size={17} color={c.primary} /></div>
-                  <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{payerName}</p><p style={{ fontSize: 10.5, color: c.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{method.label} · {deal?.propertyTitle}</p></div>
-                  <div className="text-left shrink-0"><p style={{ fontSize: 12, fontWeight: 800, color: c.success }}>+{fmtToman(p.amount)}</p><p style={{ fontSize: 10, color: c.muted }}>{fmtJalali(p.date)}</p></div>
+                  <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{payerName}</p><p style={{ fontSize: 11, color: c.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{method.label} · {deal?.propertyTitle}</p></div>
+                  <div className="text-left shrink-0"><p style={{ fontSize: 13, fontWeight: 800, color: c.success }}>+{fmtToman(p.amount)}</p><p style={{ fontSize: 10, color: c.muted }}>{fmtJalali(p.date)}</p></div>
                   <button onClick={() => setSheet({ kind: "payment", editId: p.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
                   <button onClick={() => { setPayments((prev) => prev.filter((x) => x.id !== p.id)); notify("پرداخت حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
                 </div>
@@ -5944,24 +5992,24 @@ function FinanceCenterView({ ctx, onBack }) {
             <FinStat c={c} icon={TrendingDown} color={c.danger} value={fmtToman(totalExpenses)} label="کل هزینه‌های دفتر" />
           </div>
           <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${netProfit >= 0 ? c.successSoft : c.dangerSoft}, ${c.surface} 65%)`, position: "relative", overflow: "hidden" }}>
-            <span style={{ position: "absolute", inset: 6, borderRadius: 16, border: `1px dashed ${(netProfit >= 0 ? c.success : c.danger)}33`, pointerEvents: "none" }} />
+            <span style={{ position: "absolute", inset: 6, borderRadius: 14, border: `1px dashed ${(netProfit >= 0 ? c.success : c.danger)}33`, pointerEvents: "none" }} />
             <div className="flex items-center justify-between" style={{ position: "relative" }}>
               <div className="flex items-center gap-2">
                 <div className="flora-coin w-7 h-7 rounded-full flex items-center justify-center" style={{ background: netProfit >= 0 ? "linear-gradient(135deg,#86efac,#22c55e)" : "linear-gradient(135deg,#fca5a5,#ef4444)" }}>
                   <Banknote size={13} color="#fff" />
                 </div>
-                <span style={{ fontSize: 12.5, color: c.muted, fontWeight: 700 }}>سود خالص دفتر</span>
+                <span style={{ fontSize: 13, color: c.muted, fontWeight: 700 }}>سود خالص دفتر</span>
               </div>
               <div className="text-left">
-                <CountUpToman value={Math.abs(netProfit)} style={{ fontSize: 15.5, fontWeight: 800, color: netProfit >= 0 ? c.success : c.danger, direction: "ltr", display: "inline-block" }} />
-                {netProfit < 0 && <p style={{ fontSize: 9.5, color: c.danger }}>زیان</p>}
+                <CountUpToman value={Math.abs(netProfit)} style={{ fontSize: 15, fontWeight: 800, color: netProfit >= 0 ? c.success : c.danger, direction: "ltr", display: "inline-block" }} />
+                {netProfit < 0 && <p style={{ fontSize: 10, color: c.danger }}>زیان</p>}
               </div>
             </div>
           </div>
 
           <div className="flex gap-2 mb-4">
-            <button onClick={() => setSheet("income")} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12 }}><Plus size={14} /> ثبت درآمد</button>
-            <button onClick={() => setSheet("expense")} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 12 }}><Plus size={14} /> ثبت هزینه</button>
+            <button onClick={() => setSheet("income")} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 13 }}><Plus size={14} /> ثبت درآمد</button>
+            <button onClick={() => setSheet("expense")} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 13 }}><Plus size={14} /> ثبت هزینه</button>
           </div>
 
           <SectionHeader c={c} title="گردش مالی دفتر" />
@@ -5972,10 +6020,10 @@ function FinanceCenterView({ ctx, onBack }) {
                   {t.kind === "in" ? <TrendingUp size={16} color={c.success} /> : <TrendingDown size={16} color={c.danger} />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</p>
-                  <p style={{ fontSize: 10.5, color: c.muted }}>{t.category || (t.kind === "in" ? "درآمد" : "هزینه")} · {fmtJalali(t.date)}</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</p>
+                  <p style={{ fontSize: 11, color: c.muted }}>{t.category || (t.kind === "in" ? "درآمد" : "هزینه")} · {fmtJalali(t.date)}</p>
                 </div>
-                <p className="shrink-0" style={{ fontSize: 12.5, fontWeight: 800, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{fmtToman(t.amount)}</p>
+                <p className="shrink-0" style={{ fontSize: 13, fontWeight: 800, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{fmtToman(t.amount)}</p>
                 <button onClick={() => setSheet({ kind: t.kind === "in" ? "income" : "expense", editId: t.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
                 <button onClick={() => {
                   if (t.kind === "in") setOfficeIncomes((prev) => prev.filter((x) => x.id !== t.id));
@@ -6000,11 +6048,11 @@ function FinanceCenterView({ ctx, onBack }) {
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: c.dangerSoft }}><UserCircle2 size={17} color={c.danger} /></div>
                     <div><p style={{ fontSize: 13, fontWeight: 700 }}>{x.name}</p><p style={{ fontSize: 10, color: c.danger }}>{faDigits(x.days)} روز تأخیر</p></div>
                   </div>
-                  <CountUpToman value={x.amount} style={{ fontSize: 14.5, fontWeight: 800, color: c.danger, direction: "ltr", display: "inline-block" }} />
+                  <CountUpToman value={x.amount} style={{ fontSize: 15, fontWeight: 800, color: c.danger, direction: "ltr", display: "inline-block" }} />
                 </div>
                 <div className="flex gap-2">
-                  <a href={x.phone ? `tel:${x.phone}` : "#"} className="press flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, opacity: x.phone ? 1 : 0.5, pointerEvents: x.phone ? "auto" : "none" }}><PhoneCall size={13} color={c.success} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.success }}>تماس</span></a>
-                  <a href={x.phone ? (smsLink(x.phone, `سلام ${x.name} عزیز، پیرو معامله‌ی ${x.dealTitle}، یادآوری کمیسیون باقی‌مانده به مبلغ ${fmtToman(x.amount)}.`) || "#") : "#"} className="press flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, opacity: x.phone ? 1 : 0.5, pointerEvents: x.phone ? "auto" : "none" }}><MessageSquare size={13} color={c.primary} /><span style={{ fontSize: 11.5, fontWeight: 700, color: c.primary }}>پیامک</span></a>
+                  <a href={x.phone ? `tel:${x.phone}` : "#"} className="press flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, opacity: x.phone ? 1 : 0.5, pointerEvents: x.phone ? "auto" : "none" }}><PhoneCall size={13} color={c.success} /><span style={{ fontSize: 11, fontWeight: 700, color: c.success }}>تماس</span></a>
+                  <a href={x.phone ? (smsLink(x.phone, `سلام ${x.name} عزیز، پیرو معامله‌ی ${x.dealTitle}، یادآوری کمیسیون باقی‌مانده به مبلغ ${fmtToman(x.amount)}.`) || "#") : "#"} className="press flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, opacity: x.phone ? 1 : 0.5, pointerEvents: x.phone ? "auto" : "none" }}><MessageSquare size={13} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>پیامک</span></a>
                 </div>
               </div>
             ))}
@@ -6016,23 +6064,23 @@ function FinanceCenterView({ ctx, onBack }) {
       {tab === "reports" && (
         <div>
           <div className="grid grid-cols-2 gap-2.5 mb-4">
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{faDigits(deals.length)}</p><p style={{ fontSize: 10.5, color: c.muted }}>تعداد قرارداد</p></div>
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{fmtToman(totalValue)}</p><p style={{ fontSize: 10.5, color: c.muted }}>مجموع ارزش معاملات</p></div>
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{fmtToman(totalCommission)}</p><p style={{ fontSize: 10.5, color: c.muted }}>مجموع کمیسیون</p></div>
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 16, fontWeight: 800 }}>{fmtToman(avgDeal)}</p><p style={{ fontSize: 10.5, color: c.muted }}>میانگین معامله</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{faDigits(deals.length)}</p><p style={{ fontSize: 11, color: c.muted }}>تعداد قرارداد</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(totalValue)}</p><p style={{ fontSize: 11, color: c.muted }}>مجموع ارزش معاملات</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(totalCommission)}</p><p style={{ fontSize: 11, color: c.muted }}>مجموع کمیسیون</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(avgDeal)}</p><p style={{ fontSize: 11, color: c.muted }}>میانگین معامله</p></div>
           </div>
           <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
-            <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>کل دریافت‌شده</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.success, marginBottom: 10 }}>{fmtToman(totalPaidAll)}</p>
-            <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>مانده کل</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.attn, marginBottom: 10 }}>{fmtToman(totalRemainingAll)}</p>
-            <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>درصد وصول</p><p style={{ fontSize: 13.5, fontWeight: 700, color: c.success }}>{faDigits(totalCommission ? Math.round((totalPaidAll / totalCommission) * 100) : 0)}٪</p>
+            <p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>کل دریافت‌شده</p><p style={{ fontSize: 13, fontWeight: 700, color: c.success, marginBottom: 10 }}>{fmtToman(totalPaidAll)}</p>
+            <p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>مانده کل</p><p style={{ fontSize: 13, fontWeight: 700, color: c.attn, marginBottom: 10 }}>{fmtToman(totalRemainingAll)}</p>
+            <p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>درصد وصول</p><p style={{ fontSize: 13, fontWeight: 700, color: c.success }}>{faDigits(totalCommission ? Math.round((totalPaidAll / totalCommission) * 100) : 0)}٪</p>
           </div>
 
           <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
             <div className="flex items-center justify-between mb-3">
               <p style={{ fontSize: 13, fontWeight: 700 }}>درآمد و هزینه ۶ ماه اخیر</p>
               <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1" style={{ fontSize: 9.5, color: c.muted }}><span style={{ width: 8, height: 8, borderRadius: 3, background: c.success }} /> درآمد</span>
-                <span className="flex items-center gap-1" style={{ fontSize: 9.5, color: c.muted }}><span style={{ width: 8, height: 8, borderRadius: 3, background: c.danger }} /> هزینه</span>
+                <span className="flex items-center gap-1" style={{ fontSize: 10, color: c.muted }}><span style={{ width: 8, height: 8, borderRadius: 3, background: c.success }} /> درآمد</span>
+                <span className="flex items-center gap-1" style={{ fontSize: 10, color: c.muted }}><span style={{ width: 8, height: 8, borderRadius: 3, background: c.danger }} /> هزینه</span>
               </div>
             </div>
             <div className="flex items-end justify-between gap-2" style={{ height: 96 }}>
@@ -6042,7 +6090,7 @@ function FinanceCenterView({ ctx, onBack }) {
                     <div style={{ width: "42%", borderRadius: "5px 5px 0 0", background: `linear-gradient(180deg,#4ade80,${c.success})`, height: `${Math.max(3, (m.income / maxIncExp) * 72)}px`, transition: "height .7s cubic-bezier(.34,1.3,.64,1)" }} />
                     <div style={{ width: "42%", borderRadius: "5px 5px 0 0", background: `linear-gradient(180deg,#fca5a5,${c.danger})`, height: `${Math.max(3, (m.expense / maxIncExp) * 72)}px`, transition: "height .7s cubic-bezier(.34,1.3,.64,1)" }} />
                   </div>
-                  <span style={{ fontSize: 9, color: c.muted }}>{m.label}</span>
+                  <span style={{ fontSize: 10, color: c.muted }}>{m.label}</span>
                 </div>
               ))}
             </div>
@@ -6066,10 +6114,10 @@ function FinanceCenterView({ ctx, onBack }) {
                     <div key={x.name}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="flex items-center gap-1.5" style={{ fontSize: 11, color: c.ink }}><span style={{ width: 8, height: 8, borderRadius: 3, background: x.color }} /> {x.name}</span>
-                        <span style={{ fontSize: 10.5, color: c.muted }}>{fmtToman(x.value)} · {faDigits(pct)}٪</span>
+                        <span style={{ fontSize: 11, color: c.muted }}>{fmtToman(x.value)} · {faDigits(pct)}٪</span>
                       </div>
-                      <div style={{ height: 7, borderRadius: 6, background: c.surface2, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${pct}%`, borderRadius: 6, background: x.color, transition: "width .7s cubic-bezier(.34,1.3,.64,1)" }} />
+                      <div style={{ height: 7, borderRadius: 8, background: c.surface2, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: x.color, transition: "width .7s cubic-bezier(.34,1.3,.64,1)" }} />
                       </div>
                     </div>
                   );
@@ -6154,15 +6202,15 @@ function FinMarquee({ c, items }) {
         onTouchStart={hold} onTouchEnd={release} onTouchCancel={release}
         onMouseEnter={hold} onMouseLeave={release}
         onWheel={() => { hold(); release(); }}
-        style={{ display: "flex", gap: 10, overflowX: "auto", overflowY: "hidden", padding: "4px 16px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+        style={{ display: "flex", gap: 8, overflowX: "auto", overflowY: "hidden", padding: "4px 16px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
       >
         {doubled.map((it, i) => (
-          <div key={i} dir="rtl" className="relative overflow-hidden" style={{ borderRadius: 16, padding: 12, width: 122, flexShrink: 0, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", border: "1px solid rgba(255,255,255,.06)" }}>
+          <div key={i} dir="rtl" className="relative overflow-hidden" style={{ borderRadius: 14, padding: 12, width: 122, flexShrink: 0, background: "linear-gradient(160deg,#15181f 0%,#0c0e13 100%)", border: "1px solid rgba(255,255,255,.06)" }}>
             <div className="flex items-center justify-center" style={{ width: 22, height: 22, borderRadius: 8, background: it.color + "22", marginBottom: 8 }}><it.icon size={11} color={it.color} /></div>
-            <p style={{ fontSize: 9.5, color: "rgba(255,255,255,.5)", marginBottom: 3 }}>{it.label}</p>
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,.5)", marginBottom: 3 }}>{it.label}</p>
             <p dir="ltr" style={{ whiteSpace: "nowrap" }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{it.value.replace(" تومان", "")}</span>
-              {it.value.includes("تومان") && <span style={{ fontSize: 9, fontWeight: 500, color: "rgba(255,255,255,.45)" }}> تومان</span>}
+              <span style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{it.value.replace(" تومان", "")}</span>
+              {it.value.includes("تومان") && <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,.45)" }}> تومان</span>}
             </p>
           </div>
         ))}
@@ -6179,7 +6227,7 @@ function MonthlyDealsChart({ c, data, max }) {
     <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.primarySoft}, ${c.surface} 60%)` }}>
       <div className="flex items-center justify-between mb-4">
         <p style={{ fontSize: 13, fontWeight: 700 }}>تعداد معاملات ۶ ماه اخیر</p>
-        <span style={{ fontSize: 9.5, color: c.muted, background: c.surface2, padding: "3px 8px", borderRadius: 999 }}>مجموع {faDigits(data.reduce((a, b) => a + b.value, 0))}</span>
+        <span style={{ fontSize: 10, color: c.muted, background: c.surface2, padding: "3px 8px", borderRadius: 999 }}>مجموع {faDigits(data.reduce((a, b) => a + b.value, 0))}</span>
       </div>
       <div className="flex items-end justify-between gap-2" style={{ height: 108, position: "relative" }}>
         {[0.33, 0.66, 1].map((g, i) => (
@@ -6190,7 +6238,7 @@ function MonthlyDealsChart({ c, data, max }) {
           const isBest = m.value === best && best > 0;
           return (
             <div key={i} className="flex-1 flex flex-col items-center gap-1.5" style={{ zIndex: 1 }}>
-              <span style={{ fontSize: 9.5, fontWeight: 800, color: isBest ? c.primary : c.muted, opacity: show ? 1 : 0, transition: "opacity .5s ease .5s" }}>{m.value ? faDigits(m.value) : ""}</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: isBest ? c.primary : c.muted, opacity: show ? 1 : 0, transition: "opacity .5s ease .5s" }}>{m.value ? faDigits(m.value) : ""}</span>
               <div style={{ width: "100%", position: "relative", display: "flex", justifyContent: "center" }}>
                 <div style={{
                   width: "72%", borderRadius: "7px 7px 3px 3px",
@@ -6200,7 +6248,7 @@ function MonthlyDealsChart({ c, data, max }) {
                   transition: `height .8s cubic-bezier(.34,1.3,.64,1) ${i * 0.07}s`,
                 }} />
               </div>
-              <span style={{ fontSize: 9, color: isBest ? c.primary : c.muted, fontWeight: isBest ? 700 : 400 }}>{m.label}</span>
+              <span style={{ fontSize: 10, color: isBest ? c.primary : c.muted, fontWeight: isBest ? 700 : 400 }}>{m.label}</span>
             </div>
           );
         })}
@@ -6233,8 +6281,8 @@ function SplitTab({ ctx, deals, payments }) {
         <span style={{ position: "absolute", top: "-45%", left: "-20%", width: 190, height: 190, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
         <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>کمیسیون دریافت‌شده (قابل تقسیم)</p>
-        <CountUpToman value={receivedTotal} className="flora-money" style={{ fontSize: 21, fontWeight: 800, color: "#fbbf24", display: "inline-block", marginTop: 3, direction: "ltr" }} />
-        <p style={{ fontSize: 10.5, color: "rgba(255,255,255,.65)", marginTop: 6, lineHeight: 1.8 }}>
+        <CountUpToman value={receivedTotal} className="flora-money" style={{ fontSize: 20, fontWeight: 800, color: "#fbbf24", display: "inline-block", marginTop: 3, direction: "ltr" }} />
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,.65)", marginTop: 6, lineHeight: 1.8 }}>
           فقط پولی که واقعاً به دست‌مان رسیده تقسیم می‌شود؛ مانده‌ی وصول‌نشده پایین جدا آمده تا حساب‌ها قاطی نشود.
         </p>
       </div>
@@ -6242,20 +6290,20 @@ function SplitTab({ ctx, deals, payments }) {
       {/* The ratio itself */}
       <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
         <div className="flex items-center justify-between mb-3">
-          <p style={{ fontSize: 12.5, fontWeight: 700 }}>نسبت تقسیم</p>
+          <p style={{ fontSize: 13, fontWeight: 700 }}>نسبت تقسیم</p>
           {!editing ? (
             <button onClick={() => { setDraft(splitShares); setEditing(true); }} className="press flex items-center gap-1 rounded-lg px-2.5 py-1.5" style={{ background: c.primarySoft }}>
-              <Edit3 size={11} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary }}>تغییر</span>
+              <Edit3 size={11} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>تغییر</span>
             </button>
           ) : (
             <div className="flex gap-1.5">
-              <button onClick={() => setEditing(false)} className="press rounded-lg px-2.5 py-1.5" style={{ background: c.surface2, fontSize: 10.5, fontWeight: 700, color: c.muted }}>لغو</button>
+              <button onClick={() => setEditing(false)} className="press rounded-lg px-2.5 py-1.5" style={{ background: c.surface2, fontSize: 11, fontWeight: 700, color: c.muted }}>لغو</button>
               <button onClick={() => {
                 const total = SPLIT_PARTIES.reduce((a, p) => a + (Number(toEnDigits(String(draft[p.id]))) || 0), 0);
                 if (!total) { notify("حداقل یک سهم باید بزرگ‌تر از صفر باشد"); return; }
                 setSplitShares({ agent: Number(toEnDigits(String(draft.agent))) || 0, management: Number(toEnDigits(String(draft.management))) || 0, rent: Number(toEnDigits(String(draft.rent))) || 0 });
                 setEditing(false); notify("نسبت تقسیم ذخیره شد");
-              }} className="press rounded-lg px-2.5 py-1.5" style={{ background: c.primary, fontSize: 10.5, fontWeight: 700, color: "#fff" }}>ذخیره</button>
+              }} className="press rounded-lg px-2.5 py-1.5" style={{ background: c.primary, fontSize: 11, fontWeight: 700, color: "#fff" }}>ذخیره</button>
             </div>
           )}
         </div>
@@ -6279,7 +6327,7 @@ function SplitTab({ ctx, deals, payments }) {
               return (
                 <div key={p.id} className="flex-1 rounded-xl p-2.5 text-center" style={{ background: p.color + "14", border: `1px solid ${p.color}2e` }}>
                   <p style={{ fontSize: 15, fontWeight: 800, color: p.color }}>{faDigits(pct)}%</p>
-                  <p style={{ fontSize: 9.5, color: c.muted, marginTop: 1 }}>{p.label}</p>
+                  <p style={{ fontSize: 10, color: c.muted, marginTop: 1 }}>{p.label}</p>
                 </div>
               );
             })}
@@ -6292,13 +6340,13 @@ function SplitTab({ ctx, deals, payments }) {
       <div className="flex flex-col gap-2.5 mb-4 flora-stagger">
         {SPLIT_PARTIES.map((p, i) => (
           <div key={p.id} className="rounded-2xl p-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${p.color}12, ${c.surface} 62%)`, position: "relative", overflow: "hidden" }}>
-            <span style={{ position: "absolute", inset: 6, borderRadius: 16, border: `1px dashed ${p.color}2e`, pointerEvents: "none" }} />
+            <span style={{ position: "absolute", inset: 6, borderRadius: 14, border: `1px dashed ${p.color}2e`, pointerEvents: "none" }} />
             <div className="flex items-center justify-between" style={{ position: "relative" }}>
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: p.color + "22", boxShadow: `inset 0 0 0 1.5px ${p.color}44` }}><p.icon size={17} color={p.color} /></div>
                 <div>
                   <p style={{ fontSize: 13, fontWeight: 700 }}>{p.label}</p>
-                  <p style={{ fontSize: 9.5, color: c.muted }}>سهم {faDigits(unitSum ? Math.round(((Number(splitShares?.[p.id]) || 0) / unitSum) * 100) : 0)}%</p>
+                  <p style={{ fontSize: 10, color: c.muted }}>سهم {faDigits(unitSum ? Math.round(((Number(splitShares?.[p.id]) || 0) / unitSum) * 100) : 0)}%</p>
                 </div>
               </div>
               <CountUpToman value={parts[i]} style={{ fontSize: 15, fontWeight: 800, color: p.color, direction: "ltr", display: "inline-block" }} />
@@ -6309,11 +6357,11 @@ function SplitTab({ ctx, deals, payments }) {
 
       {/* Reconciliation — proves the three parts add back up */}
       <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
-        <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>کنترل حساب</p>
+        <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>کنترل حساب</p>
         {SPLIT_PARTIES.map((p, i) => <Row key={p.id} c={c} label={p.label} value={fmtToman(parts[i])} color={p.color} />)}
         <div className="flex justify-between items-center" style={{ paddingTop: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 800 }}>جمع سه سهم</span>
-          <span style={{ fontSize: 12.5, fontWeight: 800, color: parts.reduce((a, b) => a + b, 0) === receivedTotal ? c.success : c.danger, direction: "ltr" }}>{fmtToman(parts.reduce((a, b) => a + b, 0))}</span>
+          <span style={{ fontSize: 13, fontWeight: 800 }}>جمع سه سهم</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: parts.reduce((a, b) => a + b, 0) === receivedTotal ? c.success : c.danger, direction: "ltr" }}>{fmtToman(parts.reduce((a, b) => a + b, 0))}</span>
         </div>
         <p className="flex items-center gap-1.5" style={{ fontSize: 10, color: c.success, marginTop: 6 }}>
           <BadgeCheck size={11} /> برابر با کل دریافتی — ریالی کم و زیاد نشده
@@ -6328,8 +6376,8 @@ function SplitTab({ ctx, deals, payments }) {
             <p style={{ fontSize: 11, color: c.muted, marginBottom: 8, lineHeight: 1.8 }}>این مبالغ هنوز به دست‌مان نرسیده؛ فقط برای برنامه‌ریزی است و در حساب بالا لحاظ نشده.</p>
             {SPLIT_PARTIES.map((p, i) => <Row key={p.id} c={c} label={p.label} value={fmtToman(futureParts[i])} color={c.muted} />)}
             <div className="flex justify-between items-center" style={{ paddingTop: 10 }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: c.attn }}>جمع وصول‌نشده</span>
-              <span style={{ fontSize: 12.5, fontWeight: 800, color: c.attn, direction: "ltr" }}>{fmtToman(pendingTotal)}</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: c.attn }}>جمع وصول‌نشده</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: c.attn, direction: "ltr" }}>{fmtToman(pendingTotal)}</span>
             </div>
           </div>
         </>
@@ -6343,14 +6391,14 @@ function SplitTab({ ctx, deals, payments }) {
           return (
             <div key={deal.id} className="rounded-xl p-3.5" style={glass(c, 20)}>
               <div className="flex items-center justify-between mb-2.5">
-                <p style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{deal.propertyTitle}</p>
-                <span style={{ fontSize: 11.5, fontWeight: 800, color: c.success, direction: "ltr", flexShrink: 0, marginRight: 8 }}>{fmtToman(paid)}</span>
+                <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{deal.propertyTitle}</p>
+                <span style={{ fontSize: 11, fontWeight: 800, color: c.success, direction: "ltr", flexShrink: 0, marginRight: 8 }}>{fmtToman(paid)}</span>
               </div>
               <div className="flex gap-1.5">
                 {SPLIT_PARTIES.map((p, i) => (
                   <div key={p.id} className="flex-1 rounded-lg py-1.5 px-1 text-center" style={{ background: p.color + "14" }}>
-                    <p style={{ fontSize: 10.5, fontWeight: 800, color: p.color, direction: "ltr" }}>{dp[i].toLocaleString("en-US")}</p>
-                    <p style={{ fontSize: 8.5, color: c.muted, marginTop: 1 }}>{p.label}</p>
+                    <p style={{ fontSize: 11, fontWeight: 800, color: p.color, direction: "ltr" }}>{dp[i].toLocaleString("en-US")}</p>
+                    <p style={{ fontSize: 10, color: c.muted, marginTop: 1 }}>{p.label}</p>
                   </div>
                 ))}
               </div>
@@ -6369,7 +6417,7 @@ function FinStat({ c, icon: Icon, color, value, label }) {
       {/* faint coin edge in the corner */}
       <span style={{ position: "absolute", top: -14, left: -14, width: 46, height: 46, borderRadius: "50%", border: `1.5px dashed ${color}33`, pointerEvents: "none" }} />
       <div className="w-8 h-8 rounded-full flex items-center justify-center mb-2.5" style={{ background: color + "22", boxShadow: `inset 0 0 0 1.5px ${color}33` }}><Icon size={15} color={color} /></div>
-      <p style={{ fontSize: 13.5, fontWeight: 800, direction: "ltr", textAlign: "right" }}>{value}</p>
+      <p style={{ fontSize: 13, fontWeight: 800, direction: "ltr", textAlign: "right" }}>{value}</p>
       <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{label}</p>
     </div>
   );
@@ -6435,7 +6483,7 @@ function MoneyIdeasCard({ ctx, received }) {
               </div>
             ))}
           </div>
-          <p style={{ fontSize: 9.5, color: c.muted, marginTop: SP.md, lineHeight: 1.7, textAlign: "center" }}>این‌ها پیشنهاد کلی‌اند، نه توصیه‌ی قطعی سرمایه‌گذاری. قبل از تصمیم، قیمت روز را چک کن.</p>
+          <p style={{ fontSize: 10, color: c.muted, marginTop: SP.md, lineHeight: 1.7, textAlign: "center" }}>این‌ها پیشنهاد کلی‌اند، نه توصیه‌ی قطعی سرمایه‌گذاری. قبل از تصمیم، قیمت روز را چک کن.</p>
         </div>
       )}
     </div>
@@ -6472,7 +6520,7 @@ function QuickAddSheet({ ctx, onClose }) {
         {options.map((o) => (
           <button key={o.id} onClick={() => setSheet(o.id)} className="press w-full flex items-center gap-3 rounded-xl p-3.5" style={glass(c, 20)}>
             <div className="rounded-2xl flex items-center justify-center" style={{ width: 38, height: 38, background: c.primarySoft }}><o.icon size={17} color={c.primary} /></div>
-            <span style={{ fontSize: 13.5, fontWeight: 600 }}>{o.label}</span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{o.label}</span>
           </button>
         ))}
       </div>
@@ -6504,9 +6552,9 @@ function JalaliDatePicker({ c, value, onChange }) {
             <span style={{ fontSize: 13, fontWeight: 700 }}>{MONTHS_FA[viewM - 1]} {faDigits(viewY)}</span>
             <button onClick={() => nav(1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronLeft size={14} color={c.ink} /></button>
           </div>
-          <div className="grid grid-cols-7 gap-1 mb-1">{WEEK_FA.map((w, i) => <div key={i} style={{ fontSize: 10.5, color: c.muted, textAlign: "center", fontWeight: 700 }}>{w}</div>)}</div>
+          <div className="grid grid-cols-7 gap-1 mb-1">{WEEK_FA.map((w, i) => <div key={i} style={{ fontSize: 11, color: c.muted, textAlign: "center", fontWeight: 700 }}>{w}</div>)}</div>
           <div className="grid grid-cols-7 gap-1">
-            {cells.map((day, i) => { const isSel = day && viewY === selJ[0] && viewM === selJ[1] && day === selJ[2]; return day ? <button key={i} onClick={() => pick(day)} className="press rounded-xl flex items-center justify-center" style={{ height: 30, fontSize: 12, fontWeight: isSel ? 800 : 500, color: isSel ? "#fff" : c.ink, background: isSel ? c.primary : "transparent" }}>{faDigits(day)}</button> : <div key={i} />; })}
+            {cells.map((day, i) => { const isSel = day && viewY === selJ[0] && viewM === selJ[1] && day === selJ[2]; return day ? <button key={i} onClick={() => pick(day)} className="press rounded-xl flex items-center justify-center" style={{ height: 30, fontSize: 13, fontWeight: isSel ? 800 : 500, color: isSel ? "#fff" : c.ink, background: isSel ? c.primary : "transparent" }}>{faDigits(day)}</button> : <div key={i} />; })}
           </div>
         </div>
       )}
@@ -6535,7 +6583,7 @@ async function precacheSareinTiles(onProgress) {
     const yMin = lat2tile(lat + dLat, z), yMax = lat2tile(lat - dLat, z);
     for (let x = xMin; x <= xMax; x++)
       for (let y = yMin; y <= yMax; y++)
-        urls.push(`https://a.tile.openstreetmap.org/${z}/${x}/${y}.png`);
+        urls.push(`https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`);
   }
 
   let done = 0;
@@ -6585,7 +6633,7 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
       if (cancelled || !mapRef.current || mapObjRef.current) return;
       const start = initial && initial.lat ? [initial.lat, initial.lng] : SAREIN_CENTER;
       const map = L.map(mapRef.current, { attributionControl: false }).setView(start, initial && initial.lat ? 16 : 14);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "" }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "" }).addTo(map);
       const marker = L.marker(start, { draggable: true }).addTo(map);
       marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
       map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
@@ -6671,8 +6719,8 @@ function AiSettingsSheet({ ctx, onClose }) {
       <Field c={c} label="ارائه‌دهنده">
         <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
           {providers.map((p) => (
-            <button key={p.id} onClick={() => setProvider(p.id)} className="press rounded-lg" style={{ paddingBlock: 10, background: provider === p.id ? c.primary : c.surface2, color: provider === p.id ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption, position: "relative" }}>
-              {p.id === "avalai" && provider !== "avalai" && <span style={{ position: "absolute", top: -6, right: 6, fontSize: 8, background: c.success, color: "#fff", padding: "1px 6px", borderRadius: RAD.pill }}>پیشنهادی</span>}
+            <button key={p.id} onClick={() => setProvider(p.id)} className="press rounded-lg" style={{ paddingBlock: 8, background: provider === p.id ? c.primary : c.surface2, color: provider === p.id ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption, position: "relative" }}>
+              {p.id === "avalai" && provider !== "avalai" && <span style={{ position: "absolute", top: -6, right: 6, fontSize: 10, background: c.success, color: "#fff", padding: "1px 6px", borderRadius: RAD.pill }}>پیشنهادی</span>}
               {p.label}
             </button>
           ))}
@@ -6780,7 +6828,7 @@ function MessageTemplatesSheet({ ctx, onClose, customerId }) {
           return (
             <button key={t.id} onClick={() => setActiveId(t.id)} className="press shrink-0 flex flex-col items-center gap-1.5 rounded-xl px-3 py-2.5" style={isActive ? { background: c.primary } : glass(c, 20)}>
               <t.icon size={16} color={isActive ? "#fff" : c.muted} />
-              <span style={{ fontSize: 9.5, fontWeight: 700, color: isActive ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
             </button>
           );
         })}
@@ -6798,9 +6846,9 @@ function MessageTemplatesSheet({ ctx, onClose, customerId }) {
       </Field>
 
       <div className="flex gap-2">
-        <button onClick={() => { navigator.clipboard?.writeText(text); notify("متن کپی شد"); }} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 12 }}>کپی متن</button>
-        <a href={smsLink(phone, text) || "#"} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><MessageSquare size={13} /> پیامک</a>
-        <a href={waLink(phone, text) || "#"} target="_blank" rel="noreferrer" className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><Send size={13} /> واتساپ</a>
+        <button onClick={() => { navigator.clipboard?.writeText(text); notify("متن کپی شد"); }} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>کپی متن</button>
+        <a href={smsLink(phone, text) || "#"} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 13, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><MessageSquare size={13} /> پیامک</a>
+        <a href={waLink(phone, text) || "#"} target="_blank" rel="noreferrer" className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 13, opacity: phone ? 1 : 0.5, pointerEvents: phone ? "auto" : "none" }}><Send size={13} /> واتساپ</a>
       </div>
     </SheetShell>
   );
@@ -6819,27 +6867,27 @@ function PreSaleFields({ c, f, setF, total }) {
     <div className="rounded-2xl p-3.5 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
       <div className="flex items-center gap-2 mb-3">
         <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: c.purpleSoft }}><Hammer size={13} color={c.purple} /></div>
-        <p style={{ fontSize: 12.5, fontWeight: 700 }}>شرایط پیش‌فروش</p>
+        <p style={{ fontSize: 13, fontWeight: 700 }}>شرایط پیش‌فروش</p>
       </div>
 
       <Field c={c} label="مبلغ پرداخت اولیه (تومان)">
         <input style={inputStyle(c)} inputMode="numeric" value={f.preDown} onChange={set("preDown")} placeholder="مثلاً 3000000000" />
-        <p style={{ fontSize: 10.5, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(down)} {total ? `— ${faDigits(pct(down))}% کل` : ""}</p>
+        <p style={{ fontSize: 11, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(down)} {total ? `— ${faDigits(pct(down))}% کل` : ""}</p>
       </Field>
 
       <Field c={c} label="مبلغ موقع تحویل (تومان)">
         <input style={inputStyle(c)} inputMode="numeric" value={f.preDelivery} onChange={set("preDelivery")} placeholder="مبلغ پرداخت هنگام تحویل" />
-        <p style={{ fontSize: 10.5, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(delivery)} {total ? `— ${faDigits(pct(delivery))}% کل` : ""}</p>
+        <p style={{ fontSize: 11, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(delivery)} {total ? `— ${faDigits(pct(delivery))}% کل` : ""}</p>
       </Field>
 
       <Field c={c} label="مبلغ موقع سند (تومان)">
         <input style={inputStyle(c)} inputMode="numeric" value={f.preDeed} onChange={set("preDeed")} placeholder="مبلغ پرداخت هنگام سند" />
-        <p style={{ fontSize: 10.5, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(deed)} {total ? `— ${faDigits(pct(deed))}% کل` : ""}</p>
+        <p style={{ fontSize: 11, color: c.purple, fontWeight: 700, marginTop: 5 }}>{fmtToman(deed)} {total ? `— ${faDigits(pct(deed))}% کل` : ""}</p>
       </Field>
 
       <Field c={c} label="زمان تحویل پروژه (ماه)">
         <input style={inputStyle(c)} inputMode="numeric" value={f.preMonths} onChange={set("preMonths")} placeholder="مثلاً 18" />
-        {toNum(f.preMonths) > 0 && <p style={{ fontSize: 10.5, color: c.muted, marginTop: 5 }}>تحویل حدود {faDigits(toNum(f.preMonths))} ماه دیگر</p>}
+        {toNum(f.preMonths) > 0 && <p style={{ fontSize: 11, color: c.muted, marginTop: 5 }}>تحویل حدود {faDigits(toNum(f.preMonths))} ماه دیگر</p>}
       </Field>
 
       <Field c={c} label="مرحله ساخت">
@@ -6856,14 +6904,14 @@ function PreSaleFields({ c, f, setF, total }) {
       {total > 0 && (
         <div className="rounded-xl p-3" style={{ background: c.surface2 }}>
           <div className="flex justify-between items-center mb-1.5">
-            <span style={{ fontSize: 10.5, color: c.muted }}>جمع سه پرداخت</span>
+            <span style={{ fontSize: 11, color: c.muted }}>جمع سه پرداخت</span>
             <span style={{ fontSize: 11, fontWeight: 800, direction: "ltr" }}>{fmtToman(sum)}</span>
           </div>
           <div className="flex justify-between items-center">
-            <span style={{ fontSize: 10.5, color: c.muted }}>قیمت کل فایل</span>
+            <span style={{ fontSize: 11, color: c.muted }}>قیمت کل فایل</span>
             <span style={{ fontSize: 11, fontWeight: 800, direction: "ltr" }}>{fmtToman(total)}</span>
           </div>
-          <div style={{ height: 6, borderRadius: 6, background: c.border, marginTop: 8, overflow: "hidden", display: "flex" }}>
+          <div style={{ height: 6, borderRadius: 8, background: c.border, marginTop: 8, overflow: "hidden", display: "flex" }}>
             {[down, delivery, deed].map((v, i) => (
               <div key={i} style={{ width: `${total ? Math.min(100, (v / total) * 100) : 0}%`, background: [c.success, c.primary, c.purple][i], transition: "width .5s ease" }} />
             ))}
@@ -7027,7 +7075,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
   return (
     <SheetShell c={c} title={editing ? "ویرایش فایل ملک" : "ثبت فایل ملک"} onClose={onClose}>
       {!editing && (
-        <button type="button" onClick={() => setShowDivar((s) => !s)} className="press w-full flex items-center justify-center gap-2 rounded-xl py-3 mb-3.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}>
+        <button type="button" onClick={() => setShowDivar((s) => !s)} className="press w-full flex items-center justify-center gap-2 rounded-xl py-3 mb-3.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 13 }}>
           <Link2 size={15} /> ورود از لینک دیوار
         </button>
       )}
@@ -7037,7 +7085,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           <button type="button" onClick={extractFromDivarAI} disabled={aiExtracting} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
             {aiExtracting ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} {aiExtracting ? "در حال استخراج..." : "استخراج خودکار با AI"}
           </button>
-          <p style={{ fontSize: 10.5, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
+          <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
             نیاز به کلید Perplexity در تنظیمات هوش مصنوعی دارد. اگر نداری یا جواب نداد، همین‌جا دستی هم می‌تونی پیستش کنی:
           </p>
           <Field c={c} label="متن کامل آگهی (اختیاری)">
@@ -7063,7 +7111,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
         <Field c={c} label="قیمت هر متر (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.pricePerMeter} onChange={set("pricePerMeter")} placeholder="فارسی یا انگلیسی" /></Field>
       </div>
       <div className="rounded-2xl px-4 py-3 mb-3 flex items-center justify-between" style={{ background: c.primarySoft }}>
-        <span style={{ fontSize: 12.5, color: c.primary, fontWeight: 700 }}>مبلغ کل (متراژ × قیمت هر متر)</span><span style={{ fontSize: 15, color: c.primary, fontWeight: 800 }}>{fmtToman(total)}</span>
+        <span style={{ fontSize: 13, color: c.primary, fontWeight: 700 }}>مبلغ کل (متراژ × قیمت هر متر)</span><span style={{ fontSize: 15, color: c.primary, fontWeight: 800 }}>{fmtToman(total)}</span>
       </div>
       <Field c={c} label="آدرس">
         <div className="flex gap-2">
@@ -7071,15 +7119,15 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           <button type="button" onClick={openMapPicker} className="press shrink-0 rounded-2xl flex items-center justify-center gap-1.5 px-3" style={{ background: f.lat ? c.successSoft : c.primarySoft }}><MapPin size={16} color={f.lat ? c.success : c.primary} /></button>
         </div>
         {f.lat ? (
-          <p className="flex items-center gap-1.5" style={{ fontSize: 10.5, color: c.success, fontWeight: 700, marginTop: 6 }}>
+          <p className="flex items-center gap-1.5" style={{ fontSize: 11, color: c.success, fontWeight: 700, marginTop: 6 }}>
             <BadgeCheck size={12} /> موقعیت روی نقشه ثبت شد
           </p>
         ) : (
-          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 6 }}>برای ثبت موقعیت دقیق روی نقشه، دکمه‌ی کنار را بزن</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 6 }}>برای ثبت موقعیت دقیق روی نقشه، دکمه‌ی کنار را بزن</p>
         )}
       </Field>
       <button type="button" onClick={() => setShowMore((s) => !s)} className="press w-full flex items-center justify-between rounded-xl px-4 py-3 mb-3" style={{ background: c.surface2 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: c.ink }}>جزئیات بیشتر (اختیاری)</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: c.ink }}>جزئیات بیشتر (اختیاری)</span>
         <ChevronDown size={16} color={c.muted} style={{ transform: showMore ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
       </button>
       {showMore && (
@@ -7153,7 +7201,7 @@ function CustomerForm({ ctx, onClose }) {
   return (
     <SheetShell c={c} title="ثبت مشتری" onClose={onClose}>
       {contactsSupported && (
-        <button type="button" onClick={pickContact} className="press w-full flex items-center justify-center gap-2 rounded-xl py-3 mb-3.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 12.5 }}>
+        <button type="button" onClick={pickContact} className="press w-full flex items-center justify-center gap-2 rounded-xl py-3 mb-3.5" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 13 }}>
           <UserCircle2 size={15} /> انتخاب از مخاطبین گوشی
         </button>
       )}
@@ -7221,7 +7269,7 @@ function BuilderBroadcastSheet({ ctx, onClose }) {
       </Field>
       <button onClick={generate} disabled={loading} className="press w-full rounded-xl py-2.5 flex items-center justify-center gap-2 mb-3" style={{ background: c.primarySoft }}>
         {loading ? <Loader2 size={14} className="animate-spin" color={c.primary} /> : <Sparkles size={14} color={c.primary} />}
-        <span style={{ fontSize: 12, fontWeight: 700, color: c.primary }}>{loading ? "در حال نوشتن..." : "ساخت پیام با هوش مصنوعی"}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>{loading ? "در حال نوشتن..." : "ساخت پیام با هوش مصنوعی"}</span>
       </button>
       <Field c={c} label="متن پیام">
         <textarea style={{ ...inputStyle(c), minHeight: 90, resize: "none", lineHeight: 1.9 }} value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="متن پیام تبریک..." />
@@ -7230,9 +7278,9 @@ function BuilderBroadcastSheet({ ctx, onClose }) {
       <div className="flex flex-col gap-2" style={{ maxHeight: 220, overflowY: "auto" }}>
         {withPhone.map((b) => (
           <div key={b.id} className="rounded-xl p-2.5 flex items-center gap-2" style={{ background: c.surface2 }}>
-            <div className="flex-1 min-w-0"><p style={{ fontSize: 12.5, fontWeight: 700 }}>{b.name}</p><p style={{ fontSize: 10, color: c.muted }} dir="ltr">{b.phone}</p></div>
-            <a href={waLink(b.phone, msg) || "#"} target="_blank" rel="noreferrer" className={`press rounded-lg px-3 py-2 flex items-center gap-1 ${!msg ? "pointer-events-none opacity-40" : ""}`} style={{ background: c.successSoft }}><Send size={12} color={c.success} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.success }}>واتساپ</span></a>
-            <a href={smsLink(b.phone, msg) || "#"} className={`press rounded-lg px-3 py-2 flex items-center gap-1 ${!msg ? "pointer-events-none opacity-40" : ""}`} style={{ background: c.primarySoft }}><MessageCircle size={12} color={c.primary} /><span style={{ fontSize: 10.5, fontWeight: 700, color: c.primary }}>پیامک</span></a>
+            <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 700 }}>{b.name}</p><p style={{ fontSize: 10, color: c.muted }} dir="ltr">{b.phone}</p></div>
+            <a href={waLink(b.phone, msg) || "#"} target="_blank" rel="noreferrer" className={`press rounded-lg px-3 py-2 flex items-center gap-1 ${!msg ? "pointer-events-none opacity-40" : ""}`} style={{ background: c.successSoft }}><Send size={12} color={c.success} /><span style={{ fontSize: 11, fontWeight: 700, color: c.success }}>واتساپ</span></a>
+            <a href={smsLink(b.phone, msg) || "#"} className={`press rounded-lg px-3 py-2 flex items-center gap-1 ${!msg ? "pointer-events-none opacity-40" : ""}`} style={{ background: c.primarySoft }}><MessageCircle size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>پیامک</span></a>
           </div>
         ))}
         {withPhone.length === 0 && <EmptyLine c={c} text="هیچ سازنده‌ای شماره ندارد" />}
@@ -7337,10 +7385,10 @@ function CommissionField({ c, f, setF, side, label }) {
           <BreakdownRow c={c} label="کمیسیون قبل از مالیات" value={breakdown.commission} />
           <BreakdownRow c={c} label="مالیات ۱۰٪" value={breakdown.tax} muted />
           <div className="flex items-center justify-between" style={{ paddingTop: 8, marginTop: 4, borderTop: `1px solid ${c.border}` }}>
-            <span style={{ fontSize: 12, fontWeight: 800, color: c.primary }}>مبلغ نهایی قابل پرداخت</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: c.primary }}>مبلغ نهایی قابل پرداخت</span>
             <span style={{ fontSize: 13, fontWeight: 800, color: c.primary, direction: "ltr" }}>{fmtToman(breakdown.final)}</span>
           </div>
-          <p style={{ fontSize: 9.5, color: c.muted, marginTop: 8, lineHeight: 1.7 }}>۱ میلیارد اول: ۱۰ میلیون ثابت · مازاد: نیم درصد · سپس ۱۰٪ مالیات</p>
+          <p style={{ fontSize: 10, color: c.muted, marginTop: 8, lineHeight: 1.7 }}>۱ میلیارد اول: ۱۰ میلیون ثابت · مازاد: نیم درصد · سپس ۱۰٪ مالیات</p>
         </div>
       ) : mode === "pct"
         ? <input style={inputStyle(c)} inputMode="decimal" value={f[pctKey]} onChange={(e) => setF((p) => ({ ...p, [pctKey]: e.target.value }))} placeholder="مثلاً ۱" />
@@ -7354,7 +7402,7 @@ function BreakdownRow({ c, label, value, muted }) {
   return (
     <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
       <span style={{ fontSize: 11, color: c.muted }}>{label}</span>
-      <span style={{ fontSize: 11.5, fontWeight: 700, color: muted ? c.muted : c.ink, direction: "ltr" }}>{fmtToman(value)}</span>
+      <span style={{ fontSize: 11, fontWeight: 700, color: muted ? c.muted : c.ink, direction: "ltr" }}>{fmtToman(value)}</span>
     </div>
   );
 }
@@ -7397,7 +7445,7 @@ function DealForm({ ctx, onClose, editId }) {
         <div className="flora-pop" style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.lg, background: `linear-gradient(160deg, ${c.successSoft}, ${c.surface} 65%)`, border: `1px solid ${c.success}33` }}>
           <p style={{ fontSize: FS.caption, color: c.muted }}>کمیسیون کل این معامله</p>
           <CountUpTomanSplit value={totalCommission} size={26} color={c.success} tomanColor={c.muted} />
-          <p style={{ fontSize: 10.5, color: c.muted, marginTop: SP.xs }}>فروشنده {fmtBudgetShort(sideAmount(f.sellerMode, "sellerPct", "sellerFixed"))} · خریدار {fmtBudgetShort(sideAmount(f.buyerMode, "buyerPct", "buyerFixed"))}</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: SP.xs }}>فروشنده {fmtBudgetShort(sideAmount(f.sellerMode, "sellerPct", "sellerFixed"))} · خریدار {fmtBudgetShort(sideAmount(f.buyerMode, "buyerPct", "buyerFixed"))}</p>
         </div>
       )}
 
@@ -7458,14 +7506,14 @@ function PaymentForm({ ctx, onClose, prefillDealId, editId }) {
       <Field c={c} label="انتخاب معامله"><Select c={c} value={f.dealId} onChange={set("dealId")} placeholder="انتخاب قرارداد" options={deals.map((d) => ({ value: d.id, label: d.propertyTitle }))} /></Field>
       <Field c={c} label="پرداخت‌کننده">
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setF({ ...f, payerType: "seller" })} className="press rounded-xl py-2.5" style={{ background: f.payerType === "seller" ? c.primary : c.surface2, color: f.payerType === "seller" ? "#fff" : c.muted, fontWeight: 700, fontSize: 12 }}>فروشنده</button>
-          <button type="button" onClick={() => setF({ ...f, payerType: "buyer" })} className="press rounded-xl py-2.5" style={{ background: f.payerType === "buyer" ? c.primary : c.surface2, color: f.payerType === "buyer" ? "#fff" : c.muted, fontWeight: 700, fontSize: 12 }}>خریدار</button>
+          <button type="button" onClick={() => setF({ ...f, payerType: "seller" })} className="press rounded-xl py-2.5" style={{ background: f.payerType === "seller" ? c.primary : c.surface2, color: f.payerType === "seller" ? "#fff" : c.muted, fontWeight: 700, fontSize: 13 }}>فروشنده</button>
+          <button type="button" onClick={() => setF({ ...f, payerType: "buyer" })} className="press rounded-xl py-2.5" style={{ background: f.payerType === "buyer" ? c.primary : c.surface2, color: f.payerType === "buyer" ? "#fff" : c.muted, fontWeight: 700, fontSize: 13 }}>خریدار</button>
         </div>
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="مبلغ پرداختی (تومان)">
           <input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} />
-          <p style={{ fontSize: 10.5, color: c.muted, marginTop: 5 }}>{fmtToman(toNum(f.amount))}</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 5 }}>{fmtToman(toNum(f.amount))}</p>
         </Field>
         <Field c={c} label="تاریخ (شمسی)"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
       </div>
@@ -7474,7 +7522,7 @@ function PaymentForm({ ctx, onClose, prefillDealId, editId }) {
           {PAYMENT_METHODS.map((m) => (
             <button key={m.id} type="button" onClick={() => setF({ ...f, method: m.id })} className="press rounded-xl py-2.5 flex flex-col items-center gap-1" style={{ background: f.method === m.id ? c.primary : c.surface2 }}>
               <m.icon size={14} color={f.method === m.id ? "#fff" : c.muted} />
-              <span style={{ fontSize: 9.5, fontWeight: 700, color: f.method === m.id ? "#fff" : c.muted }}>{m.label}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: f.method === m.id ? "#fff" : c.muted }}>{m.label}</span>
             </button>
           ))}
         </div>
@@ -7542,7 +7590,7 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
     const done = remaining === 0;
     return (
       <div className="rounded-xl p-3.5 mb-3" style={{ background: c.surface2 }}>
-        <div className="flex items-center gap-2 mb-2.5"><Icon size={15} color={c.primary} /><p style={{ fontSize: 12.5, fontWeight: 700 }}>{title}</p></div>
+        <div className="flex items-center gap-2 mb-2.5"><Icon size={15} color={c.primary} /><p style={{ fontSize: 13, fontWeight: 700 }}>{title}</p></div>
         <Row c={c} label={mode === "fixed" ? "نوع کمیسیون" : "درصد کمیسیون"} value={mode === "fixed" ? "مبلغ ثابت" : `${faDigits(side === "seller" ? deal.sellerPct : deal.buyerPct)}٪`} />
         <Row c={c} label="مبلغ کمیسیون" value={fmtToman(commission)} />
         <Row c={c} label="پرداخت شده" value={fmtToman(paid)} color={c.success} />
@@ -7554,7 +7602,7 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
   return (
     <SheetShell c={c} title="جزئیات معامله" onClose={onClose}>
       <div className="flex items-start justify-between mb-1">
-        <div><p style={{ fontSize: 14, fontWeight: 800 }}>{deal.propertyTitle}</p><p style={{ fontSize: 11.5, color: c.muted, marginTop: 3 }}>{fmtToman(deal.price)} · {deal.advisor}</p></div>
+        <div><p style={{ fontSize: 15, fontWeight: 800 }}>{deal.propertyTitle}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 3 }}>{fmtToman(deal.price)} · {deal.advisor}</p></div>
         <div className="flex gap-2 shrink-0">
           <button onClick={() => setSheet({ kind: "deal", editId: dealId })} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Edit3 size={14} color={c.primary} /></button>
           <button onClick={() => { setDeals((prev) => prev.filter((d) => d.id !== dealId)); onClose(); notify("قرارداد حذف شد"); }} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
@@ -7565,15 +7613,15 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
       <Block title="کمیسیون خریدار" icon={Users} side="buyer" />
       <div className="flex gap-2 mt-2">
         {deal.status !== "تسویه شده" && (
-          <button onClick={() => { setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, status: "تسویه شده" } : d)); notify("وضعیت به‌روزرسانی شد"); }} className="press flex-1 rounded-xl py-3" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 12.5 }}>علامت به‌عنوان تسویه‌شده</button>
+          <button onClick={() => { setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, status: "تسویه شده" } : d)); notify("وضعیت به‌روزرسانی شد"); }} className="press flex-1 rounded-xl py-3" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 13 }}>علامت به‌عنوان تسویه‌شده</button>
         )}
-        <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 12.5 }}>ثبت پرداخت</button>
+        <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ثبت پرداخت</button>
       </div>
     </SheetShell>
   );
 }
 function Row({ c, label, value, color }) {
-  return <div className="flex justify-between items-center" style={{ padding: "8px 0", borderBottom: `1px solid ${c.border}` }}><span style={{ fontSize: 11.5, color: c.muted }}>{label}</span><span style={{ fontSize: 12, fontWeight: 700, color: color || c.ink }}>{value}</span></div>;
+  return <div className="flex justify-between items-center" style={{ padding: "8px 0", borderBottom: `1px solid ${c.border}` }}><span style={{ fontSize: 11, color: c.muted }}>{label}</span><span style={{ fontSize: 13, fontWeight: 700, color: color || c.ink }}>{value}</span></div>;
 }
 
 // One form handles both office income and office expense — same shape, different list/colors.
@@ -7600,7 +7648,7 @@ function OfficeEntryForm({ ctx, onClose, editId, mode }) {
             const active = f.category === cat;
             return (
               <button key={cat} type="button" onClick={() => setF({ ...f, category: cat })} className="press rounded-lg px-3 py-2"
-                style={{ background: active ? accent : c.surface2, color: active ? "#fff" : c.muted, fontWeight: 700, fontSize: 10.5 }}>{cat}</button>
+                style={{ background: active ? accent : c.surface2, color: active ? "#fff" : c.muted, fontWeight: 700, fontSize: 11 }}>{cat}</button>
             );
           })}
         </div>
