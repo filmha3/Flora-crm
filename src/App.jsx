@@ -451,45 +451,41 @@ function AuthLoadingScreen({ c }) {
 // elsewhere in the app, so the whole screen feels like one consistent motion
 // language instead of a one-off.
 function AuthScreen({ c, dark }) {
-  const [mode, setMode] = useState("login"); // login | signup
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
 
   const say = (text, error) => setMsg({ text, error: !!error });
   const phoneOk = /^09\d{9}$/.test(phone);
   const passwordOk = password.length === 6;
 
-  const login = async () => {
-    if (!phoneOk) { say("شماره را کامل وارد کن", true); return; }
-    if (!passwordOk) { say("رمز باید ۶ کاراکتر باشد", true); return; }
-    setLoading(true); setMsg(null);
-    const { error } = await supabase.auth.signInWithPassword({ phone: phoneToE164(phone), password });
-    setLoading(false);
-    if (error) say("شماره یا رمز اشتباه است", true);
-  };
-
-  const signup = async () => {
+  // One field set, one button: try signing in first; if there's no account
+  // yet, Supabase's error is generic ("invalid credentials") on purpose for
+  // security, so a sign-up attempt right after is how we actually find out
+  // whether the number is new or the password was just wrong.
+  const submit = async () => {
     if (!phoneOk) { say("شماره را کامل وارد کن", true); return; }
     if (!passwordOk) { say("رمز باید دقیقاً ۶ کاراکتر باشد", true); return; }
-    if (password !== confirm) { say("تکرار رمز مطابقت ندارد", true); return; }
     setLoading(true); setMsg(null);
-    const { error } = await supabase.auth.signUp({ phone: phoneToE164(phone), password });
+    const phoneE164 = phoneToE164(phone);
+
+    const { error: loginErr } = await supabase.auth.signInWithPassword({ phone: phoneE164, password });
+    if (!loginErr) { setLoading(false); return; } // signed in — the session listener above takes it from here
+
+    const { error: signupErr } = await supabase.auth.signUp({ phone: phoneE164, password });
     setLoading(false);
-    if (error) { say(error.message.includes("registered") ? "این شماره قبلاً ثبت شده — وارد شو" : error.message, true); return; }
-    // Auth Hooks/session listener in the parent picks up the new session and
-    // moves on to onboarding automatically once this resolves.
+    if (!signupErr) return; // brand-new account, signed in immediately
+    say(/registered|exists/i.test(signupErr.message) ? "رمز اشتباه است" : signupErr.message, true);
   };
 
   return (
     <div className="fixed inset-0 flex flex-col items-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl, paddingTop: "calc(64px + env(safe-area-inset-top, 0px))" }}>
-      <div className="w-full flora-door" key={mode} style={{ maxWidth: 360 }}>
+      <div className="w-full flora-door" style={{ maxWidth: 360 }}>
         <div className="flex flex-col items-center" style={{ marginBottom: SP.xxl }}>
           <FloraMark size={56} color={c.ink} />
           <p style={{ fontSize: FS.title, fontWeight: FW.heavy, marginTop: SP.md }}>Flora CRM</p>
-          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 4 }}>{mode === "signup" ? "ساخت حساب جدید" : "خوش برگشتی"}</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 4 }}>شماره و رمز — اگر حساب داری وارد می‌شی، اگر نه ساخته می‌شه</p>
         </div>
 
         {msg && (
@@ -503,28 +499,14 @@ function AuthScreen({ c, dark }) {
           <input dir="ltr" type="password" maxLength={6} style={inputStyle(c)} value={password} onChange={(e) => setPassword(e.target.value.slice(0, 6))} placeholder="••••••" />
         </Field>
 
-        {mode === "signup" && (
-          <Field c={c} label="تکرار رمز عبور">
-            <input dir="ltr" type="password" maxLength={6} style={inputStyle(c)} value={confirm} onChange={(e) => setConfirm(e.target.value.slice(0, 6))} placeholder="••••••" />
-          </Field>
-        )}
-
         <button
-          onClick={mode === "signup" ? signup : login}
+          onClick={submit}
           disabled={loading}
           className="press w-full"
           style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
         >
-          {loading ? "..." : mode === "signup" ? "ساخت حساب" : "ورود"}
+          {loading ? "..." : "ورود / ساخت حساب"}
         </button>
-
-        <p style={{ textAlign: "center", marginTop: SP.xl, fontSize: FS.caption, color: c.muted }}>
-          {mode === "signup" ? (
-            <>حساب داری؟ <button onClick={() => { setMode("login"); setMsg(null); }} className="press" style={{ color: c.primary, fontWeight: FW.bold }}>وارد شو</button></>
-          ) : (
-            <>حساب نداری؟ <button onClick={() => { setMode("signup"); setMsg(null); }} className="press" style={{ color: c.primary, fontWeight: FW.bold }}>بساز</button></>
-          )}
-        </p>
       </div>
     </div>
   );
