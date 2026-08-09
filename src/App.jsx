@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { supabase } from "./lib/supabaseClient.js";
 import {
   Home, Building2, Users, Search, Plus, X, Moon, Sun, Sparkles, MapPin, Ruler,
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
@@ -406,6 +407,177 @@ const seedOfficeIncomes = [
   { id: "inc1", category: "حق مشاوره", title: "حق مشاوره قرارداد اجاره", amount: 5000000, date: daysAgoISO(5).slice(0, 10), note: "" },
 ];
 
+// Six separate boxes instead of one text field: each digit auto-advances
+// focus to the next box, backspace on an empty box steps back, and filling
+// the last box auto-submits — no separate "confirm" tap needed, matching how
+// native OTP autofill feels. A short glow on each filled box is the only
+// motion cue; framer-motion isn't a dependency here, so it's a plain CSS
+// keyframe instead of a spring.
+// Auto-inserts the dashes as you type: 0912-000-0000. Internally the app
+// only ever works with the raw digits / E.164 form — the dashes are purely
+// a display convenience.
+const formatPhoneDisplay = (digits) => {
+  const d = digits.slice(0, 11);
+  const p1 = d.slice(0, 4), p2 = d.slice(4, 7), p3 = d.slice(7, 11);
+  return [p1, p2, p3].filter(Boolean).join("-");
+};
+const phoneToE164 = (digits) => "+98" + digits.replace(/^0/, "");
+
+function AuthPhoneField({ c, value, onChange }) {
+  return (
+    <Field c={c} label="شماره موبایل">
+      <input
+        dir="ltr" inputMode="numeric" style={{ ...inputStyle(c), textAlign: "left", letterSpacing: 1, fontVariantNumeric: "tabular-nums" }}
+        value={formatPhoneDisplay(value)}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 11))}
+        placeholder="0912-000-0000"
+      />
+    </Field>
+  );
+}
+
+function AuthLoadingScreen({ c }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: c.bg }}>
+      <style>{`@keyframes floraBreathe { 0%,100% { opacity:.25; transform:scale(.94); } 50% { opacity:.5; transform:scale(1); } }`}</style>
+      <div style={{ animation: "floraBreathe 1.8s ease-in-out infinite" }}><FloraMark size={64} color={c.ink} opacity={1} /></div>
+    </div>
+  );
+}
+
+// Phone + a 6-character password — no SMS, no email. Login and signup share
+// one animated shell; switching between them, or between error states,
+// replays the same door-open keyframe already used for tab transitions
+// elsewhere in the app, so the whole screen feels like one consistent motion
+// language instead of a one-off.
+function AuthScreen({ c, dark }) {
+  const [mode, setMode] = useState("login"); // login | signup
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const say = (text, error) => setMsg({ text, error: !!error });
+  const phoneOk = /^09\d{9}$/.test(phone);
+  const passwordOk = password.length === 6;
+
+  const login = async () => {
+    if (!phoneOk) { say("شماره را کامل وارد کن", true); return; }
+    if (!passwordOk) { say("رمز باید ۶ کاراکتر باشد", true); return; }
+    setLoading(true); setMsg(null);
+    const { error } = await supabase.auth.signInWithPassword({ phone: phoneToE164(phone), password });
+    setLoading(false);
+    if (error) say("شماره یا رمز اشتباه است", true);
+  };
+
+  const signup = async () => {
+    if (!phoneOk) { say("شماره را کامل وارد کن", true); return; }
+    if (!passwordOk) { say("رمز باید دقیقاً ۶ کاراکتر باشد", true); return; }
+    if (password !== confirm) { say("تکرار رمز مطابقت ندارد", true); return; }
+    setLoading(true); setMsg(null);
+    const { error } = await supabase.auth.signUp({ phone: phoneToE164(phone), password });
+    setLoading(false);
+    if (error) { say(error.message.includes("registered") ? "این شماره قبلاً ثبت شده — وارد شو" : error.message, true); return; }
+    // Auth Hooks/session listener in the parent picks up the new session and
+    // moves on to onboarding automatically once this resolves.
+  };
+
+  return (
+    <div className="fixed inset-0 flex flex-col items-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl, paddingTop: "calc(64px + env(safe-area-inset-top, 0px))" }}>
+      <div className="w-full flora-door" key={mode} style={{ maxWidth: 360 }}>
+        <div className="flex flex-col items-center" style={{ marginBottom: SP.xxl }}>
+          <FloraMark size={56} color={c.ink} />
+          <p style={{ fontSize: FS.title, fontWeight: FW.heavy, marginTop: SP.md }}>Flora CRM</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 4 }}>{mode === "signup" ? "ساخت حساب جدید" : "خوش برگشتی"}</p>
+        </div>
+
+        {msg && (
+          <div style={{ padding: SP.md, borderRadius: RAD.md, marginBottom: SP.lg, background: msg.error ? c.dangerSoft : c.successSoft, color: msg.error ? c.danger : c.success, fontSize: FS.caption, fontWeight: FW.bold, lineHeight: 1.8, textAlign: "center" }}>
+            {msg.text}
+          </div>
+        )}
+
+        <AuthPhoneField c={c} value={phone} onChange={setPhone} />
+        <Field c={c} label="رمز عبور (۶ کاراکتر)">
+          <input dir="ltr" type="password" maxLength={6} style={inputStyle(c)} value={password} onChange={(e) => setPassword(e.target.value.slice(0, 6))} placeholder="••••••" />
+        </Field>
+
+        {mode === "signup" && (
+          <Field c={c} label="تکرار رمز عبور">
+            <input dir="ltr" type="password" maxLength={6} style={inputStyle(c)} value={confirm} onChange={(e) => setConfirm(e.target.value.slice(0, 6))} placeholder="••••••" />
+          </Field>
+        )}
+
+        <button
+          onClick={mode === "signup" ? signup : login}
+          disabled={loading}
+          className="press w-full"
+          style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
+        >
+          {loading ? "..." : mode === "signup" ? "ساخت حساب" : "ورود"}
+        </button>
+
+        <p style={{ textAlign: "center", marginTop: SP.xl, fontSize: FS.caption, color: c.muted }}>
+          {mode === "signup" ? (
+            <>حساب داری؟ <button onClick={() => { setMode("login"); setMsg(null); }} className="press" style={{ color: c.primary, fontWeight: FW.bold }}>وارد شو</button></>
+          ) : (
+            <>حساب نداری؟ <button onClick={() => { setMode("signup"); setMsg(null); }} className="press" style={{ color: c.primary, fontWeight: FW.bold }}>بساز</button></>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Runs exactly once, right after the very first sign-in: how the app should
+// address this consultant, and which city's map to center on when they add
+// a new listing. Two taps and a text field — never shown again once saved.
+function OnboardingScreen({ c, session, onDone }) {
+  const [title, setTitle] = useState("");
+  const [city, setCity] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [step, setStep] = useState(0); // 0 = title, 1 = city
+
+  const saveAndFinish = async () => {
+    if (!city.trim()) { setMsg("شهر را وارد کن"); return; }
+    setBusy(true);
+    const { error } = await supabase.from("profiles").update({ title, city: city.trim() }).eq("id", session.user.id);
+    setBusy(false);
+    if (error) { setMsg("ذخیره نشد، دوباره امتحان کن"); return; }
+    onDone();
+  };
+
+  return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl }}>
+      <style>{`@keyframes floraStepIn { from { opacity:0; transform: translateY(10px) scale(.98); } to { opacity:1; transform: translateY(0) scale(1); } }`}</style>
+      <div className="w-full" style={{ maxWidth: 340, animation: "floraStepIn .35s cubic-bezier(.22,1,.36,1)" }} key={step}>
+        {step === 0 ? (
+          <>
+            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>خوش اومدی 👋</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>چطور صدات کنیم؟</p>
+            <div className="flex" style={{ gap: SP.md }}>
+              {["آقای", "خانم"].map((t) => (
+                <button key={t} onClick={() => { setTitle(t); setStep(1); }} className="press flex-1" style={{ paddingBlock: SP.xl, borderRadius: RAD.lg, ...glassLite(c, RAD.lg), fontSize: FS.body + 1, fontWeight: FW.bold }}>{t}</button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>{title} مشاور 🏙️</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>تو کدوم شهر فعالیت می‌کنی؟</p>
+            {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
+            <Field c={c} label="شهر"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً تهران" autoFocus /></Field>
+            <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.6 : 1 }}>{busy ? "..." : "شروع کن"}</button>
+            <button onClick={() => setStep(0)} className="press w-full" style={{ marginTop: SP.md, fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>بازگشت</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function FloraCRM() {
   const [dark, setDark] = useState(true);
   // Simple mode hides advanced tools (finance, split, AI) behind "more", so a first-time
@@ -420,6 +592,25 @@ export default function FloraCRM() {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", c.bg);
   }, [c.bg]);
+
+  // undefined = still checking on load, null = signed out, object = signed in
+  const [session, setSession] = useState(undefined);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // null = checking/not-yet-known, false = title+city missing (show onboarding),
+  // true = profile complete
+  const [profileReady, setProfileReady] = useState(null);
+  useEffect(() => {
+    if (!session) { setProfileReady(null); return; }
+    (async () => {
+      const { data } = await supabase.from("profiles").select("title, city").eq("id", session.user.id).single();
+      setProfileReady(!!(data?.title && data?.city));
+    })();
+  }, [session?.user?.id]); // eslint-disable-line
 
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // bottom-sheet forms
@@ -454,6 +645,8 @@ export default function FloraCRM() {
   const [tours, setTours] = useState([]); // Showing / Tour Mode
   const [tourBuilder, setTourBuilder] = useState(null); // { step, customerId, customerName, customerPhone, propertyIds, items }
   const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
+  const [divarSearchOpen, setDivarSearchOpen] = useState(false);
+  const [homeStagingOpen, setHomeStagingOpen] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [grokKey, setGrokKey] = useState("");
@@ -517,28 +710,35 @@ export default function FloraCRM() {
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
-  // so once a week the app downloads a fresh backup file automatically (and flags it),
-  // rather than relying on the agent to remember.
+  // Real auto-backup: every 3 days, push a snapshot to Supabase Storage via
+  // the create-backup function (server-verified, recorded, emailed) rather
+  // than just downloading a local file the agent has to remember to keep.
   const [backupDue, setBackupDue] = useState(false);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !session) return;
     (async () => {
-      let meta = null;
-      try { meta = await dbGet(AUTOBACKUP_KEY); } catch (e) {}
-      const WEEK = 7 * 24 * 60 * 60 * 1000;
-      const last = meta?.lastDownload || 0;
-      if (Date.now() - last >= WEEK) {
-        // only auto-download if there's real data worth saving
-        const hasData = properties.length || customers.length || deals.length;
-        if (hasData) {
-          downloadBackup(buildBackupPayload(), `auto-${todayISO()}`);
-          dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now(), auto: true }).catch(() => {});
-          setBackupDue(true);
-          setTimeout(() => notify("بکاپ هفتگی خودکار دانلود شد — آن را جای امن نگه‌دار"), 800);
+      try {
+        const { data: rows } = await supabase.from("backup_history").select("created_at").eq("status", "success").order("created_at", { ascending: false }).limit(1);
+        const last = rows?.[0]?.created_at ? new Date(rows[0].created_at).getTime() : 0;
+        const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
+        if (Date.now() - last >= THREE_DAYS) {
+          const hasData = properties.length || customers.length || deals.length;
+          if (hasData) {
+            const { error } = await supabase.functions.invoke("create-backup", { body: { payload: buildBackupPayload(), kind: "auto" } });
+            if (!error) { setBackupDue(true); setTimeout(() => notify("بکاپ خودکار ابری انجام شد"), 800); }
+          }
         }
-      }
+      } catch (e) {}
     })();
-  }, [loaded]); // eslint-disable-line
+  }, [loaded, session]); // eslint-disable-line
+
+  // Everything below this line (ctx, the CRM itself) only matters once we
+  // know who's signed in — checked last so every hook above still runs on
+  // every render, auth state or not.
+  if (session === undefined) return <AuthLoadingScreen c={c} />;
+  if (!session) return <AuthScreen c={c} dark={dark} />;
+  if (profileReady === null) return <AuthLoadingScreen c={c} />;
+  if (profileReady === false) return <OnboardingScreen c={c} session={session} onDone={() => setProfileReady(true)} />;
 
   const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey) || (aiProvider === "perplexity" && perplexityKey);
   // Voice-to-text uses AvalAI's Whisper proxy specifically — the other providers
@@ -742,6 +942,39 @@ export default function FloraCRM() {
     dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now() }).catch(() => {});
     notify("فایل بکاپ کامل دانلود شد");
   };
+  // Cloud backup — goes through the create-backup Edge Function so the
+  // upload, the history row, and the email are all written server-side with
+  // the service role, never trusting the client's own account of what happened.
+  const cloudBackupNow = async () => {
+    const { data, error } = await supabase.functions.invoke("create-backup", { body: { payload: buildBackupPayload(), kind: "manual" } });
+    if (error) { notify("بکاپ ابری ناموفق بود"); return { ok: false }; }
+    notify("بکاپ ابری ذخیره شد");
+    return { ok: true, data };
+  };
+  const restoreFromCloud = async (storagePath) => {
+    // A safety snapshot goes up first — restoring never destroys the only
+    // copy of what was there before it.
+    await cloudBackupNow();
+    const { data: signed, error: signErr } = await supabase.storage.from("backups").createSignedUrl(storagePath, 60);
+    if (signErr || !signed) { notify("لینک بازیابی ساخته نشد"); return false; }
+    const res = await fetch(signed.signedUrl);
+    const data = await res.json().catch(() => null);
+    if (!data) { notify("فایل بکاپ خراب بود"); return false; }
+    if (data.properties) setProperties(data.properties);
+    if (data.owners) setOwners(data.owners);
+    if (data.builders) setBuilders(data.builders);
+    if (data.customers) setCustomers(data.customers);
+    if (data.appointments) setAppointments(data.appointments);
+    if (data.calls) setCalls(data.calls);
+    if (data.deals) setDeals(data.deals);
+    if (data.payments) setPayments(data.payments);
+    if (data.expenses) setExpenses(data.expenses);
+    if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
+    if (data.investments) setInvestments(data.investments);
+    if (data.tours) setTours(data.tours);
+    notify("بازیابی انجام شد");
+    return true;
+  };
   const shareBackupNow = async () => {
     await shareBackup(buildBackupPayload(), null, "بکاپ کامل فلورا");
     dbSet(AUTOBACKUP_KEY, { lastDownload: Date.now(), snapshotAt: Date.now() }).catch(() => {});
@@ -785,13 +1018,16 @@ export default function FloraCRM() {
   const goProperties = (stageHint) => { setPropStageHint(stageHint || "همه"); setTab("properties"); };
 
   const ctx = {
-    c, dark, properties, setProperties, owners, setOwners, builders, setBuilders,
+    c, dark, session, signOut: () => supabase.auth.signOut(),
+    properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
+    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
+    cloudBackupNow, restoreFromCloud,
   };
 
   if (!loaded) {
@@ -957,6 +1193,14 @@ export default function FloraCRM() {
 
         {tourBuilder && <TourWizard ctx={ctx} />}
         {openTourId && <TourSession ctx={ctx} tourId={openTourId} />}
+
+        {/* Hoisted out of the quick-tools rail on purpose: that rail scrolls
+            with -webkit-overflow-scrolling: touch, and on iOS Safari that
+            turns any position:fixed descendant into "fixed relative to the
+            rail" instead of the viewport — the sheet would render squeezed
+            into the rail's own box instead of covering the screen. */}
+        {divarSearchOpen && <DivarSearchSheet ctx={ctx} onClose={() => setDivarSearchOpen(false)} />}
+        {homeStagingOpen && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setHomeStagingOpen(false)} />}
 
         {celebration && <CelebrationOverlay c={c} celebration={celebration} />}
 
@@ -2104,17 +2348,13 @@ function DocumentsTile({ ctx }) {
 }
 
 function HomeStagingTile({ ctx }) {
-  const { c } = ctx;
-  const [open, setOpen] = useState(false);
+  const { c, setHomeStagingOpen } = ctx;
   return (
-    <>
-      <button onClick={() => setOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
-        <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Wand2 size={20} color={c.purple} /></div>
-        <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>استیجینگ مجازی</p>
-        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>آپلود مستقیم، کیفیت کامل</p>
-      </button>
-      {open && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setOpen(false)} />}
-    </>
+    <button onClick={() => setHomeStagingOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Wand2 size={20} color={c.purple} /></div>
+      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>استیجینگ مجازی</p>
+      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>آپلود مستقیم، کیفیت کامل</p>
+    </button>
   );
 }
 
@@ -2122,17 +2362,13 @@ function HomeStagingTile({ ctx }) {
 // genuinely look things up on the web (including Divar listings), not just
 // answer from training data like the app's other AI features.
 function DivarSearchTile({ ctx }) {
-  const { c } = ctx;
-  const [open, setOpen] = useState(false);
+  const { c, setDivarSearchOpen } = ctx;
   return (
-    <>
-      <button onClick={() => setOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
-        <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}><Search size={20} color={c.primary} /></div>
-        <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>جستجوی دیوار</p>
-        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>تحلیل آگهی‌ها با AI</p>
-      </button>
-      {open && <DivarSearchSheet ctx={ctx} onClose={() => setOpen(false)} />}
-    </>
+    <button onClick={() => setDivarSearchOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}><Search size={20} color={c.primary} /></div>
+      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>جستجوی دیوار</p>
+      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>تحلیل آگهی‌ها با AI</p>
+    </button>
   );
 }
 
@@ -4099,6 +4335,9 @@ function MoreTab({ ctx }) {
         </div>
       </CollapsibleCard>
 
+      {/* Account + real cloud backup (Supabase) */}
+      <AccountBackupCard ctx={ctx} />
+
       {/* Collapsible: settings & backup */}
       <CollapsibleCard c={c} icon={Wallet} tint={c.purple} title="پشتیبان‌گیری و تنظیمات" subtitle="بکاپ داده‌ها و هوش مصنوعی">
         <p style={{ fontSize: 11, color: c.muted, marginBottom: 8, lineHeight: 1.7 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. اگر فقط بخشی را می‌خواهی، از دکمه‌های جدا استفاده کن.</p>
@@ -4129,6 +4368,144 @@ function MoreTab({ ctx }) {
 
       <div style={{ height: 12 }} />
     </div>
+  );
+}
+
+function AccountBackupCard({ ctx }) {
+  const { c, notify, session, signOut, cloudBackupNow, restoreFromCloud } = ctx;
+  const [profile, setProfile] = useState(null);
+  const [history, setHistory] = useState(null); // null = loading
+  const [emailInput, setEmailInput] = useState("");
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(null); // storage_path pending confirmation
+
+  const user = session?.user;
+  const googleLinked = (user?.app_metadata?.providers || []).includes("google");
+
+  const loadAll = async () => {
+    const { data: p } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+    setProfile(p);
+    setEmailInput(p?.backup_email || user.email || "");
+    const { data: h } = await supabase.from("backup_history").select("*").order("created_at", { ascending: false }).limit(10);
+    setHistory(h || []);
+  };
+  useEffect(() => { if (user) loadAll(); }, [user?.id]); // eslint-disable-line
+
+  const saveBackupEmail = async () => {
+    if (!emailInput.trim()) return;
+    setBusy(true);
+    const { error } = await supabase.from("profiles").update({ backup_email: emailInput.trim() }).eq("id", user.id);
+    setBusy(false);
+    if (error) { notify("ذخیره نشد"); return; }
+    setEditingEmail(false);
+    notify("ایمیل بکاپ ذخیره شد");
+    loadAll();
+  };
+
+  const doBackupNow = async () => {
+    setBusy(true);
+    await cloudBackupNow();
+    await loadAll();
+    setBusy(false);
+  };
+
+  const doDownload = async (path) => {
+    const { data, error } = await supabase.storage.from("backups").createSignedUrl(path, 60);
+    if (error || !data) { notify("لینک دانلود ساخته نشد"); return; }
+    window.open(data.signedUrl, "_blank");
+  };
+
+  const doRestore = async (path) => {
+    setConfirmRestore(null);
+    setBusy(true);
+    await restoreFromCloud(path);
+    await loadAll();
+    setBusy(false);
+  };
+
+  return (
+    <CollapsibleCard c={c} icon={UserCircle2} tint={c.primary} title="حساب کاربری و بکاپ ابری" subtitle={user?.email || user?.phone || ""}>
+      {/* Account */}
+      <div className="rounded-xl p-3 mb-3" style={{ background: c.surface2 }}>
+        {(profile?.title || profile?.city) && <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{profile?.title ? `${profile.title} مشاور` : "مشاور"}{profile?.city ? ` — ${profile.city}` : ""}</p>}
+        {user?.email && <p style={{ fontSize: 11, color: c.muted }} dir="ltr">{user.email}</p>}
+        {(profile?.phone || user?.phone) && <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }} dir="ltr">{profile?.phone || user?.phone}</p>}
+        {googleLinked && (
+          <div className="flex items-center gap-1 mt-1.5"><CheckCircle2 size={11} color={c.success} /><span style={{ fontSize: 11, color: c.success, fontWeight: 700 }}>Google Connected</span></div>
+        )}
+        <button onClick={() => signOut()} className="press mt-2" style={{ fontSize: 11, color: c.danger, fontWeight: 700 }}>خروج از حساب</button>
+      </div>
+
+      {/* Backup email */}
+      <div className="rounded-xl p-3 mb-3" style={{ background: c.surface2 }}>
+        <p style={{ fontSize: 11, color: c.muted, marginBottom: 6 }}>ایمیل دریافت‌کننده بکاپ</p>
+        {editingEmail ? (
+          <>
+            <input dir="ltr" style={inputStyle(c)} value={emailInput} onChange={(e) => setEmailInput(e.target.value)} />
+            <div className="flex gap-2" style={{ marginTop: 8 }}>
+              <button onClick={() => setEditingEmail(false)} className="press flex-1 rounded-lg py-2" style={{ background: c.surface, color: c.muted, fontSize: 11, fontWeight: 700 }}>لغو</button>
+              <button onClick={saveBackupEmail} disabled={busy} className="press flex-1 rounded-lg py-2" style={{ background: c.primary, color: "#fff", fontSize: 11, fontWeight: 700 }}>ذخیره</button>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between">
+            <p style={{ fontSize: 13, fontWeight: 600 }} dir="ltr">{profile?.backup_email || user?.email}</p>
+            <button onClick={() => setEditingEmail(true)} className="press" style={{ fontSize: 11, color: c.primary, fontWeight: 700 }}>تغییر</button>
+          </div>
+        )}
+      </div>
+
+      <button onClick={doBackupNow} disabled={busy} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-3" style={{ background: c.primary, opacity: busy ? 0.6 : 1 }}>
+        <RefreshCw size={14} color="#fff" /><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{busy ? "در حال ذخیره..." : "ساخت بکاپ ابری الان"}</span>
+      </button>
+
+      {/* History */}
+      <p style={{ fontSize: 11, color: c.muted, marginBottom: 6 }}>تاریخچه بکاپ</p>
+      {history === null ? (
+        <p style={{ fontSize: 11, color: c.muted }}>در حال بارگذاری...</p>
+      ) : history.length === 0 ? (
+        <EmptyLine c={c} text="هنوز بکاپی ثبت نشده" />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {history.map((h) => (
+            <div key={h.id} className="rounded-xl p-2.5" style={{ background: c.surface2 }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  {h.status === "success" ? <CheckCircle2 size={13} color={c.success} /> : <AlertTriangle size={13} color={c.danger} />}
+                  <span style={{ fontSize: 12, fontWeight: 700 }}>{fmtJalali(h.created_at.slice(0, 10))}</span>
+                  <span style={{ fontSize: 10, color: c.muted }}>{h.kind === "manual" ? "دستی" : "خودکار"}</span>
+                </div>
+                {h.size_bytes ? <span style={{ fontSize: 10, color: c.muted }}>{(h.size_bytes / 1024).toFixed(1)} KB</span> : null}
+              </div>
+              {h.status === "success" && h.storage_path && (
+                <div className="flex gap-2" style={{ marginTop: 6 }}>
+                  <button onClick={() => doDownload(h.storage_path)} className="press flex-1 rounded-lg py-1.5 flex items-center justify-center gap-1" style={{ background: c.surface }}>
+                    <Download size={11} color={c.ink} /><span style={{ fontSize: 10, fontWeight: 700 }}>دانلود</span>
+                  </button>
+                  <button onClick={() => setConfirmRestore(h.storage_path)} className="press flex-1 rounded-lg py-1.5 flex items-center justify-center gap-1" style={{ background: c.attnSoft }}>
+                    <RefreshCw size={11} color={c.attn} /><span style={{ fontSize: 10, fontWeight: 700, color: c.attn }}>بازیابی</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {confirmRestore && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", padding: SP.xl }}>
+          <div style={{ background: c.surface, borderRadius: RAD.lg, padding: SP.xl, maxWidth: 340 }}>
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle size={18} color={c.danger} /><p style={{ fontWeight: 800, fontSize: 14 }}>بازیابی بکاپ</p></div>
+            <p style={{ fontSize: 12, color: c.muted, lineHeight: 1.8, marginBottom: SP.lg }}>بازیابی بکاپ می‌تواند اطلاعات فعلی را تغییر دهد. قبل از ادامه یک بکاپ ایمنی از وضعیت فعلی ساخته می‌شود.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmRestore(null)} className="press flex-1 rounded-lg py-2.5" style={{ background: c.surface2, fontSize: 12, fontWeight: 700 }}>لغو</button>
+              <button onClick={() => doRestore(confirmRestore)} className="press flex-1 rounded-lg py-2.5" style={{ background: c.danger, color: "#fff", fontSize: 12, fontWeight: 700 }}>ساخت بکاپ ایمنی و بازیابی</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </CollapsibleCard>
   );
 }
 
