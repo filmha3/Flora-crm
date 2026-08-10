@@ -366,7 +366,7 @@ function BodyPortal({ children }) {
 // match this app either crush the roads to black or wash the base out, because
 // roads are the *brightest* thing on a light tile. Starting from a genuinely
 // dark tile and tinting it warm gets the midnight-blue-and-gold look cleanly.
-const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
+const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 
 const glass = (c) => ({
   background: c.surface,
@@ -1108,7 +1108,11 @@ export default function FloraCRM() {
            a warm hue-rotate pushes the roads gold and the base navy, matching
            the printed city-map look without touching any other part of the UI. */
         .leaflet-container { background: #0A1628 !important; }
-        .leaflet-tile-pane { filter: sepia(0.45) hue-rotate(178deg) saturate(1.9) brightness(1.18) contrast(1.05); }
+        /* No filter here on purpose: CARTO's dark_all tiles are already
+           well-tuned, and the earlier blurriness/quality complaint traced
+           back to missing retina (@2x) tile support, not color grading —
+           see detectRetina below. Any filter on top just re-introduces risk
+           of crushing label contrast for no benefit. */
         /* Tiles in the tool rail get a lift instead of a flat shrink — the card
            rises toward the finger, which reads as physical rather than "pressed
            into the screen". Snap keeps a tile edge-aligned after a flick. */
@@ -3755,7 +3759,7 @@ function AllPropertiesMap({ c, rows, onOpen }) {
       if (cancelled || !ref.current) return;
       if (objRef.current) { objRef.current.remove(); objRef.current = null; }
       const map = L.map(ref.current, { zoomControl: false, attributionControl: false }).setView(SAREIN_CENTER, 14);
-      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "" }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
 
       pinned.forEach((p) => {
         const color = DEAL_COLOR[p.deal] || "#2f7cf6";
@@ -5383,7 +5387,7 @@ function PropertyMiniMap({ c, lat, lng, title }) {
     loadLeaflet().then((L) => {
       if (cancelled || !ref.current || objRef.current) return;
       const map = L.map(ref.current, { zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false }).setView([lat, lng], 16);
-      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "" }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
       L.marker([lat, lng]).addTo(map);
       objRef.current = map;
     });
@@ -7567,6 +7571,7 @@ async function precacheSareinTiles(onProgress) {
     for (let x = xMin; x <= xMax; x++)
       for (let y = yMin; y <= yMax; y++)
         urls.push(`https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`);
+        urls.push(`https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}@2x.png`);
   }
 
   let done = 0;
@@ -7616,7 +7621,7 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
       if (cancelled || !mapRef.current || mapObjRef.current) return;
       const start = initial && initial.lat ? [initial.lat, initial.lng] : SAREIN_CENTER;
       const map = L.map(mapRef.current, { attributionControl: false }).setView(start, initial && initial.lat ? 16 : 14);
-      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "" }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
       const marker = L.marker(start, { draggable: true }).addTo(map);
       marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
       map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
