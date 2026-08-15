@@ -7914,7 +7914,7 @@ function PreSaleFields({ c, f, setF, total }) {
 }
 
 function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
-  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate, perplexityKey } = ctx;
+  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate, setDetail } = ctx;
   const editing = editId ? properties.find((x) => x.id === editId) : null;
   const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
   const [f, setF] = useState(editing ? {
@@ -7954,68 +7954,54 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
     }
   }, []); // eslint-disable-line
 
-  // Same pipeline the spec describes — Paste Link → Fetch → Extract → Normalize
-  // → Preview → Duplicate Check → Save — just with Perplexity standing in for
-  // the Next.js backend. That substitution is deliberate, not a shortcut: the
-  // spec's core rule is "the browser must never extract directly (CORS); a
-  // server must own the fetch." Flora has no server, but Perplexity's own
-  // servers do the fetching here, so a raw browser→divar.ir request never
-  // happens either way — the requirement is satisfied by a different route.
+  // Error codes the import-divar function can return, mapped to messages a
+  // user can actually act on. The raw server/network error never reaches
+  // the screen — per spec, only these five codes are user-facing.
+  const IMPORT_ERROR_MESSAGES = {
+    LINK_INVALID: "این لینک، لینک معتبر یک آگهی دیوار نیست.",
+    PAGE_NOT_ACCESSIBLE: "این آگهی الان در دسترس نیست — ممکن است حذف شده باشد یا دیوار به این درخواست اجازه‌ی دسترسی نداده باشد.",
+    EXTRACTION_FAILED: "از این صفحه هیچ اطلاعات قابل‌استفاده‌ای پیدا نشد.",
+    RATE_LIMITED: "درخواست‌ها زیاد شده — چند لحظه صبر کن و دوباره امتحان کن.",
+    PARSER_FAILED: "در پردازش اطلاعات این آگهی مشکلی پیش آمد.",
+  };
+
+  // Paste Link → (server) Fetch → Parse → Normalize → duplicate check
+  // (client, against this device's own property list) → Preview → Save.
+  // The frontend never fetches divar.ir itself — this only ever calls our
+  // own Edge Function, which owns the real request and every safety rule
+  // around it (SSRF guard, timeout, size cap, redirect control).
   const extractFromDivarAI = async (linkOverride) => {
     const link = (linkOverride || divarLink).trim();
     if (!link) { notify("اول لینک آگهی دیوار را وارد کن"); return; }
-    if (!/^https?:\/\/(www\.)?divar\.ir\//i.test(link)) { setImportState("error"); setImportError({ message: "این لینک، لینک یک آگهی دیوار نیست." }); return; }
-    if (!perplexityKey) { notify("اول کلید Perplexity را در تنظیمات هوش مصنوعی وارد کن"); return; }
+    if (!/^https?:\/\/(www\.)?divar\.ir\/v\//i.test(link)) { setImportState("error"); setImportError({ message: IMPORT_ERROR_MESSAGES.LINK_INVALID }); return; }
     setImportError(null); setDupMatch(null); setImportData(null);
     setImportState("extracting");
     try {
-      const prompt = `این لینک یک آگهی ملکی در دیوار است: ${link}
-صفحه‌ی عمومی این آگهی را باز کن و دقیقاً همین ساختار JSON را با اطلاعات واقعی پر کن. هر مقداری که در صفحه واقعاً پیدا نکردی، null بگذار — هرگز حدس نزن یا اطلاعات نساز:
-{"sourceId":"شناسه‌ی آگهی از داخل لینک یا صفحه، اگر پیدا شد","title":null,"description":"خلاصه‌ای از متن آگهی در حد دو خط، یا null","dealType":"یکی از: فروش,رهن_و_اجاره,پیش‌فروش","price":null,"deposit":"مبلغ رهن به تومان اگر رهن‌واجاره بود، وگرنه null","rent":"اجاره‌ی ماهانه به تومان اگر رهن‌واجاره بود، وگرنه null","propertyType":"یکی از: آپارتمان,ویلا,زمین,مغازه,اداری","area":null,"rooms":null,"floor":null,"totalFloors":null,"yearBuilt":null,"parking":null,"elevator":null,"storage":null,"address":null,"imageUrl":"لینک مستقیم اولین عکس آگهی اگر پیدا کردی وگرنه null","publishedAt":"تاریخ انتشار آگهی به‌همون شکلی که تو صفحه نوشته، یا null"}
-اعداد فارسی را به انگلیسی تبدیل کن (مثلاً «۱۲۵ متر» یعنی area: 125). parking/elevator/storage باید true یا false یا null باشند، نه متن. فقط همین JSON خام را برگردان، بدون توضیح.`;
-      const res = await fetch("https://api.perplexity.ai/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${perplexityKey}` },
-        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "user", content: prompt }] }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = res.status === 429 ? "اتصال به سرویس استخراج موقتاً پرترافیک است — کمی بعد دوباره امتحان کن." : res.status >= 500 ? "اتصال به سرویس استخراج موقتاً برقرار نیست." : (data?.error?.message || `خطای سرویس استخراج (کد ${res.status})`);
-        throw new Error(msg);
+      const { data, error } = await supabase.functions.invoke("import-divar", { body: { url: link } });
+      if (error || !data?.ok) {
+        const code = data?.code || "PAGE_NOT_ACCESSIBLE";
+        throw Object.assign(new Error(IMPORT_ERROR_MESSAGES[code] || IMPORT_ERROR_MESSAGES.EXTRACTION_FAILED), { code });
       }
-      setImportState("parsing");
-      const raw = data?.choices?.[0]?.message?.content || "";
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("اطلاعات ملک از این صفحه قابل استخراج نیست.");
-      let parsed;
-      try { parsed = JSON.parse(jsonMatch[0]); } catch (e) { throw new Error("اطلاعات ملک از این صفحه قابل استخراج نیست."); }
-      if (!parsed.title && !parsed.price) throw new Error("صفحه‌ی آگهی قابل دسترسی نبود یا اطلاعاتی نداشت.");
+      const raw = data.data;
 
       setImportState("normalizing");
-      // Best-effort image fetch — kept separate from the text fields, since a
-      // blocked cross-origin read shouldn't fail the whole import.
+      // Multiple images, fetched client-side (the Edge Function only returns
+      // URLs, not bytes — keeps the function fast and avoids doubling every
+      // image through our own server). Each fetch is independent: a CDN
+      // blocking one image cross-origin shouldn't cost the rest.
       let extractedMedia = [];
-      if (parsed.imageUrl) {
-        try {
-          const blob = await (await fetch(parsed.imageUrl)).blob();
+      if (Array.isArray(raw.images) && raw.images.length) {
+        const results = await Promise.allSettled(raw.images.slice(0, 6).map(async (imgUrl) => {
+          const blob = await (await fetch(imgUrl)).blob();
           const file = new File([blob], "divar.jpg", { type: blob.type || "image/jpeg" });
-          extractedMedia = [{ id: uid(), type: "image", url: await compressImage(file) }];
-        } catch (imgErr) { /* CDN blocked the read — handled by showing no image in preview */ }
+          return { id: uid(), type: "image", url: await compressImage(file) };
+        }));
+        extractedMedia = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
       }
-      const normalized = {
-        source: "divar", sourceUrl: link, sourceId: parsed.sourceId || null, importedAt: new Date().toISOString(),
-        title: parsed.title || null, description: parsed.description || null,
-        dealType: ["فروش", "رهن_و_اجاره", "پیش‌فروش"].includes(parsed.dealType) ? parsed.dealType : (parsed.price ? "فروش" : null),
-        price: parsed.price != null ? toNum(parsed.price) : null, deposit: parsed.deposit != null ? toNum(parsed.deposit) : null, rent: parsed.rent != null ? toNum(parsed.rent) : null,
-        propertyType: TYPE_FILTERS.includes(parsed.propertyType) ? parsed.propertyType : null,
-        area: parsed.area != null ? toNum(parsed.area) : null, rooms: parsed.rooms != null ? toNum(parsed.rooms) : null,
-        floor: parsed.floor != null ? toNum(parsed.floor) : null, totalFloors: parsed.totalFloors != null ? toNum(parsed.totalFloors) : null,
-        yearBuilt: parsed.yearBuilt != null ? toNum(parsed.yearBuilt) : null,
-        parking: typeof parsed.parking === "boolean" ? parsed.parking : null, elevator: typeof parsed.elevator === "boolean" ? parsed.elevator : null, storage: typeof parsed.storage === "boolean" ? parsed.storage : null,
-        address: parsed.address || null, publishedAt: parsed.publishedAt || null, media: extractedMedia,
-      };
+      const normalized = { ...raw, source: "divar", media: extractedMedia };
 
       setImportState("checking_duplicate");
-      // Priority per the spec: sourceId first, then sourceUrl, then a loose
+      // Priority per spec: sourceId first, then sourceUrl, then a loose
       // title+area match as a last resort for links that carry no clean id.
       const dup = properties.find((p) =>
         (normalized.sourceId && p.sourceId === normalized.sourceId) ||
@@ -8027,7 +8013,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       setImportData(normalized);
       setImportState("preview");
     } catch (e) {
-      setImportError({ message: e.message || "خطای نامشخص در استخراج اطلاعات." });
+      setImportError({ message: e.message || IMPORT_ERROR_MESSAGES.EXTRACTION_FAILED });
       setImportState("error");
     }
   };
@@ -8110,10 +8096,10 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
             <>
               <Field c={c} label="لینک آگهی دیوار"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
               <button type="button" onClick={() => extractFromDivarAI()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
-                <Sparkles size={15} /> استخراج خودکار با AI
+                <Link2 size={15} /> دریافت اطلاعات آگهی
               </button>
               <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
-                نیاز به کلید Perplexity در تنظیمات هوش مصنوعی دارد. اگر نداری یا جواب نداد، همین‌جا دستی هم می‌تونی پیستش کنی:
+                اگر آگهی در دسترس نبود یا اطلاعاتی برنگشت، همین‌جا دستی هم می‌تونی پیستش کنی:
               </p>
               <Field c={c} label="متن کامل آگهی (اختیاری)">
                 <textarea value={divarText} onChange={(e) => setDivarText(e.target.value)} rows={5} placeholder="متن آگهی را از صفحه‌ی دیوار کپی و اینجا پیست کن..." style={{ ...inputStyle(c), resize: "vertical" }} />
@@ -8169,7 +8155,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
                   <AlertTriangle size={16} color={c.attn} style={{ flexShrink: 0, marginTop: 2 }} />
                   <div className="flex-1">
                     <p style={{ fontSize: 12.5, color: c.attn, fontWeight: 700, lineHeight: 1.8 }}>این فایل احتمالاً قبلاً ثبت شده است.</p>
-                    <button type="button" onClick={onClose} style={{ fontSize: 12, color: c.primary, fontWeight: 700, marginTop: 4 }}>مشاهده فایل قبلی ›</button>
+                    <button type="button" onClick={() => { setDetail({ type: "property", id: dupMatch.id }); onClose(); }} style={{ fontSize: 12, color: c.primary, fontWeight: 700, marginTop: 4 }}>مشاهده فایل قبلی ›</button>
                   </div>
                 </div>
               )}
