@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     // Images are downloaded here, server-side — a client-side fetch straight
     // to Divar's CDN would just fail on CORS, which is exactly what was
     // silently happening before and why imports were saving with no photos.
-    const downloaded = await downloadImages(raw.images.slice(0, 8));
+    const downloaded = await downloadImages(raw.images.slice(0, 8), finalUrl);
     const normalized = normalize(raw, downloaded);
     return new Response(JSON.stringify({ ok: true, data: normalized }), { headers: { ...cors, "Content-Type": "application/json" } });
   } catch {
