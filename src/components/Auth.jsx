@@ -1,0 +1,211 @@
+import React, { useState, useRef } from "react";
+import { supabase } from "../lib/supabaseClient.js";
+import { SP, RAD, FS, FW, glass } from "../lib/theme.js";
+import { Field, inputStyle } from "../lib/ui.js";
+import floraBrandIcon from "../assets/flora-icon.webp";
+import floraWordmark from "../assets/flora-wordmark-new.webp";
+
+const formatPhoneDisplay = (digits) => {
+  const d = digits.slice(0, 11);
+  const p1 = d.slice(0, 4), p2 = d.slice(4, 7), p3 = d.slice(7, 11);
+  return [p1, p2, p3].filter(Boolean).join("-");
+};
+const phoneToE164 = (digits) => "+98" + digits.replace(/^0/, "");
+
+function AuthPhoneField({ c, value, onChange }) {
+  return (
+    <Field c={c} label="شماره موبایل">
+      <input
+        dir="ltr" inputMode="numeric" style={{ ...inputStyle(c), textAlign: "left", letterSpacing: 1, fontVariantNumeric: "tabular-nums" }}
+        value={formatPhoneDisplay(value)}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 11))}
+        placeholder="0912-000-0000"
+      />
+    </Field>
+  );
+}
+
+function AuthLoadingScreen({ c }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: c.bg }}>
+      <style>{`@keyframes floraBreathe { 0%,100% { opacity:.25; transform:scale(.94); } 50% { opacity:.5; transform:scale(1); } }`}</style>
+      <div style={{ animation: "floraBreathe 1.8s ease-in-out infinite" }}><img src={floraBrandIcon} alt="" style={{ width: 56, height: "auto" }} /></div>
+    </div>
+  );
+}
+
+// Six boxes instead of one masked field: each character auto-advances focus
+// and glows on fill, so typing a password reads as a small piece of
+// feedback rather than a wall of dots — the same trick used for OTP entry
+// elsewhere, just re-purposed here since this app has no SMS step at all.
+function PasswordBoxes({ c, value, onChange, disabled }) {
+  const refs = useRef([]);
+  const chars = Array.from({ length: 6 }, (_, i) => value[i] || "");
+  const commit = (next) => onChange(next.join(""));
+  const setChar = (i, ch) => {
+    const next = chars.slice();
+    next[i] = ch;
+    commit(next);
+    if (ch && i < 5) refs.current[i + 1]?.focus();
+  };
+  const handleKeyDown = (i, e) => {
+    if (e.key === "Backspace" && !chars[i] && i > 0) refs.current[i - 1]?.focus();
+  };
+  return (
+    <div dir="ltr" className="flex justify-center" style={{ gap: 6 }}>
+      <style>{`
+        @keyframes pwGlow { 0% { box-shadow: 0 0 0 0 rgba(124,111,245,0.55); } 70% { box-shadow: 0 0 0 9px rgba(124,111,245,0); } 100% { box-shadow: 0 0 0 0 rgba(124,111,245,0); } }
+        .pw-box-filled { animation: pwGlow .45s ease-out; }
+      `}</style>
+      {chars.map((ch, i) => (
+        <input
+          key={i}
+          ref={(el) => (refs.current[i] = el)}
+          type="password"
+          value={ch}
+          disabled={disabled}
+          onChange={(e) => setChar(i, e.target.value.slice(-1))}
+          onKeyDown={(e) => handleKeyDown(i, e)}
+          maxLength={1}
+          autoFocus={i === 0}
+          className={ch ? "pw-box-filled" : ""}
+          style={{ width: 38, height: 48, textAlign: "center", fontSize: FS.subtitle, fontWeight: FW.heavy, borderRadius: RAD.md, border: `1.5px solid ${ch ? c.primary : c.border}`, background: c.surface2, color: c.ink, outline: "none", flexShrink: 0 }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// Phone + a 6-character password — no SMS, no email, no third-party sign-in.
+// The concentric glow rings behind the card are pure CSS (a repeating radial
+// gradient, gently breathing), so the screen feels alive without pulling in
+// an animation library just for one screen.
+function AuthScreen({ c, dark }) {
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+
+  const say = (text, error) => setMsg({ text, error: !!error });
+  const phoneOk = /^09\d{9}$/.test(phone);
+  const passwordOk = password.length === 6;
+
+  // One field set, one button: try signing in first; if there's no account
+  // yet, Supabase's error is generic ("invalid credentials") on purpose for
+  // security, so a sign-up attempt right after is how we actually find out
+  // whether the number is new or the password was just wrong.
+  const submit = async () => {
+    if (!phoneOk) { say("شماره را کامل وارد کن", true); return; }
+    if (!passwordOk) { say("رمز باید دقیقاً ۶ کاراکتر باشد", true); return; }
+    setLoading(true); setMsg(null);
+    const phoneE164 = phoneToE164(phone);
+
+    const { error: loginErr } = await supabase.auth.signInWithPassword({ phone: phoneE164, password });
+    if (!loginErr) { setLoading(false); return; } // signed in — the session listener above takes it from here
+
+    const { error: signupErr } = await supabase.auth.signUp({ phone: phoneE164, password });
+    setLoading(false);
+    if (!signupErr) return; // brand-new account, signed in immediately
+    say(/registered|exists/i.test(signupErr.message) ? "رمز اشتباه است" : signupErr.message, true);
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl }}>
+      <style>{`
+        @keyframes floraRingBreathe { 0%,100% { opacity:.5; transform: scale(1); } 50% { opacity:.85; transform: scale(1.04); } }
+        @keyframes floraCardIn { from { opacity:0; transform: translateY(14px) scale(.97); } to { opacity:1; transform: translateY(0) scale(1); } }
+      `}</style>
+      <div
+        className="fixed inset-0"
+        style={{
+          background: `repeating-radial-gradient(circle at 50% 42%, ${c.primary}14 0px, ${c.primary}14 1px, transparent 1px, transparent 46px)`,
+          animation: "floraRingBreathe 5s ease-in-out infinite",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        className="w-full relative"
+        style={{ maxWidth: 360, animation: "floraCardIn .5s cubic-bezier(.22,1,.36,1)", padding: SP.xl, borderRadius: RAD.lg + 6, ...glass(c, RAD.lg + 6), boxShadow: "0 24px 60px -20px rgba(0,0,0,0.5)" }}
+      >
+        <div className="flex flex-col items-center" style={{ marginBottom: SP.xl }}>
+          <img src={floraBrandIcon} alt="" style={{ width: 84, height: "auto" }} />
+          <img src={floraWordmark} alt="Flora" style={{ width: 150, height: "auto", marginTop: SP.md }} />
+          <div style={{ width: 36, height: 1, background: c.primary, opacity: 0.6, margin: `${SP.lg}px 0 ${SP.md}px` }} />
+          <p style={{ fontSize: FS.subtitle + 1, fontWeight: FW.heavy, textAlign: "center", color: "#fff" }}>هر معامله بزرگ</p>
+          <p style={{ fontSize: FS.caption, color: "#fff", opacity: 0.7, marginTop: 4, textAlign: "center" }}>از یک قدم درست شروع می‌شود</p>
+        </div>
+
+        {msg && (
+          <div style={{ padding: SP.md, borderRadius: RAD.md, marginBottom: SP.lg, background: msg.error ? c.dangerSoft : c.successSoft, color: msg.error ? c.danger : c.success, fontSize: FS.caption, fontWeight: FW.bold, lineHeight: 1.8, textAlign: "center" }}>
+            {msg.text}
+          </div>
+        )}
+
+        <AuthPhoneField c={c} value={phone} onChange={setPhone} />
+        <div style={{ marginTop: SP.md, marginBottom: SP.lg }}>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, textAlign: "center" }}>رمز عبور (۶ کاراکتر)</p>
+          <PasswordBoxes c={c} value={password} onChange={setPassword} disabled={loading} />
+        </div>
+
+        <button
+          onClick={submit}
+          disabled={loading}
+          className="press w-full"
+          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
+        >
+          {loading ? "..." : "ورود / ساخت حساب"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Runs exactly once, right after the very first sign-in: how the app should
+// address this consultant, and which city's map to center on when they add
+// a new listing. Two taps and a text field — never shown again once saved.
+function OnboardingScreen({ c, session, onDone }) {
+  const [title, setTitle] = useState("");
+  const [city, setCity] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [step, setStep] = useState(0); // 0 = title, 1 = city
+
+  const saveAndFinish = async () => {
+    if (!city.trim()) { setMsg("شهر را وارد کن"); return; }
+    setBusy(true);
+    const { error } = await supabase.from("profiles").update({ title, city: city.trim() }).eq("id", session.user.id);
+    setBusy(false);
+    if (error) { setMsg("ذخیره نشد، دوباره امتحان کن"); return; }
+    onDone();
+  };
+
+  return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl }}>
+      <style>{`@keyframes floraStepIn { from { opacity:0; transform: translateY(10px) scale(.98); } to { opacity:1; transform: translateY(0) scale(1); } }`}</style>
+      <div className="w-full" style={{ maxWidth: 340, animation: "floraStepIn .35s cubic-bezier(.22,1,.36,1)" }} key={step}>
+        {step === 0 ? (
+          <>
+            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>خوش اومدی 👋</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>چطور صدات کنیم؟</p>
+            <div className="flex" style={{ gap: SP.md }}>
+              {["آقای", "خانم"].map((t) => (
+                <button key={t} onClick={() => { setTitle(t); setStep(1); }} className="press flex-1" style={{ paddingBlock: SP.xl, borderRadius: RAD.lg, ...glassLite(c, RAD.lg), fontSize: FS.body + 1, fontWeight: FW.bold }}>{t}</button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>{title} مشاور 🏙️</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>تو کدوم شهر فعالیت می‌کنی؟</p>
+            {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
+            <Field c={c} label="شهر"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً تهران" autoFocus /></Field>
+            <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.6 : 1 }}>{busy ? "..." : "شروع کن"}</button>
+            <button onClick={() => setStep(0)} className="press w-full" style={{ marginTop: SP.md, fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>بازگشت</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, OnboardingScreen, formatPhoneDisplay, phoneToE164 };

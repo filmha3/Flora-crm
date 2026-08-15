@@ -1,7 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { supabase } from "./lib/supabaseClient.js";
-import floraBrandIcon from "./assets/flora-icon.webp";
-import floraWordmark from "./assets/flora-wordmark-new.webp";
 import {
   Home, Building2, Users, Search, Plus, X, Moon, Sun, Sparkles, MapPin, Ruler,
   UserCircle2, PhoneCall, CheckCircle2, Loader2, Trash2, ImagePlus, Play,
@@ -13,353 +11,27 @@ import {
   Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
 } from "lucide-react";
 
+// ---------- Extracted modules (kept App.jsx from becoming a single
+// unmanageable/unshippable file — see src/lib and src/components) ----------
+import { DB_NAME, STORE, DATA_KEY, SETTINGS_KEY, REMINDER_KEY, COPILOT_KEY, CHAT_KEY, FINANCE_AI_KEY, MISSION_KEY, AUTOBACKUP_KEY, NBA_KEY, STREAK_KEY, MARKET_INSIGHT_KEY, DIVAR_CHAT_KEY, scopedKey, openDB, dbGet, dbSet, setActiveUid } from "./lib/db.js";
+import { div, faDigits, MONTHS_FA, WEEK_FA, LEAP_CYCLE, isLeapJalali, gregorianToJalali, jalaliToGregorian, isoToJalali, jalaliToIso, fmtJalali, jalaliMonthLength, jalaliFirstWeekday, toEnDigits, toDecimal, toNum, parseDivarText, uid, fmtToman, todayISO } from "./lib/format.js";
+import { TYPE_ICON, typeIcon, floraTypeIcon, STAGES, CUSTOMER_STAGES, INVESTMENT_STATUSES, INVESTMENT_TYPES, INVESTMENT_EXPENSE_CATEGORIES, INVESTMENT_PAYMENT_METHODS, CHECK_STATUSES, CUSTOMER_STAGE_COLOR, fmtBudgetShort, BUILD_STAGES, DEAL_FILTERS, TYPE_FILTERS, STAGE_FILTERS } from "./lib/constants.js";
+import { MAX_IMAGE_DIM, IMAGE_QUALITY, supportsWebp, FALLBACK_DIM, FALLBACK_QUALITY, compressImage, reencodeToWebp, filesToMedia } from "./lib/image.js";
+import { T, FS, FW, SP, RAD, glass, glassLite } from "./lib/theme.js";
+import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
+import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.js";
+import { FLORA_GOLD, FloraMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.js";
+import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, OnboardingScreen, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
+import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
+
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
-const DB_NAME = "flora-crm-db", STORE = "kv", DATA_KEY = "flora-data", SETTINGS_KEY = "flora-settings", REMINDER_KEY = "flora-last-reminder", COPILOT_KEY = "flora-copilot", CHAT_KEY = "flora-ai-chat", FINANCE_AI_KEY = "flora-finance-ai", MISSION_KEY = "flora-mission", AUTOBACKUP_KEY = "flora-autobackup", NBA_KEY = "flora-nba-outcomes", STREAK_KEY = "flora-streak", MARKET_INSIGHT_KEY = "flora-market-insight", DIVAR_CHAT_KEY = "flora-divar-chat";
-// Every dbGet/dbSet call goes through this same IndexedDB store, so a single
-// device can (and did, before this) end up showing one account's CRM data to
-// whoever else logs in on that device. ACTIVE_UID gets set the moment a
-// session resolves (see the auth effect in FloraCRM) and every key is
-// silently suffixed with it — old code that calls dbGet(DATA_KEY) doesn't
-// need to change at all, it's just reading a different physical row per user.
-let ACTIVE_UID = null;
-const scopedKey = (key) => (ACTIVE_UID ? `${key}:${ACTIVE_UID}` : key);
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-async function dbGet(key) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).get(scopedKey(key));
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-async function dbSet(key, value) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(value, scopedKey(key));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
-// ---------- Jalali (Persian) calendar helpers ----------
-const div = (a, b) => Math.floor(a / b);
-// Latin digits read faster for money and phone numbers; Persian month names stay Persian.
-const faDigits = (v) => String(v);
-const MONTHS_FA = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
-const WEEK_FA = ["ش","ی","د","س","چ","پ","ج"];
-const LEAP_CYCLE = [1, 5, 9, 13, 17, 22, 26, 30];
-const isLeapJalali = (jy) => LEAP_CYCLE.includes(((jy % 33) + 33) % 33);
-function gregorianToJalali(gy, gm, gd) {
-  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  let jy = gy <= 1600 ? 0 : 979;
-  gy -= gy <= 1600 ? 621 : 1600;
-  const gy2 = gm > 2 ? gy + 1 : gy;
-  let days = 365 * gy + div(gy2 + 3, 4) - div(gy2 + 99, 100) + div(gy2 + 399, 400) - 80 + gd + g_d_m[gm - 1];
-  jy += 33 * div(days, 12053); days %= 12053;
-  jy += 4 * div(days, 1461); days %= 1461;
-  if (days > 365) { jy += div(days - 1, 365); days = (days - 1) % 365; }
-  const jm = days < 186 ? 1 + div(days, 31) : 7 + div(days - 186, 30);
-  const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
-  return [jy, jm, jd];
-}
-function jalaliToGregorian(jy, jm, jd) {
-  jy += 1595;
-  let days = -355668 + 365 * jy + div(jy, 33) * 8 + div(((jy % 33) + 3), 4) + jd + (jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186);
-  let gy = 400 * div(days, 146097); days %= 146097;
-  if (days > 36524) { gy += 100 * div(--days, 36524); days %= 36524; if (days >= 365) days++; }
-  gy += 4 * div(days, 1461); days %= 1461;
-  if (days > 365) { gy += div(days - 1, 365); days = (days - 1) % 365; }
-  const gd0 = days + 1;
-  const isLeapG = (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0;
-  const sal = [0, 31, isLeapG ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  let gm = 0, gd = gd0;
-  for (gm = 1; gm <= 12; gm++) { if (gd <= sal[gm]) break; gd -= sal[gm]; }
-  return [gy, gm, gd];
-}
-const isoToJalali = (iso) => { const [gy, gm, gd] = iso.split("-").map(Number); return gregorianToJalali(gy, gm, gd); };
-const jalaliToIso = (jy, jm, jd) => { const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd); return `${gy}-${String(gm).padStart(2, "0")}-${String(gd).padStart(2, "0")}`; };
-const fmtJalali = (iso) => { const [jy, jm, jd] = isoToJalali(iso); return `${faDigits(jd)} ${MONTHS_FA[jm - 1]} ${faDigits(jy)}`; };
-const jalaliMonthLength = (jy, jm) => (jm <= 6 ? 31 : jm <= 11 ? 30 : isLeapJalali(jy) ? 30 : 29);
-const jalaliFirstWeekday = (jy, jm) => { const [gy, gm, gd] = jalaliToGregorian(jy, jm, 1); return (new Date(gy, gm - 1, gd).getDay() + 1) % 7; };
 
-const TYPE_ICON = { "آپارتمان": Building2, "ویلا": Home, "زمین": Trees, "مغازه": Store, "اداری": Briefcase };
-const typeIcon = (t) => TYPE_ICON[t] || Building2;
-// Flora-branded icon per property type / deal, used where the brand icons shine.
-const floraTypeIcon = (t, deal) => {
-  if (deal === "پیش‌فروش") return "investment";
-  if (t === "ویلا" || t === "زمین") return "villa";
-  if (t === "مغازه" || t === "اداری") return "multiunit";
-  return "residential";
-};
 
-const toEnDigits = (s) => String(s ?? "")
-  .replace(/[۰-۹٠-٩]/g, (d) => {
-    const p = "۰۱۲۳۴۵۶۷۸۹".indexOf(d); if (p > -1) return p;
-    const a = "٠١٢٣٤٥٦٧٨٩".indexOf(d); return a > -1 ? a : d;
-  });
-// Persian users write decimals with ٫ or / (e.g. ۰/۵ = 0.5). Use this for any
-// numeric input where a fraction is allowed, so "۰/۵" and "0.5" both mean 0.5.
-const toDecimal = (v) => Number(toEnDigits(v).replace(/[٫،/]/g, ".").replace(/[^0-9.]/g, "")) || 0;
-const toNum = (v) => Number(toEnDigits(v).replace(/[^0-9.]/g, "")) || 0;
 
-// Parses key fields out of ad text the user pasted (Divar disallows automated fetching,
-// so this works on text a human already copied from their own browser — not a scraper).
-function parseDivarText(raw) {
-  const norm = toEnDigits(raw || "");
-  const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
-  const title = lines[0] || "";
-  const areaMatch = norm.match(/(\d{2,4})\s*متر/);
-  const roomsMatch = norm.match(/(\d)\s*(خواب|اتاق)/);
-  const floorMatch = norm.match(/طبقه[:\s]*(\d{1,2})/);
-  let deal = "فروش";
-  if (/پیش[\s\u200c]?فروش/.test(raw)) deal = "پیش‌فروش";
-  const priceMatches = [...norm.matchAll(/([\d,]{6,})\s*تومان/g)].map((m) => Number(m[1].replace(/,/g, "")));
-  const price = priceMatches.length ? Math.max(...priceMatches) : 0;
-  const area = areaMatch ? Number(areaMatch[1]) : 0;
-  const pricePerMeter = price && area ? Math.round(price / area) : 0;
-  const furnished = /با\s*لوازم|فول\s*مبله|مبله/.test(raw) ? "با لوازم" : "بدون لوازم";
-  let type = "آپارتمان";
-  if (/ویلا/.test(raw)) type = "ویلا"; else if (/زمین|کلنگی/.test(raw)) type = "زمین"; else if (/مغازه|تجاری/.test(raw)) type = "مغازه"; else if (/اداری|دفتر\s*کار/.test(raw)) type = "اداری";
-  return { title, type, deal, area: area || "", pricePerMeter: pricePerMeter || "", rooms: roomsMatch ? roomsMatch[1] : "", floor: floorMatch ? floorMatch[1] : "1", furnished };
-}
-
-const uid = () => Math.random().toString(36).slice(2, 10);
-const fmtToman = (n) => (n ? Math.round(n).toLocaleString("en-US") : "0") + " تومان";
-const todayISO = () => new Date().toISOString().slice(0, 10);
-// Phone photos are 3-8MB each. Storing them raw made IndexedDB huge and every save slow,
-// so images are downscaled to <=1280px and re-encoded as JPEG before they're ever saved.
-const MAX_IMAGE_DIM = 1280, IMAGE_QUALITY = 0.72;
-// iOS Safari accepts canvas.toDataURL("image/webp",...) without throwing, but silently
-// returns a PNG instead of encoding — so testing once here is the only reliable way to
-// know if WebP will actually work. When it won't, fall back to a tighter JPEG so photos
-// still shrink instead of silently staying full-size.
-let _webpOk = null;
-const supportsWebp = () => {
-  if (_webpOk !== null) return _webpOk;
-  try {
-    const c = document.createElement("canvas"); c.width = 1; c.height = 1;
-    _webpOk = c.toDataURL("image/webp").startsWith("data:image/webp");
-  } catch { _webpOk = false; }
-  return _webpOk;
-};
-const FALLBACK_DIM = 1280, FALLBACK_QUALITY = 0.78; // used only when WebP isn't actually supported
-const compressImage = (file) => new Promise((resolve) => {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      const webpOk = supportsWebp();
-      const maxDim = webpOk ? MAX_IMAGE_DIM : FALLBACK_DIM;
-      let { width, height } = img;
-      const scale = Math.min(1, maxDim / Math.max(width, height));
-      width = Math.round(width * scale); height = Math.round(height * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      try {
-        resolve(webpOk ? canvas.toDataURL("image/webp", IMAGE_QUALITY) : canvas.toDataURL("image/jpeg", FALLBACK_QUALITY));
-      }
-      catch { resolve(reader.result); }
-    };
-    img.onerror = () => resolve(reader.result);
-    img.src = reader.result;
-  };
-  reader.readAsDataURL(file);
-});
-// Re-encodes an image already stored as a data URL (jpeg/png) into WebP —
-// used to bulk-shrink photos uploaded before WebP was the default.
-// Re-shrinks a photo already stored as a data URL. Where WebP encoding actually
-// works, it re-encodes to WebP. Where it doesn't (iOS Safari silently no-ops),
-// it recompresses to a smaller, tighter JPEG instead — so the size drops either way.
-const reencodeToWebp = (dataUrl) => new Promise((resolve) => {
-  if (!dataUrl) return resolve(dataUrl);
-  const webpOk = supportsWebp();
-  if (webpOk && dataUrl.startsWith("data:image/webp")) return resolve(dataUrl); // already optimal
-  const img = new Image();
-  img.onload = () => {
-    const maxDim = webpOk ? MAX_IMAGE_DIM : FALLBACK_DIM;
-    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-    const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-    const canvas = document.createElement("canvas");
-    canvas.width = w; canvas.height = h;
-    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-    try {
-      resolve(webpOk ? canvas.toDataURL("image/webp", IMAGE_QUALITY) : canvas.toDataURL("image/jpeg", FALLBACK_QUALITY));
-    } catch { resolve(dataUrl); }
-  };
-  img.onerror = () => resolve(dataUrl);
-  img.src = dataUrl;
-});
-const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (file) => {
-  const isVideo = file.type.startsWith("video");
-  const isImage = file.type.startsWith("image");
-  if (isVideo) {
-    const url = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); });
-    return { id: uid(), type: "video", url, name: file.name };
-  }
-  if (isImage) return { id: uid(), type: "image", url: await compressImage(file), name: file.name };
-  // Documents (PDF, Word, etc.) — stored as-is, no image compression pipeline applies.
-  const url = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); });
-  return { id: uid(), type: "file", url, name: file.name };
-}));
-
-const STAGES = ["فعال", "در حال مذاکره", "فروخته شد"];
-// Where a buyer is in their journey — cleaned-up, agent-friendly labels.
-const CUSTOMER_STAGES = ["در حال بررسی", "دنبال سرمایه‌گذاری", "دنبال پیش‌فروش", "خرید کرد", "منصرف شد", "بدون پیگیری"];
-// Investment Center (Portfolio) — Phase 1 constants
-const INVESTMENT_STATUSES = ["در حال بررسی", "خریداری‌شده", "در حال بازسازی", "برای فروش", "فروخته‌شده"];
-const INVESTMENT_TYPES = ["خرید و نگهداری", "بازسازی و فروش", "پیش‌خرید", "مشارکت در ساخت"];
-const INVESTMENT_EXPENSE_CATEGORIES = ["کمیسیون", "مالیات", "دفترخانه", "انتقال سند", "بازسازی", "کابینت", "رنگ", "کناف", "برق", "لوله‌کشی", "آسانسور", "پارکینگ", "بیمه", "وام", "بهره", "تبلیغات", "نظافت", "حمل", "سایر"];
-// Payments and checks are merged into one ledger — a check is just a payment
-// with a due date and a clearing status, not a separate system.
-const INVESTMENT_PAYMENT_METHODS = ["نقد", "کارت", "حواله", "انتقال بانکی", "چک"];
-const CHECK_STATUSES = ["در انتظار", "پاس شده", "برگشت خورده", "باطل شده"];
-const CUSTOMER_STAGE_COLOR = (c) => ({
-  "در حال بررسی": c.primary,
-  "دنبال سرمایه‌گذاری": c.purple,
-  "دنبال پیش‌فروش": c.attn,
-  "خرید کرد": c.success,
-  "منصرف شد": c.danger,
-  "بدون پیگیری": c.muted,
-});
-// Compact money for budgets: 10000000000 → "۱۰ میلیارد", 850000000 → "۸۵۰ میلیون".
-const fmtBudgetShort = (v) => {
-  const n = Number(v) || 0;
-  if (n >= 1e9) { const b = n / 1e9; return `${faDigits(Number.isInteger(b) ? b : b.toFixed(1))} میلیارد`; }
-  if (n >= 1e6) { const m = Math.round(n / 1e6); return `${faDigits(m)} میلیون`; }
-  if (n > 0) return fmtToman(n);
-  return "—";
-};
-const BUILD_STAGES = ["گودبرداری", "فونداسیون", "اسکلت", "سفت‌کاری", "نازک‌کاری", "نما", "آماده تحویل"];
-const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش"];
-const TYPE_FILTERS = ["همه", "آپارتمان", "ویلا", "زمین", "مغازه", "اداری"];
-const STAGE_FILTERS = ["همه", "فعال", "در حال مذاکره", "فروخته شد"];
-
-// ---------- Glassmorphism tokens ----------
-const T = {
-  dark: {
-    bg: "#0A0E1A", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
-    surface: "rgba(255,255,255,0.04)", surface2: "rgba(255,255,255,0.06)",
-    border: "rgba(255,255,255,0.08)", ink: "#F0F2F8", muted: "#8B92A8",
-    primary: "#5B9DFF", primarySoft: "rgba(47,124,246,0.15)",
-    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.15)",
-    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.14)",
-    success: "#22C55E", successSoft: "rgba(34,197,94,0.15)",
-    purple: "#A78BFA", purpleSoft: "rgba(124,111,245,0.15)",
-    shadow: "0 8px 32px rgba(0,0,0,0.3)",
-  },
-  light: {
-    bg: "#F3F5FA", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
-    surface: "rgba(255,255,255,0.6)", surface2: "rgba(255,255,255,0.45)",
-    border: "rgba(255,255,255,0.7)", ink: "#1B2436", muted: "#6B7386",
-    primary: "#2F7CF6", primarySoft: "rgba(47,124,246,0.12)",
-    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.13)",
-    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.12)",
-    success: "#22C55E", successSoft: "rgba(34,197,94,0.12)",
-    purple: "#7C6FF5", purpleSoft: "rgba(124,111,245,0.12)",
-    shadow: "0 8px 28px rgba(47,124,246,0.1)",
-  },
-};
 // Counts up to the value instead of popping in, which makes figures feel alive.
-function useCountUp(target, duration = 900) {
-  const [val, setVal] = useState(0);
-  useEffect(() => {
-    if (!target) { setVal(0); return; }
-    let raf, start;
-    const step = (t) => {
-      if (!start) start = t;
-      const p = Math.min(1, (t - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setVal(Math.round(target * eased));
-      if (p < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
-  return val;
-}
 
-function CountUpToman({ value, className, style }) {
-  const v = useCountUp(value);
-  return <span className={className} style={style}>{fmtToman(v)}</span>;
-}
 
-// Same animated count, but "تومان" renders small and light gray, separate from
-// the number — and the whole thing is pinned to one line so it never wraps.
-function CountUpTomanSplit({ value, size = 18, weight = 800, color = "#fff", tomanColor = "rgba(255,255,255,.45)", tomanSize }) {
-  const v = useCountUp(value);
-  const ts = tomanSize || Math.max(9, Math.round(size * 0.42));
-  return (
-    <span style={{ whiteSpace: "nowrap", direction: "ltr", display: "inline-flex", alignItems: "baseline", gap: 4 }}>
-      <span style={{ fontSize: size, fontWeight: weight, color, fontVariantNumeric: "tabular-nums" }}>{Math.round(v).toLocaleString("en-US")}</span>
-      <span style={{ fontSize: ts, fontWeight: 500, color: tomanColor }}>تومان</span>
-    </span>
-  );
-}
-
-function CountUpNum({ value, style }) {
-  const v = useCountUp(value, 700);
-  return <span style={style}>{faDigits(v)}</span>;
-}
-
-// ── Design system ────────────────────────────────────────────
-// One typographic scale (6 steps), one spacing scale (multiples of 4), and a
-// small set of radii. Everything visual should pull from these, not magic numbers.
-const FS = { caption: 11, body: 13, subtitle: 15, title: 20, hero: 28, display: 34 };
-const FW = { regular: 500, medium: 600, bold: 700, heavy: 800 };
-const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
-const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
-
-// ---------- Showing / Tour Mode ----------
-// One-tap cycling status, not a form: coordination (owner confirmed the visit)
-// and key handoff are the two things a consultant needs to know before leaving
-// the office, so each is a single chip that advances to the next state on tap.
-const COORD_ORDER = ["none", "pending", "confirmed", "cancelled"];
-const coordMeta = (c) => ({
-  none: { label: "هماهنگ نشده", color: c.muted, soft: c.surface2, icon: Circle },
-  pending: { label: "منتظر مالک", color: c.attn, soft: c.attnSoft, icon: Clock },
-  confirmed: { label: "تأیید شد", color: c.success, soft: c.successSoft, icon: CheckCircle2 },
-  cancelled: { label: "لغو شد", color: c.danger, soft: c.dangerSoft, icon: X },
-});
-const KEY_ORDER = ["none", "agent", "owner", "guard", "office", "other"];
-const KEY_LABEL = { none: "نیاز ندارد", agent: "دست مشاور", owner: "دست مالک", guard: "نگهبانی", office: "دفتر", other: "محل دیگر" };
-const DISLIKE_REASONS = ["قیمت", "متراژ", "محله", "نور", "نقشه", "طبقه", "امکانات", "پارکینگ", "سایر"];
-const RATING_ORDER = ["superlike", "like", "meh", "dislike"];
-const ratingMeta = (c) => ({
-  superlike: { label: "خیلی پسندید", color: "#F97316", soft: "rgba(249,115,22,0.16)", icon: Flame },
-  like: { label: "پسندید", color: "#EC4899", soft: "rgba(236,72,153,0.15)", icon: Heart },
-  meh: { label: "متوسط", color: c.attn, soft: c.attnSoft, icon: Meh },
-  dislike: { label: "نپسندید", color: c.danger, soft: c.dangerSoft, icon: X },
-});
-const mapsLink = (p) => p.lat && p.lng
-  ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`
-  : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.address || p.title || "")}`;
-
-// Full-screen panels need to sit above everything and ignore any ancestor that
-// would clip them. react-dom's createPortal is the textbook tool, but importing
-// it breaks this file in sandboxes that don't ship react-dom — and physically
-// moving the node out of React's tree (the other obvious fix) breaks unmounting,
-// leaving panels stuck open.
-//
-// So: keep the node exactly where React put it, and neutralise the ancestors
-// instead. `position: fixed` already escapes overflow clipping; the only thing
-// that defeats it is an ancestor with a transform/filter creating a containing
-// block, and this app's animation classes all use `backwards` fill precisely so
-// no transform lingers after they finish. A very high z-index handles stacking.
-function BodyPortal({ children }) {
-  return <div style={{ position: "fixed", inset: 0, zIndex: 2147483000, pointerEvents: "none" }}>
-    <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>{children}</div>
-  </div>;
-}
 
 // CARTO's Dark Matter basemap — OSM data, but rendered dark by design. Chosen
 // over filtering the standard light OSM tiles: filters that darken enough to
@@ -368,24 +40,6 @@ function BodyPortal({ children }) {
 // dark tile and tinting it warm gets the midnight-blue-and-gold look cleanly.
 const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 
-const glass = (c) => ({
-  background: c.surface,
-  backdropFilter: "blur(20px) saturate(180%)",
-  WebkitBackdropFilter: "blur(20px) saturate(180%)",
-  border: `1px solid ${c.border}`,
-  boxShadow: c.shadow,
-  borderRadius: 22,
-});
-// Same look, no backdrop-filter. Blur is one of the most expensive CSS effects
-// on iOS Safari — fine for a hero card or a sheet, but ruinous once it's applied
-// to every row in a long scrolling list (each blurred layer repaints on scroll).
-// Repeated list items use this instead; the surface color already reads as glass.
-const glassLite = (c, radius = 22) => ({
-  background: c.surface2,
-  border: `1px solid ${c.border}`,
-  boxShadow: c.shadow,
-  borderRadius: radius,
-});
 
 // ---------- Seed data ----------
 const seedOwners = [{ id: "o1", name: "آقای رحیمی", phone: "09121234567" }, { id: "o2", name: "خانم صادقی", phone: "09351234567" }];
@@ -426,208 +80,6 @@ const seedOfficeIncomes = [
 // Auto-inserts the dashes as you type: 0912-000-0000. Internally the app
 // only ever works with the raw digits / E.164 form — the dashes are purely
 // a display convenience.
-const formatPhoneDisplay = (digits) => {
-  const d = digits.slice(0, 11);
-  const p1 = d.slice(0, 4), p2 = d.slice(4, 7), p3 = d.slice(7, 11);
-  return [p1, p2, p3].filter(Boolean).join("-");
-};
-const phoneToE164 = (digits) => "+98" + digits.replace(/^0/, "");
-
-function AuthPhoneField({ c, value, onChange }) {
-  return (
-    <Field c={c} label="شماره موبایل">
-      <input
-        dir="ltr" inputMode="numeric" style={{ ...inputStyle(c), textAlign: "left", letterSpacing: 1, fontVariantNumeric: "tabular-nums" }}
-        value={formatPhoneDisplay(value)}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 11))}
-        placeholder="0912-000-0000"
-      />
-    </Field>
-  );
-}
-
-function AuthLoadingScreen({ c }) {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: c.bg }}>
-      <style>{`@keyframes floraBreathe { 0%,100% { opacity:.25; transform:scale(.94); } 50% { opacity:.5; transform:scale(1); } }`}</style>
-      <div style={{ animation: "floraBreathe 1.8s ease-in-out infinite" }}><img src={floraBrandIcon} alt="" style={{ width: 56, height: "auto" }} /></div>
-    </div>
-  );
-}
-
-// Six boxes instead of one masked field: each character auto-advances focus
-// and glows on fill, so typing a password reads as a small piece of
-// feedback rather than a wall of dots — the same trick used for OTP entry
-// elsewhere, just re-purposed here since this app has no SMS step at all.
-function PasswordBoxes({ c, value, onChange, disabled }) {
-  const refs = useRef([]);
-  const chars = Array.from({ length: 6 }, (_, i) => value[i] || "");
-  const commit = (next) => onChange(next.join(""));
-  const setChar = (i, ch) => {
-    const next = chars.slice();
-    next[i] = ch;
-    commit(next);
-    if (ch && i < 5) refs.current[i + 1]?.focus();
-  };
-  const handleKeyDown = (i, e) => {
-    if (e.key === "Backspace" && !chars[i] && i > 0) refs.current[i - 1]?.focus();
-  };
-  return (
-    <div dir="ltr" className="flex justify-center" style={{ gap: 6 }}>
-      <style>{`
-        @keyframes pwGlow { 0% { box-shadow: 0 0 0 0 rgba(124,111,245,0.55); } 70% { box-shadow: 0 0 0 9px rgba(124,111,245,0); } 100% { box-shadow: 0 0 0 0 rgba(124,111,245,0); } }
-        .pw-box-filled { animation: pwGlow .45s ease-out; }
-      `}</style>
-      {chars.map((ch, i) => (
-        <input
-          key={i}
-          ref={(el) => (refs.current[i] = el)}
-          type="password"
-          value={ch}
-          disabled={disabled}
-          onChange={(e) => setChar(i, e.target.value.slice(-1))}
-          onKeyDown={(e) => handleKeyDown(i, e)}
-          maxLength={1}
-          autoFocus={i === 0}
-          className={ch ? "pw-box-filled" : ""}
-          style={{ width: 38, height: 48, textAlign: "center", fontSize: FS.subtitle, fontWeight: FW.heavy, borderRadius: RAD.md, border: `1.5px solid ${ch ? c.primary : c.border}`, background: c.surface2, color: c.ink, outline: "none", flexShrink: 0 }}
-        />
-      ))}
-    </div>
-  );
-}
-
-// Phone + a 6-character password — no SMS, no email, no third-party sign-in.
-// The concentric glow rings behind the card are pure CSS (a repeating radial
-// gradient, gently breathing), so the screen feels alive without pulling in
-// an animation library just for one screen.
-function AuthScreen({ c, dark }) {
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState(null);
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-
-  const say = (text, error) => setMsg({ text, error: !!error });
-  const phoneOk = /^09\d{9}$/.test(phone);
-  const passwordOk = password.length === 6;
-
-  // One field set, one button: try signing in first; if there's no account
-  // yet, Supabase's error is generic ("invalid credentials") on purpose for
-  // security, so a sign-up attempt right after is how we actually find out
-  // whether the number is new or the password was just wrong.
-  const submit = async () => {
-    if (!phoneOk) { say("شماره را کامل وارد کن", true); return; }
-    if (!passwordOk) { say("رمز باید دقیقاً ۶ کاراکتر باشد", true); return; }
-    setLoading(true); setMsg(null);
-    const phoneE164 = phoneToE164(phone);
-
-    const { error: loginErr } = await supabase.auth.signInWithPassword({ phone: phoneE164, password });
-    if (!loginErr) { setLoading(false); return; } // signed in — the session listener above takes it from here
-
-    const { error: signupErr } = await supabase.auth.signUp({ phone: phoneE164, password });
-    setLoading(false);
-    if (!signupErr) return; // brand-new account, signed in immediately
-    say(/registered|exists/i.test(signupErr.message) ? "رمز اشتباه است" : signupErr.message, true);
-  };
-
-  return (
-    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl }}>
-      <style>{`
-        @keyframes floraRingBreathe { 0%,100% { opacity:.5; transform: scale(1); } 50% { opacity:.85; transform: scale(1.04); } }
-        @keyframes floraCardIn { from { opacity:0; transform: translateY(14px) scale(.97); } to { opacity:1; transform: translateY(0) scale(1); } }
-      `}</style>
-      <div
-        className="fixed inset-0"
-        style={{
-          background: `repeating-radial-gradient(circle at 50% 42%, ${c.primary}14 0px, ${c.primary}14 1px, transparent 1px, transparent 46px)`,
-          animation: "floraRingBreathe 5s ease-in-out infinite",
-          pointerEvents: "none",
-        }}
-      />
-      <div
-        className="w-full relative"
-        style={{ maxWidth: 360, animation: "floraCardIn .5s cubic-bezier(.22,1,.36,1)", padding: SP.xl, borderRadius: RAD.lg + 6, ...glass(c, RAD.lg + 6), boxShadow: "0 24px 60px -20px rgba(0,0,0,0.5)" }}
-      >
-        <div className="flex flex-col items-center" style={{ marginBottom: SP.xl }}>
-          <img src={floraBrandIcon} alt="" style={{ width: 84, height: "auto" }} />
-          <img src={floraWordmark} alt="Flora" style={{ width: 150, height: "auto", marginTop: SP.md }} />
-          <div style={{ width: 36, height: 1, background: c.primary, opacity: 0.6, margin: `${SP.lg}px 0 ${SP.md}px` }} />
-          <p style={{ fontSize: FS.subtitle + 1, fontWeight: FW.heavy, textAlign: "center", color: "#fff" }}>هر معامله بزرگ</p>
-          <p style={{ fontSize: FS.caption, color: "#fff", opacity: 0.7, marginTop: 4, textAlign: "center" }}>از یک قدم درست شروع می‌شود</p>
-        </div>
-
-        {msg && (
-          <div style={{ padding: SP.md, borderRadius: RAD.md, marginBottom: SP.lg, background: msg.error ? c.dangerSoft : c.successSoft, color: msg.error ? c.danger : c.success, fontSize: FS.caption, fontWeight: FW.bold, lineHeight: 1.8, textAlign: "center" }}>
-            {msg.text}
-          </div>
-        )}
-
-        <AuthPhoneField c={c} value={phone} onChange={setPhone} />
-        <div style={{ marginTop: SP.md, marginBottom: SP.lg }}>
-          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, textAlign: "center" }}>رمز عبور (۶ کاراکتر)</p>
-          <PasswordBoxes c={c} value={password} onChange={setPassword} disabled={loading} />
-        </div>
-
-        <button
-          onClick={submit}
-          disabled={loading}
-          className="press w-full"
-          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
-        >
-          {loading ? "..." : "ورود / ساخت حساب"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// Runs exactly once, right after the very first sign-in: how the app should
-// address this consultant, and which city's map to center on when they add
-// a new listing. Two taps and a text field — never shown again once saved.
-function OnboardingScreen({ c, session, onDone }) {
-  const [title, setTitle] = useState("");
-  const [city, setCity] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState(null);
-  const [step, setStep] = useState(0); // 0 = title, 1 = city
-
-  const saveAndFinish = async () => {
-    if (!city.trim()) { setMsg("شهر را وارد کن"); return; }
-    setBusy(true);
-    const { error } = await supabase.from("profiles").update({ title, city: city.trim() }).eq("id", session.user.id);
-    setBusy(false);
-    if (error) { setMsg("ذخیره نشد، دوباره امتحان کن"); return; }
-    onDone();
-  };
-
-  return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl }}>
-      <style>{`@keyframes floraStepIn { from { opacity:0; transform: translateY(10px) scale(.98); } to { opacity:1; transform: translateY(0) scale(1); } }`}</style>
-      <div className="w-full" style={{ maxWidth: 340, animation: "floraStepIn .35s cubic-bezier(.22,1,.36,1)" }} key={step}>
-        {step === 0 ? (
-          <>
-            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>خوش اومدی 👋</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>چطور صدات کنیم؟</p>
-            <div className="flex" style={{ gap: SP.md }}>
-              {["آقای", "خانم"].map((t) => (
-                <button key={t} onClick={() => { setTitle(t); setStep(1); }} className="press flex-1" style={{ paddingBlock: SP.xl, borderRadius: RAD.lg, ...glassLite(c, RAD.lg), fontSize: FS.body + 1, fontWeight: FW.bold }}>{t}</button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>{title} مشاور 🏙️</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>تو کدوم شهر فعالیت می‌کنی؟</p>
-            {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
-            <Field c={c} label="شهر"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً تهران" autoFocus /></Field>
-            <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.6 : 1 }}>{busy ? "..." : "شروع کن"}</button>
-            <button onClick={() => setStep(0)} className="press w-full" style={{ marginTop: SP.md, fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>بازگشت</button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default function FloraCRM() {
   const [dark, setDark] = useState(true);
@@ -647,8 +99,8 @@ export default function FloraCRM() {
   // undefined = still checking on load, null = signed out, object = signed in
   const [session, setSession] = useState(undefined);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { ACTIVE_UID = data.session?.user?.id || null; setSession(data.session); });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => { ACTIVE_UID = s?.user?.id || null; setSession(s); });
+    supabase.auth.getSession().then(({ data }) => { setActiveUid(data.session?.user?.id || null); setSession(data.session); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => { setActiveUid(s?.user?.id || null); setSession(s); });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -1388,7 +840,7 @@ function SectionHeader({ c, title, action }) {
 // rounded caps/joins, and AT MOST ONE gold accent (#BA9358). Everything else
 // is the stone line, which inherits the surrounding text colour.
 // ============================================================
-const FLORA_GOLD = "#BA9358";
+// FLORA_GOLD imported from lib/ui.js
 function FIcon({ children, size = 26, color = "currentColor", gold = FLORA_GOLD, sw = 1.6 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none"
@@ -1469,33 +921,6 @@ const FloraIcons = {
 // so a bad icon name degrades gracefully instead of crashing the whole screen.
 const floraIcon = (name, props) => (FloraIcons[name] || FloraIcons.residential)(props);
 
-function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.6, gold = FLORA_GOLD }) {
-  // Brand mark: gold arched window with white/stone mullions, plus a gold key
-  // whose bow carries a checkmark — the "verified handover" emblem.
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ opacity }} aria-hidden="true">
-      {/* arched window, gold fill */}
-      <path d="M16 32 A12 12 0 0 1 40 32 L40 55 L16 55 Z" fill={gold} fillOpacity="0.9" />
-      {/* window outline + mullions in stone */}
-      <path d="M16 32 A12 12 0 0 1 40 32 L40 55 L16 55 Z" stroke={color} strokeWidth={stroke} strokeLinejoin="round" fill="none" />
-      <path d="M28 21 L28 55 M16 43 L40 43" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
-      {/* gold key */}
-      <path d="M50 18 L50 43" stroke={gold} strokeWidth={stroke * 1.3} strokeLinecap="round" />
-      <path d="M50 36 L54 36 M50 40 L53 40" stroke={gold} strokeWidth={stroke} strokeLinecap="round" />
-      <circle cx="50" cy="49.5" r="6.5" stroke={gold} strokeWidth={stroke * 1.1} fill="none" />
-      <path d="M47 49.6 L49 52 L52.5 47.6" stroke={gold} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
-function EmptyLine({ c, text }) {
-  return (
-    <div className="flex flex-col items-center justify-center" style={{ padding: "18px 2px" }}>
-      <div className="flora-float" style={{ opacity: 0.4, marginBottom: 8 }}><FloraMark size={44} color={c.muted} stroke={1.2} /></div>
-      <p style={{ color: c.muted, fontSize: 13, textAlign: "center" }}>{text}</p>
-    </div>
-  );
-}
 function StageBadge({ c, stage }) {
   const badge = (color, soft, label) => <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color, background: soft, padding: `3px ${SP.sm + 2}px`, borderRadius: RAD.pill }}>{label}</span>;
   if (stage === "فروخته شد") return badge(c.danger, c.dangerSoft, "فروخته شد");
@@ -1828,511 +1253,6 @@ function FocusMode({ ctx }) {
 // ---------- Showing / Tour Mode ----------
 // Home dashboard entry point: a door into a new tour, or — if one is already
 // underway — a one-tap way back into it. Never buried behind the CRM tabs.
-function TourEntryCard({ ctx }) {
-  const { c, tours, setTourBuilder, setOpenTourId } = ctx;
-  const active = tours.find((t) => t.status === "active" || t.status === "reviewing");
-
-  if (!active) {
-    return (
-      <button
-        onClick={() => setTourBuilder({ step: "customer", customerId: "", customerName: "", customerPhone: "", propertyIds: [] })}
-        className="press w-full flex items-center relative overflow-hidden text-right"
-        style={{ gap: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
-      >
-        <span style={{ position: "absolute", top: "-50%", left: "-10%", width: 160, height: 160, borderRadius: "50%", background: `radial-gradient(circle, ${c.purple}22, transparent 70%)`, pointerEvents: "none" }} />
-        <div className="flex items-center justify-center shrink-0 relative" style={{ width: 48, height: 48, borderRadius: RAD.md, background: c.purpleSoft, border: `1px solid ${c.purple}33` }}>
-          <Car size={22} color={c.purple} />
-        </div>
-        <div className="flex-1 relative">
-          <p style={{ fontSize: FS.body, fontWeight: FW.heavy }}>تور بازدید جدید</p>
-          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>مشتری، چند فایل، مسیر — همه در یک صفحه</p>
-        </div>
-        <ChevronLeft size={18} color={c.muted} className="relative" />
-      </button>
-    );
-  }
-
-  const total = active.items.length;
-  const doneCount = active.items.filter((it) => it.visited).length;
-  const cur = Math.min(doneCount + 1, total);
-
-  return (
-    <button
-      onClick={() => setOpenTourId(active.id)}
-      className="press w-full text-right relative overflow-hidden"
-      style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center" style={{ gap: SP.md }}>
-          <div className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: RAD.md, background: c.purpleSoft }}><Car size={18} color={c.purple} /></div>
-          <div>
-            <p style={{ fontSize: FS.body, fontWeight: FW.heavy }}>{active.status === "reviewing" ? "تور تمام شد — ثبت نتیجه" : `ادامه‌ی تور با ${active.customerName}`}</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{active.status === "reviewing" ? "برای ثبت خودکار در پرونده‌ها بزن" : `ملک ${faDigits(cur)} از ${faDigits(total)}`}</p>
-          </div>
-        </div>
-        <ChevronLeft size={18} color={c.muted} />
-      </div>
-      {active.status === "active" && (
-        <div className="flex" style={{ gap: 4, marginTop: SP.md }}>
-          {active.items.map((it) => <div key={it.id} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: it.visited ? c.purple : c.surface2 }} />)}
-        </div>
-      )}
-    </button>
-  );
-}
-
-// Full-screen 3-step wizard: pick customer → pick 3-6 files → reorder & check
-// coordination/key readiness. Deliberately no drag-and-drop library — up/down
-// buttons are just as fast with a thumb and never misfire on a moving list.
-function TourWizard({ ctx }) {
-  const { c, tourBuilder: b, setTourBuilder } = ctx;
-  const patch = (obj) => setTourBuilder((prev) => ({ ...prev, ...obj }));
-  const STEP_LABELS = { customer: "انتخاب مشتری", properties: "انتخاب فایل‌ها", review: "ترتیب و هماهنگی" };
-  const STEP_ORDER = ["customer", "properties", "review"];
-  const stepIdx = STEP_ORDER.indexOf(b.step);
-
-  const goBack = () => { if (stepIdx === 0) { setTourBuilder(null); return; } patch({ step: STEP_ORDER[stepIdx - 1] }); };
-
-  const startTour = () => {
-    const tour = { id: uid(), customerId: b.customerId, customerName: b.customerName, customerPhone: b.customerPhone, status: "active", items: b.items, topPicks: [], notes: "", createdAt: new Date().toISOString(), completedAt: null };
-    ctx.setTours((prev) => [tour, ...prev]);
-    setTourBuilder(null);
-    ctx.setOpenTourId(tour.id);
-  };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
-        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-          <button onClick={goBack} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}>
-            {stepIdx === 0 ? <X size={16} color={c.ink} /> : <ArrowRight size={16} color={c.ink} />}
-          </button>
-          <div className="flex-1">
-            <p style={{ fontSize: FS.caption, color: c.muted }}>تور بازدید جدید</p>
-            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{STEP_LABELS[b.step]}</p>
-          </div>
-          <div className="flex" style={{ gap: 4 }}>
-            {STEP_ORDER.map((s, i) => <div key={s} style={{ width: i === stepIdx ? 18 : 6, height: 6, borderRadius: RAD.pill, background: i <= stepIdx ? c.purple : c.surface2, transition: "all .3s ease" }} />)}
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto px-4 pb-6">
-          {b.step === "customer" && <TourStepCustomer ctx={ctx} b={b} patch={patch} />}
-          {b.step === "properties" && <TourStepProperties ctx={ctx} b={b} patch={patch} />}
-          {b.step === "review" && <TourStepReview ctx={ctx} b={b} patch={patch} onStart={startTour} />}
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
-function TourStepCustomer({ ctx, b, patch }) {
-  const { c, customers, setCustomers } = ctx;
-  const [q, setQ] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const filtered = customers.filter((cu) => !q || cu.name.includes(q) || (cu.phone || "").includes(q));
-  const pick = (cu) => patch({ customerId: cu.id, customerName: cu.name, customerPhone: cu.phone || "", step: "properties" });
-  const addNew = () => { if (!name.trim()) return; const cu = { id: uid(), name: name.trim(), phone: phone.trim(), need: "", budget: 0 }; setCustomers((prev) => [cu, ...prev]); pick(cu); };
-
-  return (
-    <div className="pt-2">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی مشتری..." style={inputStyle(c)} />
-      <div style={{ height: SP.md }} />
-      <div className="flex flex-col" style={{ gap: SP.sm }}>
-        {filtered.map((cu) => (
-          <button key={cu.id} onClick={() => pick(cu)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md) }}>
-            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 40, height: 40, background: c.primarySoft }}><UserCircle2 size={20} color={c.primary} /></div>
-            <div className="flex-1 min-w-0">
-              <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{cu.name}</p>
-              <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }} dir="ltr">{cu.phone || "بدون شماره"}</p>
-            </div>
-            <ChevronLeft size={16} color={c.muted} />
-          </button>
-        ))}
-        {filtered.length === 0 && !adding && <EmptyLine c={c} text="مشتری‌ای پیدا نشد" />}
-      </div>
-      <div style={{ marginTop: SP.lg }}>
-        {!adding ? (
-          <button onClick={() => setAdding(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: FS.body }}>
-            <Plus size={16} color={c.primary} /> مشتری جدید
-          </button>
-        ) : (
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
-            <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} autoFocus /></Field>
-            <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
-            <div className="flex" style={{ gap: SP.sm }}>
-              <button onClick={() => setAdding(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.surface2, color: c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>لغو</button>
-              <button onClick={addNew} disabled={!name.trim()} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.caption + 1, opacity: name.trim() ? 1 : 0.5 }}>ادامه</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TourStepProperties({ ctx, b, patch }) {
-  const { c, properties, setProperties, setOwners } = ctx;
-  const [q, setQ] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [qa, setQa] = useState({ title: "", address: "", price: "", ownerPhone: "" });
-  const selectable = properties.filter((p) => p.stage !== "فروخته شد");
-  const filtered = selectable.filter((p) => !q || p.title.includes(q) || (p.address || "").includes(q));
-  const selected = b.propertyIds || [];
-  const toggle = (id) => { if (selected.includes(id)) { patch({ propertyIds: selected.filter((x) => x !== id) }); return; } if (selected.length >= 6) return; patch({ propertyIds: [...selected, id] }); };
-
-  const addQuick = () => {
-    if (!qa.title.trim()) return;
-    let ownerId = "";
-    if (qa.ownerPhone.trim()) { const owner = { id: uid(), name: `مالک ${qa.title.trim()}`, phone: qa.ownerPhone.trim() }; setOwners((prev) => [owner, ...prev]); ownerId = owner.id; }
-    const p = { id: uid(), title: qa.title.trim(), type: "آپارتمان", deal: "فروش", price: toNum(qa.price), pricePerMeter: 0, area: 0, rooms: 0, floor: null, furnished: "", address: qa.address.trim(), ownerId, builderId: "", stage: "فعال", desc: "", media: [], createdAt: new Date().toISOString() };
-    setProperties((prev) => [p, ...prev]);
-    if (selected.length < 6) patch({ propertyIds: [...selected, p.id] });
-    setQa({ title: "", address: "", price: "", ownerPhone: "" }); setAdding(false);
-  };
-
-  const proceed = () => {
-    const items = selected.map((id) => ({ id: uid(), propertyId: id, coordinationStatus: "none", keyStatus: "none", visited: false, customerRating: null, customerReasons: [], notes: "", visitedAt: null }));
-    patch({ items, step: "review" });
-  };
-
-  return (
-    <div className="pt-2">
-      <div className="flex items-center justify-between" style={{ marginBottom: SP.sm }}>
-        <p style={{ fontSize: FS.caption, color: c.muted }}>{faDigits(selected.length)} از ۶ فایل انتخاب شد</p>
-        {selected.length > 0 && selected.length < 3 && <p style={{ fontSize: FS.caption, color: c.attn }}>پیشنهاد: حداقل ۳ فایل</p>}
-      </div>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی فایل..." style={inputStyle(c)} />
-      <div style={{ height: SP.md }} />
-      <div className="flex flex-col" style={{ gap: SP.sm }}>
-        {filtered.map((p) => {
-          const isSel = selected.includes(p.id); const cover = p.media && p.media[0]; const Icon = typeIcon(p.type);
-          return (
-            <button key={p.id} onClick={() => toggle(p.id)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: isSel ? c.purpleSoft : c.surface2, border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
-              <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 44, height: 44, borderRadius: RAD.sm, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-                {cover ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Icon size={18} color={c.primary} />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p>
-                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{fmtToman(p.price)}</p>
-              </div>
-              <div className="flex items-center justify-center shrink-0" style={{ width: 22, height: 22, borderRadius: "50%", background: isSel ? c.purple : "transparent", border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
-                {isSel && <Check size={13} color="#fff" />}
-              </div>
-            </button>
-          );
-        })}
-        {filtered.length === 0 && <EmptyLine c={c} text="فایلی پیدا نشد" />}
-      </div>
-      <div style={{ marginTop: SP.lg }}>
-        {!adding ? (
-          <button onClick={() => setAdding(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, padding: SP.md, borderRadius: RAD.md, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: FS.body }}>
-            <Plus size={16} color={c.primary} /> افزودن سریع فایل (خارج از CRM)
-          </button>
-        ) : (
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
-            <Field c={c} label="نام/عنوان"><input style={inputStyle(c)} value={qa.title} onChange={(e) => setQa({ ...qa, title: e.target.value })} autoFocus /></Field>
-            <Field c={c} label="آدرس"><input style={inputStyle(c)} value={qa.address} onChange={(e) => setQa({ ...qa, address: e.target.value })} /></Field>
-            <Field c={c} label="قیمت (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={qa.price} onChange={(e) => setQa({ ...qa, price: e.target.value })} /></Field>
-            <Field c={c} label="شماره مالک (اختیاری)"><input style={inputStyle(c)} dir="ltr" value={qa.ownerPhone} onChange={(e) => setQa({ ...qa, ownerPhone: e.target.value })} /></Field>
-            <div className="flex" style={{ gap: SP.sm }}>
-              <button onClick={() => setAdding(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.surface2, color: c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>لغو</button>
-              <button onClick={addQuick} disabled={!qa.title.trim()} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.caption + 1, opacity: qa.title.trim() ? 1 : 0.5 }}>افزودن</button>
-            </div>
-          </div>
-        )}
-      </div>
-      <button onClick={proceed} disabled={selected.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xl, paddingBlock: SP.md, borderRadius: RAD.lg, background: selected.length ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : c.surface2, color: selected.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1 }}>
-        ادامه <ChevronLeft size={16} color={selected.length ? "#fff" : c.muted} />
-      </button>
-    </div>
-  );
-}
-
-function TourStepReview({ ctx, b, patch, onStart }) {
-  const { c, properties } = ctx;
-  const items = b.items;
-  const coord = coordMeta(c);
-  const move = (idx, dir) => { const next = [...items]; const j = idx + dir; if (j < 0 || j >= next.length) return; [next[idx], next[j]] = [next[j], next[idx]]; patch({ items: next }); };
-  const remove = (idx) => patch({ items: items.filter((_, i) => i !== idx) });
-  const cycleCoord = (idx) => { const next = [...items]; const cur = COORD_ORDER.indexOf(next[idx].coordinationStatus); next[idx] = { ...next[idx], coordinationStatus: COORD_ORDER[(cur + 1) % COORD_ORDER.length] }; patch({ items: next }); };
-  const cycleKey = (idx) => { const next = [...items]; const cur = KEY_ORDER.indexOf(next[idx].keyStatus); next[idx] = { ...next[idx], keyStatus: KEY_ORDER[(cur + 1) % KEY_ORDER.length] }; patch({ items: next }); };
-
-  const confirmedCount = items.filter((it) => it.coordinationStatus === "confirmed").length;
-  const pendingCount = items.filter((it) => it.coordinationStatus === "pending").length;
-  const needsKeyCount = items.filter((it) => it.keyStatus !== "none").length;
-  const notConfirmed = items.filter((it) => it.coordinationStatus !== "confirmed");
-
-  return (
-    <div className="pt-2">
-      <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>{b.customerName} · {faDigits(items.length)} فایل — با فلش جابجا کن، با لمس وضعیت رو عوض کن</p>
-      <div className="flex flex-col" style={{ gap: SP.sm }}>
-        {items.map((it, idx) => {
-          const p = properties.find((x) => x.id === it.propertyId); if (!p) return null;
-          const cm = coord[it.coordinationStatus];
-          return (
-            <div key={it.id} style={{ padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md) }}>
-              <div className="flex items-center" style={{ gap: SP.sm }}>
-                <div className="flex items-center justify-center shrink-0 rounded-full" style={{ width: 22, height: 22, background: c.purpleSoft, fontSize: 11, fontWeight: FW.heavy, color: c.purple }}>{faDigits(idx + 1)}</div>
-                <div className="flex-1 min-w-0">
-                  <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p>
-                  <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 1 }}>{fmtToman(p.price)}</p>
-                </div>
-                <div className="flex flex-col items-center" style={{ gap: 2 }}>
-                  <button onClick={() => move(idx, -1)} disabled={idx === 0} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === 0 ? 0.4 : 1 }}><ArrowUp size={12} color={c.muted} /></button>
-                  <button onClick={() => move(idx, 1)} disabled={idx === items.length - 1} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === items.length - 1 ? 0.4 : 1 }}><ArrowDown size={12} color={c.muted} /></button>
-                </div>
-                <button onClick={() => remove(idx)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><X size={13} color={c.danger} /></button>
-              </div>
-              <div className="flex" style={{ gap: SP.sm, marginTop: SP.sm }}>
-                <button onClick={() => cycleCoord(idx)} className="press flex-1 flex items-center justify-center" style={{ gap: 4, padding: "6px 8px", borderRadius: RAD.sm, background: cm.soft }}>
-                  <cm.icon size={12} color={cm.color} /><span style={{ fontSize: 11, fontWeight: FW.bold, color: cm.color }}>{cm.label}</span>
-                </button>
-                <button onClick={() => cycleKey(idx)} className="press flex-1 flex items-center justify-center" style={{ gap: 4, padding: "6px 8px", borderRadius: RAD.sm, background: c.surface2 }}>
-                  <Key size={12} color={c.muted} /><span style={{ fontSize: 11, fontWeight: FW.bold, color: c.ink }}>{KEY_LABEL[it.keyStatus]}</span>
-                </button>
-              </div>
-            </div>
-          );
-        })}
-        {items.length === 0 && <EmptyLine c={c} text="فایلی برای این تور نمانده" />}
-      </div>
-
-      {items.length > 0 && (
-        <div style={{ marginTop: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
-          <p style={{ fontSize: FS.body, fontWeight: FW.heavy, marginBottom: SP.md }}>آماده شروع</p>
-          <div className="flex flex-col" style={{ gap: SP.xs + 2 }}>
-            <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>مشتری</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>{b.customerName}</span></div>
-            <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>تعداد فایل</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>{faDigits(items.length)}</span></div>
-            <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>هماهنگ‌شده</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.success }}>{faDigits(confirmedCount)}</span></div>
-            {pendingCount > 0 && <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>منتظر تأیید</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.attn }}>{faDigits(pendingCount)}</span></div>}
-            {needsKeyCount > 0 && <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>نیازمند کلید</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>{faDigits(needsKeyCount)}</span></div>}
-          </div>
-          {notConfirmed.length > 0 && (
-            <div className="flex items-start" style={{ gap: SP.xs, marginTop: SP.md, padding: SP.sm, borderRadius: RAD.sm, background: c.attnSoft }}>
-              <AlertTriangle size={13} color={c.attn} style={{ marginTop: 2, flexShrink: 0 }} />
-              <p style={{ fontSize: FS.caption, color: c.ink, lineHeight: 1.7 }}>{notConfirmed.length === items.length ? "هنوز هیچ فایلی تأیید نشده" : `${faDigits(notConfirmed.length)} فایل هنوز تأیید نشده`} — می‌تونی همینطوری هم شروع کنی</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      <button onClick={onStart} disabled={items.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, background: items.length ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : c.surface2, color: items.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: items.length ? "0 12px 28px -10px rgba(47,124,246,0.5)" : "none" }}>
-        <Car size={17} color={items.length ? "#fff" : c.muted} /> شروع تور
-      </button>
-    </div>
-  );
-}
-
-// Routes an open tour to the right full-screen: still visiting → Focus Mode,
-// all files seen → the completion/rating summary.
-function TourSession({ ctx, tourId }) {
-  const tour = ctx.tours.find((t) => t.id === tourId);
-  if (!tour) return null;
-  if (tour.status === "reviewing" || tour.status === "completed") return <TourCompleteScreen ctx={ctx} tour={tour} />;
-  return <TourFocusMode ctx={ctx} tour={tour} />;
-}
-
-// One property per screen, nothing else. This is the screen the consultant
-// actually looks at while standing in a doorway with the customer beside them.
-function TourFocusMode({ ctx, tour }) {
-  const { c, properties, owners, setTours } = ctx;
-  const [index, setIndex] = useState(() => { const idx = tour.items.findIndex((it) => !it.visited); return idx < 0 ? 0 : idx; });
-  const i = index;
-  const item = tour.items[i];
-  const [note, setNote] = useState(item?.notes || "");
-  const [showNote, setShowNote] = useState(false);
-  const [showReasons, setShowReasons] = useState(item?.customerRating === "dislike");
-
-  useEffect(() => { setNote(item?.notes || ""); setShowNote(false); setShowReasons(item?.customerRating === "dislike"); }, [i]); // eslint-disable-line
-
-  if (!item) return null;
-  const p = properties.find((x) => x.id === item.propertyId);
-  if (!p) return null;
-  const owner = owners.find((o) => o.id === p.ownerId);
-  const cover = p.media && p.media[0];
-  const cm = coordMeta(c)[item.coordinationStatus];
-  const rm = ratingMeta(c);
-
-  const updateItem = (patchObj) => setTours((prev) => prev.map((t) => t.id !== tour.id ? t : { ...t, items: t.items.map((it) => it.id === item.id ? { ...it, ...patchObj } : it) }));
-  const setRating = (key) => { updateItem({ customerRating: key }); setShowReasons(key === "dislike"); };
-  const toggleReason = (r) => { const has = (item.customerReasons || []).includes(r); updateItem({ customerReasons: has ? item.customerReasons.filter((x) => x !== r) : [...(item.customerReasons || []), r] }); };
-  const saveNote = () => { updateItem({ notes: note }); setShowNote(false); };
-
-  const goNext = () => {
-    updateItem({ visited: true, visitedAt: new Date().toISOString(), notes: note });
-    const nextIdx = i + 1;
-    if (nextIdx >= tour.items.length) setTours((prev) => prev.map((t) => t.id === tour.id ? { ...t, status: "reviewing" } : t));
-    else setIndex(nextIdx);
-  };
-  const goPrev = () => { if (i > 0) setIndex(i - 1); };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
-        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-          <button onClick={() => ctx.setOpenTourId(null)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-          <div className="flex-1 flex" style={{ gap: SP.xs }}>
-            {tour.items.map((it, idx) => <div key={it.id} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: it.visited ? c.purple : idx === i ? c.purpleSoft : c.surface2, border: idx === i ? `1px solid ${c.purple}` : "none" }} />)}
-          </div>
-          <span style={{ fontSize: FS.caption, color: c.muted, flexShrink: 0 }}>{faDigits(i + 1)}/{faDigits(tour.items.length)}</span>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-6">
-          <div className="rounded-2xl overflow-hidden mb-3" style={{ height: 180, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-            {cover ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div className="w-full h-full flex items-center justify-center">{React.createElement(typeIcon(p.type), { size: 44, color: c.primary })}</div>}
-          </div>
-
-          <h1 style={{ fontSize: FS.title, fontWeight: FW.heavy, lineHeight: 1.4 }}>{p.title}</h1>
-          <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.xs, color: c.muted, fontSize: FS.caption }}><MapPin size={12} />{p.address || "بدون آدرس"}</div>
-          <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.md }}>{fmtToman(p.price)}</p>
-
-          <div className="flex" style={{ gap: SP.sm, marginTop: SP.md, flexWrap: "wrap" }}>
-            <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: c.surface2, fontSize: 11, fontWeight: FW.bold }}><Ruler size={11} color={c.muted} />{faDigits(p.area)} متر</span>
-            {p.rooms > 0 && <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: c.surface2, fontSize: 11, fontWeight: FW.bold }}><Home size={11} color={c.muted} />{faDigits(p.rooms)} خواب</span>}
-            <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: cm.soft, fontSize: 11, fontWeight: FW.bold, color: cm.color }}><cm.icon size={11} color={cm.color} />{cm.label}</span>
-            {item.keyStatus !== "none" && <span className="flex items-center rounded-full" style={{ gap: 4, padding: "5px 10px", background: c.attnSoft, fontSize: 11, fontWeight: FW.bold, color: c.attn }}><Key size={11} color={c.attn} />{KEY_LABEL[item.keyStatus]}</span>}
-          </div>
-
-          <div className="flex" style={{ gap: SP.sm, marginTop: SP.lg }}>
-            <a href={mapsLink(p)} target="_blank" rel="noreferrer" className="press flex-1 flex items-center justify-center" style={{ gap: 6, paddingBlock: SP.sm + 2, borderRadius: RAD.md, background: c.surface2 }}>
-              <NavigationIcon size={14} color={c.primary} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>مسیریابی</span>
-            </a>
-            {owner?.phone && (
-              <a href={`tel:${owner.phone}`} className="press flex-1 flex items-center justify-center" style={{ gap: 6, paddingBlock: SP.sm + 2, borderRadius: RAD.md, background: c.successSoft }}>
-                <PhoneCall size={14} color={c.success} /><span style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.success }}>تماس مالک</span>
-              </a>
-            )}
-          </div>
-
-          <div style={{ marginTop: SP.xl }}>
-            <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>نظر مشتری؟</p>
-            <div className="flex" style={{ gap: SP.sm }}>
-              {RATING_ORDER.map((key) => { const r = rm[key]; const active = item.customerRating === key; return (
-                <button key={key} onClick={() => setRating(key)} className="press flex-1 flex flex-col items-center" style={{ gap: 4, paddingBlock: SP.md, borderRadius: RAD.md, background: active ? r.soft : c.surface2, border: active ? `1.5px solid ${r.color}` : "1.5px solid transparent" }}>
-                  <r.icon size={20} color={active ? r.color : c.muted} />
-                  <span style={{ fontSize: 10, fontWeight: FW.bold, color: active ? r.color : c.muted }}>{r.label}</span>
-                </button>
-              ); })}
-            </div>
-
-            {showReasons && (
-              <div className="flex flex-wrap" style={{ gap: 6, marginTop: SP.md }}>
-                {DISLIKE_REASONS.map((r) => { const on = (item.customerReasons || []).includes(r); return (
-                  <button key={r} onClick={() => toggleReason(r)} className="press rounded-full" style={{ padding: "5px 12px", background: on ? c.dangerSoft : c.surface2, color: on ? c.danger : c.muted, fontSize: 11, fontWeight: FW.bold }}>{r}</button>
-                ); })}
-              </div>
-            )}
-
-            {!showNote ? (
-              <button onClick={() => setShowNote(true)} className="press flex items-center" style={{ gap: 4, marginTop: SP.md }}>
-                <StickyNote size={12} color={c.muted} /><span style={{ fontSize: FS.caption, color: c.muted }}>{note ? "ویرایش یادداشت" : "افزودن یادداشت"}</span>
-              </button>
-            ) : (
-              <div style={{ marginTop: SP.md }}>
-                <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: قیمت را بالا دانست" style={{ ...inputStyle(c), minHeight: 60, resize: "none", lineHeight: 1.8 }} />
-                <button onClick={saveNote} className="press" style={{ marginTop: SP.xs, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>ذخیره یادداشت</button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex shrink-0" style={{ gap: SP.sm, padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))` }}>
-          {i > 0 && <button onClick={goPrev} className="press flex items-center justify-center shrink-0" style={{ width: 48, borderRadius: RAD.lg, background: c.surface2 }}><ChevronRight size={18} color={c.ink} /></button>}
-          <button onClick={goNext} className="press flex-1 flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
-            {i + 1 < tour.items.length ? "ملک بعدی" : "پایان تور"}<ChevronLeft size={16} color="#fff" />
-          </button>
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
-// After the last property: rate the tour, pick the customer's top file(s), and
-// log everything into the customer's and each property's timeline in one tap —
-// the consultant never re-types anything they already entered mid-tour.
-function TourCompleteScreen({ ctx, tour }) {
-  const { c, properties, setTours, setAppointments, setCalls, notify, celebrate } = ctx;
-  const [topPicks, setTopPicks] = useState(tour.topPicks || []);
-  const [noteOpen, setNoteOpen] = useState(false);
-  const [note, setNote] = useState(tour.notes || "");
-  const rm = ratingMeta(c);
-  const visited = tour.items.filter((it) => it.visited);
-  const tally = RATING_ORDER.reduce((acc, k) => ({ ...acc, [k]: visited.filter((it) => it.customerRating === k).length }), {});
-
-  const togglePick = (id) => setTopPicks((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= 3 ? prev : [...prev, id]);
-
-  const quickAction = (kind) => {
-    if (kind === "note") { setNoteOpen(true); return; }
-    const NOTES = { followup: "پیگیری بعد از تور بازدید", second: "هماهنگی بازدید دوم", negotiate: "مذاکره قیمت بعد از تور" };
-    setCalls((prev) => [{ id: uid(), customerId: tour.customerId, customerName: tour.customerName, customerPhone: tour.customerPhone, date: todayISO(), status: "در انتظار پاسخ", notes: NOTES[kind] }, ...prev]);
-    notify("یادآوری پیگیری ثبت شد");
-  };
-
-  const finish = () => {
-    const time = new Date().toTimeString().slice(0, 5);
-    const newAppts = visited.map((it) => ({ id: uid(), propertyId: it.propertyId, customerId: tour.customerId, customerName: tour.customerName, date: todayISO(), time, notes: it.notes || "", tourId: tour.id, rating: it.customerRating || null, reasons: it.customerReasons || [] }));
-    setAppointments((prev) => [...newAppts, ...prev]);
-    setTours((prev) => prev.map((t) => t.id === tour.id ? { ...t, status: "completed", completedAt: new Date().toISOString(), topPicks, notes: note } : t));
-    celebrate({ kind: "tour", label: "تور بازدید ثبت شد" });
-    ctx.setOpenTourId(null);
-  };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
-        <div className="flex-1 overflow-y-auto px-4" style={{ paddingTop: `calc(${SP.xl}px + env(safe-area-inset-top, 0px))`, paddingBottom: SP.xl }}>
-          <div className="flex flex-col items-center" style={{ marginBottom: SP.xl }}>
-            <div className="flex items-center justify-center flora-bounce" style={{ width: 64, height: 64, borderRadius: "50%", background: c.successSoft, marginBottom: SP.md }}><CheckCircle2 size={30} color={c.success} /></div>
-            <p style={{ fontSize: FS.title, fontWeight: FW.heavy }}>تور تمام شد</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{tour.customerName} · {faDigits(visited.length)} ملک بازدید شد</p>
-          </div>
-
-          <div className="grid grid-cols-4" style={{ gap: SP.sm, marginBottom: SP.xl }}>
-            {RATING_ORDER.map((k) => { const r = rm[k]; return (
-              <div key={k} className="flex flex-col items-center" style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
-                <r.icon size={17} color={r.color} />
-                <span style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}>{faDigits(tally[k])}</span>
-              </div>
-            ); })}
-          </div>
-
-          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>کدام فایل بیشتر مورد پسند مشتری بود؟ (تا ۳ ملک)</p>
-          <div className="flex flex-col" style={{ gap: SP.sm, marginBottom: SP.xl }}>
-            {visited.map((it) => {
-              const p = properties.find((x) => x.id === it.propertyId); if (!p) return null;
-              const on = topPicks.includes(it.propertyId); const rank = on ? topPicks.indexOf(it.propertyId) + 1 : null;
-              return (
-                <button key={it.id} onClick={() => togglePick(it.propertyId)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: on ? c.attnSoft : c.surface2, border: `1.5px solid ${on ? c.attn : "transparent"}` }}>
-                  <div className="flex items-center justify-center shrink-0" style={{ width: 24, height: 24, borderRadius: "50%", background: on ? c.attn : c.surface, fontSize: 11, fontWeight: FW.heavy, color: on ? "#fff" : c.muted }}>{on ? faDigits(rank) : ""}</div>
-                  <div className="flex-1 min-w-0"><p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p></div>
-                  {it.customerRating && React.createElement(rm[it.customerRating].icon, { size: 15, color: rm[it.customerRating].color })}
-                </button>
-              );
-            })}
-          </div>
-
-          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>اقدام بعدی (اختیاری)</p>
-          <div className="flex flex-wrap" style={{ gap: SP.sm, marginBottom: SP.xl }}>
-            {[["followup", "پیگیری مشتری"], ["second", "هماهنگی بازدید دوم"], ["negotiate", "مذاکره قیمت"], ["note", "ثبت یادداشت"]].map(([k, label]) => (
-              <button key={k} onClick={() => quickAction(k)} className="press rounded-full" style={{ padding: "8px 14px", background: c.surface2, fontSize: FS.caption, fontWeight: FW.bold }}>{label}</button>
-            ))}
-          </div>
-          {noteOpen && <div style={{ marginBottom: SP.xl }}><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="یادداشت کلی تور..." style={{ ...inputStyle(c), minHeight: 70, resize: "none", lineHeight: 1.8 }} /></div>}
-        </div>
-
-        <div className="shrink-0" style={{ padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))` }}>
-          <button onClick={finish} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
-            <Check size={17} color="#fff" /> پایان و ثبت در پرونده‌ها
-          </button>
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
-// Two compact, equal-weight tiles — quick one-tap tools paired side by side.
 function VoiceAssistantTile({ ctx }) {
   const { c, setSheet } = ctx;
   return (
@@ -7514,8 +6434,6 @@ function QuickAddSheet({ ctx, onClose }) {
     </SheetShell>
   );
 }
-function Field({ c, label, children }) { return <div style={{ marginBottom: SP.md }}><label style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, display: "block" }}>{label}</label>{children}</div>; }
-function inputStyle(c) { return { width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: `${SP.md}px ${SP.md + 2}px`, fontSize: FS.body + 1, color: c.ink, outline: "none", fontFamily: "inherit" }; }
 function Select({ c, value, onChange, options, placeholder }) { return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>; }
 function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full" style={{ borderRadius: RAD.md, paddingBlock: SP.md + 2, marginTop: SP.sm, background: disabled ? c.surface2 : "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: disabled ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>{label}</button>; }
 
@@ -7985,20 +6903,33 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       const raw = data.data;
 
       setImportState("normalizing");
-      // Multiple images, fetched client-side (the Edge Function only returns
-      // URLs, not bytes — keeps the function fast and avoids doubling every
-      // image through our own server). Each fetch is independent: a CDN
-      // blocking one image cross-origin shouldn't cost the rest.
+      // Images arrive as base64 — the server downloaded them (no CORS issue
+      // there), so this is just decoding bytes we already have, not a
+      // second network hop to divar's CDN. A slot with base64:null (a
+      // single image that failed server-side) is skipped, not fatal.
       let extractedMedia = [];
       if (Array.isArray(raw.images) && raw.images.length) {
-        const results = await Promise.allSettled(raw.images.slice(0, 6).map(async (imgUrl) => {
-          const blob = await (await fetch(imgUrl)).blob();
-          const file = new File([blob], "divar.jpg", { type: blob.type || "image/jpeg" });
-          return { id: uid(), type: "image", url: await compressImage(file) };
-        }));
+        const results = await Promise.allSettled(
+          raw.images.filter((img) => img.base64).sort((a, b) => a.position - b.position).map(async (img) => {
+            const byteChars = atob(img.base64);
+            const bytes = new Uint8Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+            const file = new File([bytes], "divar.jpg", { type: img.contentType || "image/jpeg" });
+            return { id: uid(), type: "image", url: await compressImage(file) };
+          })
+        );
         extractedMedia = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
       }
-      const normalized = { ...raw, source: "divar", media: extractedMedia };
+      const normalized = {
+        ...raw, source: "divar", media: extractedMedia,
+        // The three fields with a confidence score double as the editable
+        // "correction" values shown in preview — pre-filled when the parser
+        // is reasonably sure, left blank ("نیاز به بررسی") when confidence
+        // is low, per spec: never show a shaky guess as if it were certain.
+        areaInput: raw.areaConfidence === "low" ? "" : String(raw.area ?? ""),
+        roomsInput: raw.roomsConfidence === "low" ? "" : String(raw.rooms ?? ""),
+        yearBuiltInput: raw.yearBuiltConfidence === "low" ? "" : String(raw.yearBuilt ?? ""),
+      };
 
       setImportState("checking_duplicate");
       // Priority per spec: sourceId first, then sourceUrl, then a loose
@@ -8018,18 +6949,28 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
     }
   };
 
+  const setImportField = (key) => (e) => setImportData((prev) => ({ ...prev, [key]: e.target.value }));
+
   const saveImportedProperty = () => {
     const d = importData;
+    const area = toNum(d.areaInput) || null;
+    const rooms = d.roomsInput !== "" ? toNum(d.roomsInput) : null;
+    const yearBuilt = toNum(d.yearBuiltInput) || null;
     const payload = {
       title: d.title || "بدون عنوان", type: d.propertyType || "آپارتمان", deal: d.dealType === "رهن_و_اجاره" ? "فروش" : (d.dealType || "فروش"),
-      pricePerMeter: d.area ? Math.round((d.price || 0) / d.area) : 0, area: d.area || 0, rooms: d.rooms || 0, floor: d.floor || 1,
+      pricePerMeter: area ? Math.round((d.price || 0) / area) : 0, area: area || 0, rooms: rooms || 0, floor: d.floor || 1,
       furnished: "بدون لوازم", address: d.address || "", builderId: "", ownerId: "", media: d.media || [], lat: null, lng: null,
       preDown: 0, preMonths: 0, preDelivery: 0, preDeed: 0, buildStage: BUILD_STAGES[0],
-      desc: [d.description, d.totalFloors ? `تعداد طبقات: ${faDigits(d.totalFloors)}` : "", d.yearBuilt ? `سال ساخت: ${faDigits(d.yearBuilt)}` : "",
+      desc: [d.description, d.totalFloors ? `تعداد طبقات: ${faDigits(d.totalFloors)}` : "", yearBuilt ? `سال ساخت: ${faDigits(yearBuilt)}` : (d.yearBuiltLabel ? d.yearBuiltLabel : ""),
         d.parking != null ? `پارکینگ: ${d.parking ? "دارد" : "ندارد"}` : "", d.elevator != null ? `آسانسور: ${d.elevator ? "دارد" : "ندارد"}` : "",
         d.storage != null ? `انباری: ${d.storage ? "دارد" : "ندارد"}` : "", d.deposit ? `رهن: ${fmtToman(d.deposit)}` : "", d.rent ? `اجاره ماهانه: ${fmtToman(d.rent)}` : ""]
         .filter(Boolean).join("\n"),
       source: d.source, sourceUrl: d.sourceUrl, sourceId: d.sourceId, importedAt: d.importedAt,
+      yearBuilt, yearBuiltLabel: d.yearBuiltLabel || null,
+      // Kept for debugging a mis-read listing later — "Flora خواند متراژ اشتباه
+      // بود" is answerable by looking at exactly what the parser saw, not
+      // guessing after the fact.
+      rawImportData: d.rawImportData || null,
     };
     setProperties((prev) => [{ id: uid(), stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
     celebrate({ kind: "file", label: "فایل از دیوار اضافه شد" });
@@ -8040,8 +6981,8 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
     const d = importData;
     setF((prev) => ({
       ...prev, title: d.title || prev.title, type: d.propertyType || prev.type, deal: d.dealType === "رهن_و_اجاره" ? "فروش" : (d.dealType || prev.deal),
-      area: d.area ? String(d.area) : prev.area, pricePerMeter: d.area && d.price ? String(Math.round(d.price / d.area)) : prev.pricePerMeter,
-      rooms: d.rooms ? String(d.rooms) : prev.rooms, floor: d.floor != null ? String(d.floor) : prev.floor, address: d.address || prev.address,
+      area: d.areaInput || prev.area, pricePerMeter: d.areaInput && d.price ? String(Math.round(d.price / toNum(d.areaInput))) : prev.pricePerMeter,
+      rooms: d.roomsInput || prev.rooms, floor: d.floor != null ? String(d.floor) : prev.floor, address: d.address || prev.address,
       desc: d.description || prev.desc,
     }));
     if (d.media?.length) setMedia((prev) => [...prev, ...d.media]);
@@ -8160,20 +7101,62 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
                 </div>
               )}
               <p style={{ fontSize: 11, color: c.muted, fontWeight: 700, letterSpacing: ".02em", marginBottom: SP.sm }}>پیش‌نمایش — قبل از ثبت بررسی کن</p>
-              {importData.media?.[0] && <img src={importData.media[0].url} alt="" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: RAD.md, marginBottom: SP.md }} />}
+
+              {importData.media?.[0] && <img src={importData.media[0].url} alt="" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: RAD.md, marginBottom: SP.sm }} />}
+              {importData.media?.length > 1 && (
+                <div className="flex" style={{ gap: 6, overflowX: "auto", marginBottom: SP.md, paddingBottom: 2 }}>
+                  {importData.media.slice(1).map((m) => (
+                    <img key={m.id} src={m.url} alt="" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: RAD.sm, flexShrink: 0 }} />
+                  ))}
+                </div>
+              )}
+              {Array.isArray(importData.images) && importData.images.some((im) => !im.base64) && (
+                <p style={{ fontSize: 10.5, color: c.muted, marginBottom: SP.md }}>
+                  {faDigits(importData.images.filter((im) => !im.base64).length)} تصویر از این آگهی قابل دریافت نبود
+                </p>
+              )}
+
               <div className="flex flex-col" style={{ gap: 6, marginBottom: SP.md }}>
-                {[
-                  ["عنوان", importData.title], ["قیمت", importData.price ? fmtToman(importData.price) : null],
-                  ["متراژ", importData.area ? `${faDigits(importData.area)} متر` : null], ["خواب", importData.rooms != null ? faDigits(importData.rooms) : null],
-                  ["طبقه", importData.floor != null ? faDigits(importData.floor) : null], ["سال ساخت", importData.yearBuilt ? faDigits(importData.yearBuilt) : null],
-                  ["آدرس", importData.address],
-                ].map(([label, val]) => (
+                {[["عنوان", importData.title], ["قیمت", importData.price ? fmtToman(importData.price) : null], ["آدرس", importData.address]].map(([label, val]) => (
                   <div key={label} className="flex items-center justify-between" style={{ paddingBlock: 4, borderBottom: `1px solid ${c.border}` }}>
                     <span style={{ fontSize: 11.5, color: c.muted }}>{label}</span>
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: val ? c.ink : c.muted }}>{val || "نامشخص"}</span>
                   </div>
                 ))}
               </div>
+
+              {/* Area / rooms / year built are always editable, never just
+                  displayed — a "medium"/"low" confidence field shows a
+                  warning instead of quietly presenting a guess as fact. */}
+              <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
+                {[
+                  { key: "areaInput", label: "متراژ", conf: importData.areaConfidence, suffix: "متر" },
+                  { key: "roomsInput", label: "خواب", conf: importData.roomsConfidence, suffix: "" },
+                  { key: "yearBuiltInput", label: "سال ساخت", conf: importData.yearBuiltConfidence, suffix: "" },
+                ].map((f) => (
+                  <div key={f.key}>
+                    <div className="flex items-center" style={{ gap: 3, marginBottom: 3 }}>
+                      <span style={{ fontSize: 10.5, color: c.muted }}>{f.label}</span>
+                      {f.conf === "low" && <AlertTriangle size={10} color={c.attn} />}
+                    </div>
+                    <input
+                      value={importData[f.key]} onChange={setImportField(f.key)} inputMode="numeric"
+                      placeholder={f.conf === "low" ? "نیاز به بررسی" : "—"}
+                      style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12.5, textAlign: "center", border: f.conf === "low" ? `1.5px solid ${c.attn}` : "1.5px solid transparent" }}
+                    />
+                    {f.key === "yearBuiltInput" && importData.yearBuiltLabel && !importData.yearBuiltInput && (
+                      <p style={{ fontSize: 9.5, color: c.attn, marginTop: 2, textAlign: "center" }}>{importData.yearBuiltLabel}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {["areaConfidence", "roomsConfidence", "yearBuiltConfidence"].some((k) => importData[k] === "low") && (
+                <div className="flex items-start" style={{ gap: SP.sm, padding: SP.sm, borderRadius: RAD.sm, background: c.attnSoft, marginBottom: SP.md }}>
+                  <AlertTriangle size={12} color={c.attn} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <p style={{ fontSize: 10.5, color: c.attn, lineHeight: 1.7 }}>یکی یا چند مورد از متراژ/خواب/سال ساخت به‌طور مطمئن تشخیص داده نشد — قبل از ذخیره خودت وارد کن یا تأیید کن.</p>
+                </div>
+              )}
+
               <div className="flex flex-wrap" style={{ gap: 6, marginBottom: SP.md }}>
                 {[["پارکینگ", importData.parking], ["آسانسور", importData.elevator], ["انباری", importData.storage]].filter(([, v]) => v === true).map(([label]) => (
                   <span key={label} className="flex items-center" style={{ gap: 4, fontSize: 11, fontWeight: 700, color: c.success, background: c.successSoft, padding: "4px 9px", borderRadius: 999 }}><CheckCircle2 size={11} color={c.success} />{label}</span>
