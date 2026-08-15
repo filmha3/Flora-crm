@@ -2352,6 +2352,19 @@ function HomeTab({ ctx }) {
           right on the dashboard, instead of being buried inside a form. */}
       <div style={{ marginTop: SP.md }}><TourEntryCard ctx={ctx} /></div>
 
+      {/* Direct door to divar.ir itself — same destination as the link inside
+          the "جستجوی دیوار با AI" sheet, just promoted to the dashboard since
+          it's the one agents reach for constantly, not only when diagnosing
+          a specific ad. */}
+      <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginTop: SP.md, background: "linear-gradient(135deg,#c8102e,#e63946)", boxShadow: "0 14px 30px -10px rgba(200,16,46,0.45)" }}>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.2)" }}><Globe size={24} color="#fff" /></div>
+        <div className="flex-1 text-right">
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: "#fff" }}>ورود به وب دیوار</p>
+          <p style={{ fontSize: FS.caption, color: "rgba(255,255,255,0.88)", marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
+        </div>
+        <ChevronLeft size={20} color="rgba(255,255,255,0.75)" />
+      </a>
+
       {/* Primary action — the ONLY place the accent gradient appears */}
       {simpleMode && (
         <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, marginTop: SP.xl, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
@@ -6907,6 +6920,22 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       // there), so this is just decoding bytes we already have, not a
       // second network hop to divar's CDN. A slot with base64:null (a
       // single image that failed server-side) is skipped, not fatal.
+      //
+      // One more gate here, deliberately redundant with the server's magic-
+      // byte check: compressImage() is shared with the regular manual-photo-
+      // upload flow, and by design it never rejects — if an image fails to
+      // decode it falls back to resolving with the raw (uncompressed) data
+      // anyway, since for a person's own uploaded photo that's the safer
+      // default. That fallback is exactly wrong here: an imported photo that
+      // doesn't actually decode should never end up in the property at all.
+      // So each result gets a real Image() load test before being trusted —
+      // if it doesn't load, it's dropped silently, not shown broken.
+      const verifyImageLoads = (dataUrl) => new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img.naturalWidth > 0 && img.naturalHeight > 0);
+        img.onerror = () => resolve(false);
+        img.src = dataUrl;
+      });
       let extractedMedia = [];
       if (Array.isArray(raw.images) && raw.images.length) {
         const results = await Promise.allSettled(
@@ -6915,13 +6944,17 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
             const bytes = new Uint8Array(byteChars.length);
             for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
             const file = new File([bytes], "divar.jpg", { type: img.contentType || "image/jpeg" });
-            return { id: uid(), type: "image", url: await compressImage(file) };
+            const url = await compressImage(file);
+            const ok = await verifyImageLoads(url);
+            if (!ok) throw new Error("image failed to decode");
+            return { id: uid(), type: "image", url };
           })
         );
         extractedMedia = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
       }
       const normalized = {
         ...raw, source: "divar", media: extractedMedia,
+        skippedImageCount: (Array.isArray(raw.images) ? raw.images.length : 0) - extractedMedia.length,
         // The three fields with a confidence score double as the editable
         // "correction" values shown in preview — pre-filled when the parser
         // is reasonably sure, left blank ("نیاز به بررسی") when confidence
@@ -7110,9 +7143,9 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
                   ))}
                 </div>
               )}
-              {Array.isArray(importData.images) && importData.images.some((im) => !im.base64) && (
+              {importData.skippedImageCount > 0 && (
                 <p style={{ fontSize: 10.5, color: c.muted, marginBottom: SP.md }}>
-                  {faDigits(importData.images.filter((im) => !im.base64).length)} تصویر از این آگهی قابل دریافت نبود
+                  {faDigits(importData.skippedImageCount)} تصویر از این آگهی قابل دریافت نبود
                 </p>
               )}
 
