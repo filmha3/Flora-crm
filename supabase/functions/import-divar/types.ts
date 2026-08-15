@@ -1,9 +1,10 @@
 // Shared types for the Divar importer pipeline.
 // RawExtracted = whatever the parser could read off the page, still in
-// whatever shape/units the source used (Persian digits, strings, etc).
+// whatever shape/units the source used (Persian digits, word-numbers, etc).
 // NormalizedProperty = the same data coerced into the types Flora's own
 // property form expects. Nothing here is ever guessed — a field the parser
-// didn't find stays null all the way through.
+// didn't find stays null all the way through, and fields the parser is
+// unsure about carry a confidence level instead of being silently trusted.
 
 export type ErrorCode =
   | "LINK_INVALID"
@@ -12,6 +13,13 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "PARSER_FAILED";
 
+export type Confidence = "high" | "medium" | "low";
+
+export interface ExtractedImage {
+  sourceUrl: string;
+  position: number;
+}
+
 export interface RawExtracted {
   title: string | null;
   description: string | null;
@@ -19,21 +27,35 @@ export interface RawExtracted {
   deposit: string | number | null;
   rent: string | number | null;
   area: string | number | null;
+  areaConfidence: Confidence;
   rooms: string | number | null;
+  roomsConfidence: Confidence;
   floor: string | number | null;
   totalFloors: string | number | null;
   yearBuilt: string | number | null;
+  yearBuiltLabel: string | null; // e.g. "نوساز" when true but no exact year was found
+  yearBuiltConfidence: Confidence;
   parking: boolean | null;
   elevator: boolean | null;
   storage: boolean | null;
   location: { lat: number; lng: number } | null;
-  images: string[];
+  images: ExtractedImage[];
   publishedAt: string | null;
   sourceId: string | null;
   sourceUrl: string;
   dealType: string | null;
   propertyType: string | null;
   address: string | null;
+}
+
+export interface NormalizedImage {
+  sourceUrl: string;
+  position: number;
+  // filled in by the server after downloading — the client never fetches
+  // divar.ir's image CDN directly, so this is the only copy of the bytes
+  // it ever sees.
+  base64: string | null;
+  contentType: string | null;
 }
 
 export interface NormalizedProperty {
@@ -47,18 +69,23 @@ export interface NormalizedProperty {
   deposit: number | null;
   rent: number | null;
   area: number | null;
+  areaConfidence: Confidence;
   rooms: number | null;
+  roomsConfidence: Confidence;
   floor: number | null;
   totalFloors: number | null;
   yearBuilt: number | null;
+  yearBuiltLabel: string | null;
+  yearBuiltConfidence: Confidence;
   parking: boolean | null;
   elevator: boolean | null;
   storage: boolean | null;
   address: string | null;
   location: { lat: number; lng: number } | null;
-  images: string[];
+  images: NormalizedImage[];
   publishedAt: string | null;
   importedAt: string;
+  rawImportData: RawExtracted;
 }
 
 export class ImportError extends Error {

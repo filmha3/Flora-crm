@@ -2,13 +2,14 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { fetchListingHtml } from "./fetcher.ts";
 import { parseListingHtml } from "./parser.ts";
 import { normalize } from "./normalizer.ts";
+import { downloadImages } from "./imageFetcher.ts";
 import { ImportError } from "./types.ts";
 
-// Pipeline, exactly per spec: validate → fetch → parse → normalize. Duplicate
-// check, preview, and save all stay client-side (they operate on the user's
-// own local property list, which this function has no access to and
-// shouldn't need). The frontend only ever sees { ok, data } or { ok, code }
-// — raw error messages/stack traces never leave this function.
+// Pipeline: validate → fetch page → parse → download images → normalize.
+// Duplicate check, preview, and save all stay client-side (they operate on
+// the user's own local property list, which this function has no access to
+// and shouldn't need). The frontend only ever sees { ok, data } or
+// { ok, code } — raw error messages/stack traces never leave this function.
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -52,7 +53,11 @@ Deno.serve(async (req) => {
   if (!raw) return errorResponse("EXTRACTION_FAILED", 422);
 
   try {
-    const normalized = normalize(raw);
+    // Images are downloaded here, server-side — a client-side fetch straight
+    // to Divar's CDN would just fail on CORS, which is exactly what was
+    // silently happening before and why imports were saving with no photos.
+    const downloaded = await downloadImages(raw.images.slice(0, 8));
+    const normalized = normalize(raw, downloaded);
     return new Response(JSON.stringify({ ok: true, data: normalized }), { headers: { ...cors, "Content-Type": "application/json" } });
   } catch {
     return errorResponse("PARSER_FAILED", 500);
