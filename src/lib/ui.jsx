@@ -1,7 +1,7 @@
 import React from "react";
 import { SP, RAD, FS } from "./theme.js";
 
-const FLORA_GOLD = "#C5A880";
+const FLORA_GOLD = "#BA9358";
 
 function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.6, gold = FLORA_GOLD }) {
   // Brand mark: gold arched window with white/stone mullions, plus a gold key
