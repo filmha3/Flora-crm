@@ -19,8 +19,8 @@ import { TYPE_ICON, typeIcon, floraTypeIcon, STAGES, CUSTOMER_STAGES, INVESTMENT
 import { MAX_IMAGE_DIM, IMAGE_QUALITY, supportsWebp, FALLBACK_DIM, FALLBACK_QUALITY, compressImage, reencodeToWebp, filesToMedia } from "./lib/image.js";
 import { T, FS, FW, SP, RAD, glass, glassLite } from "./lib/theme.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
-import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.js";
-import { FLORA_GOLD, FloraMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.js";
+import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
+import { FLORA_GOLD, FloraMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.jsx";
 import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, OnboardingScreen, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 
@@ -840,7 +840,7 @@ function SectionHeader({ c, title, action }) {
 // rounded caps/joins, and AT MOST ONE gold accent (#BA9358). Everything else
 // is the stone line, which inherits the surrounding text colour.
 // ============================================================
-// FLORA_GOLD imported from lib/ui.js
+// FLORA_GOLD imported from lib/ui.jsx
 function FIcon({ children, size = 26, color = "currentColor", gold = FLORA_GOLD, sw = 1.6 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none"
