@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient.js";
 import { SP, RAD, FS, FW, glass } from "../lib/theme.js";
-import { Field, inputStyle } from "../lib/ui.js";
+import { Field, inputStyle } from "../lib/ui.jsx";
 import floraBrandIcon from "../assets/flora-icon.webp";
 import floraWordmark from "../assets/flora-wordmark-new.webp";
 

@@ -5,7 +5,7 @@ import {
   StickyNote, CheckCircle2,
 } from "lucide-react";
 import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
-import { Field, inputStyle, EmptyLine, BodyPortal } from "../lib/ui.js";
+import { Field, inputStyle, EmptyLine, BodyPortal } from "../lib/ui.jsx";
 import { faDigits, fmtToman, uid, todayISO } from "../lib/format.js";
 import { typeIcon } from "../lib/constants.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "../lib/tourMeta.js";
