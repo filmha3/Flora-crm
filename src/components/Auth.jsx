@@ -151,7 +151,7 @@ function AuthScreen({ c, dark }) {
           onClick={submit}
           disabled={loading}
           className="press w-full"
-          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
+          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
         >
           {loading ? "..." : "ورود / ساخت حساب"}
         </button>
@@ -199,7 +199,7 @@ function OnboardingScreen({ c, session, onDone }) {
             <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>تو کدوم شهر فعالیت می‌کنی؟</p>
             {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
             <Field c={c} label="شهر"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً تهران" autoFocus /></Field>
-            <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.6 : 1 }}>{busy ? "..." : "شروع کن"}</button>
+            <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.6 : 1 }}>{busy ? "..." : "شروع کن"}</button>
             <button onClick={() => setStep(0)} className="press w-full" style={{ marginTop: SP.md, fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>بازگشت</button>
           </>
         )}
