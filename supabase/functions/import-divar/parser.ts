@@ -20,7 +20,8 @@
 // commodity web standards and should hold regardless of Divar-specific
 // markup; the text-parser stage (section 9 below) is the part most likely
 // to need real-world tuning against actual listing HTML.
-import type { RawExtracted, ExtractedImage, Confidence } from "./types.ts";
+import type { RawExtracted, Confidence } from "./types.ts";
+import { collectImages } from "./imageExtractor.ts";
 
 function stripTags(html: string): string {
   return html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
@@ -188,11 +189,12 @@ export function parseListingHtml(html: string, sourceUrl: string): RawExtracted 
 
   // ---- images: source URLs + position only; bytes are fetched separately
   // (see imageFetcher.ts) so a slow/broken image never blocks text parsing.
-  const ogImage = extractMeta(html, "og:image");
-  const ldImageRaw = ld?.image ? (Array.isArray(ld.image) ? ld.image : [ld.image]) : [];
-  const nextImagesRaw: string[] = Array.isArray(nextListing?.images) ? nextListing.images.filter((x: unknown) => typeof x === "string") : [];
-  const orderedUrls = [...new Set([...ldImageRaw, ...nextImagesRaw, ...(ogImage ? [ogImage] : [])])].slice(0, 10);
-  const images: ExtractedImage[] = orderedUrls.map((sourceUrlImg, position) => ({ sourceUrl: sourceUrlImg, position }));
+  // See imageExtractor.ts for why this is its own module — collecting from
+  // one source (previously just the first og:image tag) was the actual bug
+  // behind "only one photo gets saved."
+  const { images, debug: imageDebug } = collectImages(html);
+  // deno-lint-ignore no-console
+  console.log(`[import-divar] image candidates: ${imageDebug.candidates}, unique: ${imageDebug.unique}, filtered: ${imageDebug.filtered}, kept: ${images.length}`);
 
   const idFromUrl = sourceUrl.match(/\/v\/[^/]+\/([a-zA-Z0-9-]+)\/?(?:[?#].*)?$/) || sourceUrl.match(/\/v\/([a-zA-Z0-9-]+)\/?(?:[?#].*)?$/);
   const sourceId = ld?.sku || ld?.productID || nextListing?.token || nextListing?.id || (idFromUrl ? idFromUrl[idFromUrl.length - 1] : null);

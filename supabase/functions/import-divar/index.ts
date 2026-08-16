@@ -56,7 +56,13 @@ Deno.serve(async (req) => {
     // Images are downloaded here, server-side — a client-side fetch straight
     // to Divar's CDN would just fail on CORS, which is exactly what was
     // silently happening before and why imports were saving with no photos.
-    const downloaded = await downloadImages(raw.images.slice(0, 8), finalUrl);
+    // Every collected candidate gets a download attempt — spec is explicit
+    // that "however many images were legitimately found" must all end up in
+    // the gallery, not just a fixed first handful.
+    const downloaded = await downloadImages(raw.images.slice(0, 20), finalUrl);
+    const okCount = downloaded.filter((d) => d.base64).length;
+    // deno-lint-ignore no-console
+    console.log(`[import-divar] images downloaded: ${okCount}, failed: ${downloaded.length - okCount}`);
     const normalized = normalize(raw, downloaded);
     return new Response(JSON.stringify({ ok: true, data: normalized }), { headers: { ...cors, "Content-Type": "application/json" } });
   } catch {

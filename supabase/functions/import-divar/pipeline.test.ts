@@ -8,6 +8,7 @@ import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert
 import { validateListingUrl, fetchListingHtml } from "./fetcher.ts";
 import { parseListingHtml } from "./parser.ts";
 import { normalize } from "./normalizer.ts";
+import { collectImages } from "./imageExtractor.ts";
 import { ImportError } from "./types.ts";
 
 function wrap(html: string, url = "https://divar.ir/v/apt/id1") {
@@ -178,6 +179,61 @@ Deno.test("images keep position order and survive a failed download", () => {
   assertEquals(n.images.length, 2);
   assertEquals(n.images[0].base64, "AAA");
   assertEquals(n.images[1].base64, null); // present but marked unavailable, not silently dropped
+});
+
+// ---------- image extraction — "only the first photo got saved" was a real
+// bug (single-match og:image reader); these cover the fix. ----------
+Deno.test("images: single og:image extracted", () => {
+  const html = `<html><head><meta property="og:image" content="https://cdn.divar.ir/photo1.jpg"></head><body></body></html>`;
+  assertEquals(collectImages(html).images.length, 1);
+});
+Deno.test("images: all 5 og:image tags collected, not just the first", () => {
+  const html = `<html><head>${[1, 2, 3, 4, 5].map((i) => `<meta property="og:image" content="https://cdn.divar.ir/p${i}.jpg">`).join("\n")}</head><body></body></html>`;
+  const { images } = collectImages(html);
+  assertEquals(images.length, 5);
+  assertEquals(images.map((i) => i.position), [0, 1, 2, 3, 4]);
+});
+Deno.test("images: 10+ images from a JSON-LD array all collected", () => {
+  const urls = Array.from({ length: 12 }, (_, i) => `https://cdn.divar.ir/gallery/${i}.jpg`);
+  const html = `<html><head><script type="application/ld+json">{"@type":"Product","name":"x","image":${JSON.stringify(urls)}}</script></head><body></body></html>`;
+  assertEquals(collectImages(html).images.length, 12);
+});
+Deno.test("images: exact duplicates across sources collapse to one", () => {
+  const html = `<html><head><meta property="og:image" content="https://cdn.divar.ir/a.jpg"><script type="application/ld+json">{"@type":"Product","image":["https://cdn.divar.ir/a.jpg","https://cdn.divar.ir/b.jpg"]}</script></head><body><img src="https://cdn.divar.ir/a.jpg"></body></html>`;
+  assertEquals(collectImages(html).images.length, 2);
+});
+Deno.test("images: thumbnail (query-param sized) and original normalize to the same URL", () => {
+  const html = `<html><body><img src="https://cdn.divar.ir/photo1.jpg?w=200&h=150"><img src="https://cdn.divar.ir/photo1.jpg"></body></html>`;
+  assertEquals(collectImages(html).images.length, 1);
+});
+Deno.test("images: thumbnail path segment and original normalize to the same URL", () => {
+  const html = `<html><body><img src="https://cdn.divar.ir/thumb/photo2.jpg"><img src="https://cdn.divar.ir/photo2.jpg"></body></html>`;
+  assertEquals(collectImages(html).images.length, 1);
+});
+Deno.test("images: listing with no images returns zero, not an error", () => {
+  const html = `<html><head></head><body><p>هیچ عکسی نیست</p></body></html>`;
+  assertEquals(collectImages(html).images.length, 0);
+});
+Deno.test("images: logo/favicon/avatar/icon URLs are excluded", () => {
+  const html = `<html><head><link rel="icon" href="https://divar.ir/favicon.ico"></head><body><img src="https://divar.ir/static/logo.png"><img src="https://divar.ir/static/avatar-icon.png"><img src="https://cdn.divar.ir/real-photo.jpg"></body></html>`;
+  const { images } = collectImages(html);
+  assertEquals(images.length, 1);
+  assertEquals(images[0].sourceUrl, "https://cdn.divar.ir/real-photo.jpg");
+});
+Deno.test("images: nested under a non-standard key name (e.g. 'photos') are still found", () => {
+  const html = `<html><body><script>window.__INITIAL_STATE__ = {"post":{"title":"x","photos":["https://cdn.divar.ir/x1.jpg","https://cdn.divar.ir/x2.jpg"]}};</script></body></html>`;
+  assertEquals(collectImages(html).images.length, 2);
+});
+Deno.test("images: more than 24 candidates still cap at 24, order preserved", () => {
+  const many = Array.from({ length: 30 }, (_, i) => `<meta property="og:image" content="https://cdn.divar.ir/m${i}.jpg">`).join("\n");
+  const { images } = collectImages(`<html><head>${many}</head><body></body></html>`);
+  assertEquals(images.length, 24);
+  assertEquals(images[0].sourceUrl, "https://cdn.divar.ir/m0.jpg");
+});
+Deno.test("images: multiple photos flow through the full parseListingHtml result", () => {
+  const html = `<html><head>${[1, 2, 3].map((i) => `<meta property="og:image" content="https://cdn.divar.ir/p${i}.jpg">`).join("\n")}</head><body><div>۸۰ متر</div></body></html>`;
+  const raw = parseListingHtml(html, "https://divar.ir/v/x/y");
+  assertEquals(raw!.images.length, 3);
 });
 
 // ---------- rawImportData ----------
