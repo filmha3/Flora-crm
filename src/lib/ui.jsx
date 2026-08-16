@@ -1,7 +1,7 @@
 import React from "react";
 import { SP, RAD, FS } from "./theme.js";
 
-const FLORA_GOLD = "#BA9358";
+const FLORA_GOLD = "#C5A880";
 
 function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1.6, gold = FLORA_GOLD }) {
   // Brand mark: gold arched window with white/stone mullions, plus a gold key
@@ -18,6 +18,18 @@ function FloraMark({ size = 120, color = "currentColor", opacity = 1, stroke = 1
       <path d="M50 36 L54 36 M50 40 L53 40" stroke={gold} strokeWidth={stroke} strokeLinecap="round" />
       <circle cx="50" cy="49.5" r="6.5" stroke={gold} strokeWidth={stroke * 1.1} fill="none" />
       <path d="M47 49.6 L49 52 L52.5 47.6" stroke={gold} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+// A generic listings/chat-bubble mark for the Divar entry card — deliberately
+// not a reproduction of Divar's own trademarked logo, just a shape that
+// reads as "marketplace / listings" at a glance.
+function DivarMark({ size = 24, color = "#fff" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V5z" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M8 9h8M8 12.5h5" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -40,4 +52,4 @@ function BodyPortal({ children }) {
 function Field({ c, label, children }) { return <div style={{ marginBottom: SP.md }}><label style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, display: "block" }}>{label}</label>{children}</div>; }
 function inputStyle(c) { return { width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: `${SP.md}px ${SP.md + 2}px`, fontSize: FS.body + 1, color: c.ink, outline: "none", fontFamily: "inherit" }; }
 
-export { FLORA_GOLD, FloraMark, EmptyLine, BodyPortal, Field, inputStyle };
+export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle };

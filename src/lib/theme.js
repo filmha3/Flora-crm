@@ -1,27 +1,33 @@
 // Color themes (light/dark) and the design-token scale (spacing, radius,
 // font sizes/weights) every component pulls from instead of magic numbers.
+//
+// Brand palette: Deep Emerald (#062F22) + Muted Brass (#C5A880). Semantic
+// colors (success/danger/attn) are deliberately NOT emerald-family — a
+// "success" state needs to read as a distinct signal against an emerald
+// background, not blend into it, so success is a brighter jade rather than
+// reusing the brand green.
 const T = {
   dark: {
-    bg: "#0A0E1A", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
-    surface: "rgba(255,255,255,0.04)", surface2: "rgba(255,255,255,0.06)",
-    border: "rgba(255,255,255,0.08)", ink: "#F0F2F8", muted: "#8B92A8",
-    primary: "#5B9DFF", primarySoft: "rgba(47,124,246,0.15)",
-    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.15)",
-    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.14)",
-    success: "#22C55E", successSoft: "rgba(34,197,94,0.15)",
-    purple: "#A78BFA", purpleSoft: "rgba(124,111,245,0.15)",
-    shadow: "0 8px 32px rgba(0,0,0,0.3)",
+    bg: "#050F0B", orb1: "#0F5132", orb2: "#C5A880", orb3: "#0F5132",
+    surface: "rgba(197,168,128,0.06)", surface2: "rgba(197,168,128,0.09)",
+    border: "rgba(197,168,128,0.14)", ink: "#F3EFE4", muted: "#8FA396",
+    primary: "#C5A880", primarySoft: "rgba(197,168,128,0.16)",
+    attn: "#E0B04D", attnSoft: "rgba(224,176,77,0.16)",
+    danger: "#F2685C", dangerSoft: "rgba(242,104,92,0.15)",
+    success: "#3DD68C", successSoft: "rgba(61,214,140,0.15)",
+    purple: "#9C8AD1", purpleSoft: "rgba(156,138,209,0.15)",
+    shadow: "0 8px 32px rgba(0,0,0,0.4)",
   },
   light: {
-    bg: "#F3F5FA", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
-    surface: "rgba(255,255,255,0.6)", surface2: "rgba(255,255,255,0.45)",
-    border: "rgba(255,255,255,0.7)", ink: "#1B2436", muted: "#6B7386",
-    primary: "#2F7CF6", primarySoft: "rgba(47,124,246,0.12)",
-    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.13)",
-    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.12)",
-    success: "#22C55E", successSoft: "rgba(34,197,94,0.12)",
-    purple: "#7C6FF5", purpleSoft: "rgba(124,111,245,0.12)",
-    shadow: "0 8px 28px rgba(47,124,246,0.1)",
+    bg: "#F6F3EA", orb1: "#0F5132", orb2: "#C5A880", orb3: "#0F5132",
+    surface: "rgba(255,255,255,0.65)", surface2: "rgba(255,255,255,0.5)",
+    border: "rgba(6,47,34,0.10)", ink: "#1C2B22", muted: "#5C6B60",
+    primary: "#8A6D3F", primarySoft: "rgba(138,109,63,0.12)",
+    attn: "#B8860B", attnSoft: "rgba(184,134,11,0.12)",
+    danger: "#DC4C3F", dangerSoft: "rgba(220,76,63,0.12)",
+    success: "#1E9E62", successSoft: "rgba(30,158,98,0.12)",
+    purple: "#6B5B95", purpleSoft: "rgba(107,91,149,0.12)",
+    shadow: "0 8px 28px rgba(6,47,34,0.10)",
   },
 };
 
