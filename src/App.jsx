@@ -20,7 +20,7 @@ import { MAX_IMAGE_DIM, IMAGE_QUALITY, supportsWebp, FALLBACK_DIM, FALLBACK_QUAL
 import { T, FS, FW, SP, RAD, glass, glassLite } from "./lib/theme.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
 import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
-import { FLORA_GOLD, FloraMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.jsx";
+import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.jsx";
 import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, OnboardingScreen, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
@@ -146,6 +146,7 @@ export default function FloraCRM() {
   const [splitShares, setSplitShares] = useState({ agent: 1, management: 1, rent: 1 });
   const [officeIncomes, setOfficeIncomes] = useState(seedOfficeIncomes);
   const [investments, setInvestments] = useState([]); // Investment Center (Portfolio) — Phase 1
+  const [checks, setChecks] = useState([]); // Checks to pay — recipient, amount, due date, voice-capable
   const [tours, setTours] = useState([]); // Showing / Tour Mode
   const [tourBuilder, setTourBuilder] = useState(null); // { step, customerId, customerName, customerPhone, propertyIds, items }
   const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
@@ -184,6 +185,7 @@ export default function FloraCRM() {
         setExpenses(saved?.expenses || []);
         setOfficeIncomes(saved?.officeIncomes || []);
         setInvestments(saved?.investments || []);
+        setChecks(saved?.checks || []);
         setTours(saved?.tours || []);
 
         const settings = await dbGet(SETTINGS_KEY);
@@ -211,10 +213,10 @@ export default function FloraCRM() {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours }).catch(() => {});
+      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours]);
+  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
@@ -424,7 +426,7 @@ export default function FloraCRM() {
 
   // Persian (Jalali) date for filenames — e.g. "۶-مرداد-۱۴۰۵" instead of 2026-07-28.
   const jalaliFileDate = () => { const [jy, jm, jd] = isoToJalali(todayISO()); return `${faDigits(jd)}-${MONTHS_FA[jm - 1]}-${faDigits(jy)}`; };
-  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours });
+  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks });
   const downloadBackup = (payload, label) => {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -479,6 +481,7 @@ export default function FloraCRM() {
     if (data.expenses) setExpenses(data.expenses);
     if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
     if (data.investments) setInvestments(data.investments);
+        if (data.checks) setChecks(data.checks);
     if (data.tours) setTours(data.tours);
     notify("بازیابی انجام شد");
     return true;
@@ -512,6 +515,7 @@ export default function FloraCRM() {
         if (data.expenses) setExpenses(data.expenses);
         if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
         if (data.investments) setInvestments(data.investments);
+        if (data.checks) setChecks(data.checks);
         if (data.tours) setTours(data.tours);
         notify("بکاپ با موفقیت بازیابی شد");
       } catch (e) { notify("فایل بکاپ نامعتبر است"); }
@@ -529,7 +533,7 @@ export default function FloraCRM() {
     c, dark, session, signOut: () => supabase.auth.signOut(),
     properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, splitShares, setSplitShares, simpleMode, setSimpleMode,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
@@ -561,7 +565,7 @@ export default function FloraCRM() {
         /* Map styling. Dark Matter renders near-monochrome grey on near-black;
            a warm hue-rotate pushes the roads gold and the base navy, matching
            the printed city-map look without touching any other part of the UI. */
-        .leaflet-container { background: #0A1628 !important; }
+        .leaflet-container { background: #04120C !important; }
         /* No filter here on purpose: CARTO's dark_all tiles are already
            well-tuned, and the earlier blurriness/quality complaint traced
            back to missing retina (@2x) tile support, not color grading —
@@ -693,7 +697,7 @@ export default function FloraCRM() {
 
         {!detail && !focusQueue && !tourBuilder && !openTourId && (
           <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
-            style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 14, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
+            style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 14, background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
             <span style={{ position: "absolute", inset: -8, borderRadius: 22, border: "2px solid rgba(47,124,246,0.35)", animation: "floraRipple 2.2s infinite" }} />
             <Plus color="#fff" size={24} strokeWidth={2.5} />
           </button>
@@ -1201,12 +1205,12 @@ function FocusMode({ ctx }) {
             {step === "act" && (
               <div style={{ marginTop: SP.xxl }}>
                 {a.action.type === "call" && (
-                  <button onClick={doCall} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
+                  <button onClick={doCall} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
                     <PhoneCall size={18} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>تماس بگیر</span>
                   </button>
                 )}
                 {a.action.type === "wa" && (
-                  <button onClick={doWa} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
+                  <button onClick={doWa} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
                     <MessageCircle size={18} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>ارسال واتساپ</span>
                   </button>
                 )}
@@ -1240,7 +1244,7 @@ function FocusMode({ ctx }) {
                 </div>
                 <p style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold, textAlign: "center", marginBottom: SP.sm, letterSpacing: "0.02em" }}>مرحله‌ی بعدی</p>
                 <p style={{ fontSize: FS.subtitle, color: c.ink, textAlign: "center", lineHeight: 1.8, fontWeight: FW.medium }}>{nextTip}</p>
-                <button onClick={advance} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xxl, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
+                <button onClick={advance} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xxl, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
                   {index + 1 < actions.length ? "بعدی" : "تمام برای امروز"}{index + 1 < actions.length && <ChevronLeft size={16} color="#fff" />}
                 </button>
               </>
@@ -1502,8 +1506,8 @@ function DivarSearchSheet({ ctx, onClose }) {
       {messages.length === 0 ? (
         <div className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
           {/* Big, obvious entry to Divar's own site */}
-          <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, background: "linear-gradient(135deg,#c8102e,#e63946)", boxShadow: "0 14px 30px -10px rgba(200,16,46,0.45)" }}>
-            <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.2)" }}><Globe size={24} color="#fff" /></div>
+          <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, background: "linear-gradient(135deg,#0F5132,#1E7A4F)", boxShadow: "0 14px 30px -10px rgba(15,81,50,0.45)" }}>
+            <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.16)" }}><DivarMark size={22} color="#fff" /></div>
             <div className="flex-1 text-right">
               <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: "#fff" }}>ورود به وب دیوار</p>
               <p style={{ fontSize: FS.caption, color: "rgba(255,255,255,0.88)", marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
@@ -1849,7 +1853,7 @@ ${activeListings}
       )}
       {phase === "idle" && error && (
         <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
-          <button onClick={startRecording} className="press relative flex items-center justify-center" style={{ width: 88, height: 88, borderRadius: "50%", background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5)" }}>
+          <button onClick={startRecording} className="press relative flex items-center justify-center" style={{ width: 88, height: 88, borderRadius: "50%", background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5)" }}>
             <Mic size={34} color="#fff" />
           </button>
           <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg, textAlign: "center" }}>بزن تا دوباره امتحان کنیم</p>
@@ -1966,7 +1970,7 @@ ${activeListings}
             ))}
             {savedItems.length === 0 && <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center" }}>یادداشت ثبت شد</p>}
           </div>
-          <button onClick={() => { setShowFullEdit(false); setClarifyAnswer(""); startRecording(); }} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, marginBottom: SP.sm }}>
+          <button onClick={() => { setShowFullEdit(false); setClarifyAnswer(""); startRecording(); }} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, marginBottom: SP.sm }}>
             <Mic size={16} color="#fff" />ویس بعدی
           </button>
           <button onClick={onClose} className="press w-full" style={{ paddingBlock: SP.md, borderRadius: RAD.lg, background: c.surface2, color: c.ink, fontWeight: FW.bold, fontSize: FS.body + 1 }}>تمام، برگرد به خانه</button>
@@ -2315,6 +2319,64 @@ function BuildingScrollHero({ ctx }) {
 
 
 
+// Big day number, small month name underneath — the "امروز" badge, sized to
+// sit comfortably next to the avatar without crowding the greeting text.
+function DateBadge({ c }) {
+  const [jy, jm, jd] = isoToJalali(todayISO());
+  return (
+    <div className="flex flex-col items-center justify-center shrink-0" style={{ width: 46, height: 46, borderRadius: RAD.md, background: c.primarySoft, border: `1px solid ${c.primary}33` }}>
+      <p style={{ fontSize: 17, fontWeight: FW.heavy, color: c.primary, lineHeight: 1 }}>{faDigits(jd)}</p>
+      <p style={{ fontSize: 8.5, color: c.primary, fontWeight: FW.bold, marginTop: 2 }}>{MONTHS_FA[jm - 1]}</p>
+    </div>
+  );
+}
+
+// Price-trend and street-density insight — deliberately scoped to "your own
+// listings," not a live citywide feed Flora has no access to. Framed
+// honestly rather than presented as authoritative market data.
+function PropertyMarketInsightCard({ ctx }) {
+  const { c, properties, agencyCity } = ctx;
+  const [cjy, cjm] = isoToJalali(todayISO());
+  let py = cjy, pm = cjm - 1; if (pm <= 0) { pm = 12; py -= 1; }
+
+  const inMonth = (p, y, m) => { const [jy, jm] = isoToJalali((p.createdAt || todayISO()).slice(0, 10)); return jy === y && jm === m; };
+  const avgPPM = (list) => { const vals = list.map((p) => p.pricePerMeter).filter(Boolean); return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null; };
+
+  const thisMonthAvg = avgPPM(properties.filter((p) => inMonth(p, cjy, cjm)));
+  const lastMonthAvg = avgPPM(properties.filter((p) => inMonth(p, py, pm)));
+  const pctChange = thisMonthAvg && lastMonthAvg ? Math.round(((thisMonthAvg - lastMonthAvg) / lastMonthAvg) * 100) : null;
+
+  const streetOf = (addr) => {
+    if (!addr) return null;
+    const m = addr.match(/(خیابان|بلوار|کوچه)\s+([^\،,]+)/);
+    if (m) return `${m[1]} ${m[2].trim().split(" ").slice(0, 2).join(" ")}`;
+    const first = addr.trim().split(/[\،,]/)[0].trim();
+    return first ? first.slice(0, 24) : null;
+  };
+  const streetCounts = {};
+  properties.forEach((p) => { const s = streetOf(p.address); if (s) streetCounts[s] = (streetCounts[s] || 0) + 1; });
+  const topStreet = Object.entries(streetCounts).sort((a, b) => b[1] - a[1])[0];
+
+  if (pctChange === null && !topStreet) return null; // not enough data yet to say anything honest
+
+  return (
+    <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), marginBottom: SP.xl }}>
+      <div className="flex items-center gap-1.5 mb-2"><TrendingUp size={14} color={c.primary} /><p style={{ fontSize: 12, fontWeight: 700 }}>تحلیل بازار — بر اساس فایل‌های خودت</p></div>
+      {pctChange !== null && (
+        <p style={{ fontSize: 13, lineHeight: 1.9 }}>
+          {agencyCity || "منطقه‌ی تو"} {faDigits(Math.abs(pctChange))}٪ {pctChange >= 0 ? "افزایش" : "کاهش"} قیمت هر متر نسبت به ماه قبل داشته (میانگین فایل‌های ثبت‌شده)
+        </p>
+      )}
+      {topStreet && (
+        <p style={{ fontSize: 13, color: c.muted, marginTop: 6, lineHeight: 1.9 }}>
+          بیشترین فایل فعال: <b style={{ color: c.ink }}>{topStreet[0]}</b> ({faDigits(topStreet[1])} فایل)
+        </p>
+      )}
+      <p style={{ fontSize: 10, color: c.muted, marginTop: 8 }}>این تحلیل فقط بر اساس فایل‌های ثبت‌شده‌ی خودته، نه داده‌ی زنده‌ی بازار.</p>
+    </div>
+  );
+}
+
 function HomeTab({ ctx }) {
   const { c, properties, setDetail, setTab, agentName, agencyCity, simpleMode, setSheet } = ctx;
 
@@ -2329,6 +2391,7 @@ function HomeTab({ ctx }) {
         </div>
         <div className="flex items-center justify-between relative">
           <div className="flex items-center" style={{ gap: SP.md }}>
+            <DateBadge c={c} />
             <AgentAvatar ctx={ctx} />
             <div>
               <p style={{ fontSize: FS.caption, color: c.muted }}>{greetingPhrase()}</p>
@@ -2347,6 +2410,10 @@ function HomeTab({ ctx }) {
 
       {!simpleMode && <div style={{ marginBottom: SP.xl }}><MomentumCard ctx={ctx} /></div>}
 
+      <ChecksWeekWidget ctx={ctx} />
+
+      <PropertyMarketInsightCard ctx={ctx} />
+
       {/* Deal Coach — the first actionable thing the agent sees */}
       <NextBestActionCard ctx={ctx} />
 
@@ -2359,8 +2426,8 @@ function HomeTab({ ctx }) {
           the "جستجوی دیوار با AI" sheet, just promoted to the dashboard since
           it's the one agents reach for constantly, not only when diagnosing
           a specific ad. */}
-      <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginTop: SP.md, background: "linear-gradient(135deg,#c8102e,#e63946)", boxShadow: "0 14px 30px -10px rgba(200,16,46,0.45)" }}>
-        <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.2)" }}><Globe size={24} color="#fff" /></div>
+      <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginTop: SP.md, background: "linear-gradient(135deg,#0F5132,#1E7A4F)", boxShadow: "0 14px 30px -10px rgba(15,81,50,0.45)" }}>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.16)" }}><DivarMark size={22} color="#fff" /></div>
         <div className="flex-1 text-right">
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: "#fff" }}>ورود به وب دیوار</p>
           <p style={{ fontSize: FS.caption, color: "rgba(255,255,255,0.88)", marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
@@ -2370,7 +2437,7 @@ function HomeTab({ ctx }) {
 
       {/* Primary action — the ONLY place the accent gradient appears */}
       {simpleMode && (
-        <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, marginTop: SP.xl, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
+        <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, marginTop: SP.xl, background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
           <span style={{ position: "absolute", top: "-60%", left: "-10%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%)", pointerEvents: "none" }} />
           <div className="flex items-center justify-center shrink-0" style={{ width: 54, height: 54, borderRadius: RAD.md, background: "rgba(255,255,255,0.22)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)" }}><Plus size={28} color="#fff" strokeWidth={2.5} /></div>
           <div className="text-right flex-1" style={{ position: "relative" }}>
@@ -2387,9 +2454,6 @@ function HomeTab({ ctx }) {
       <div style={{ marginTop: SP.xl }}>
         <div className="flex" style={{ gap: SP.md, overflowX: "auto", paddingBottom: SP.xs, scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch" }}>
           <VoiceAssistantTile ctx={ctx} />
-          {!simpleMode && <SalesCoachTile ctx={ctx} />}
-          <HomeStagingTile ctx={ctx} />
-          <DivarSearchTile ctx={ctx} />
           <LegalTile ctx={ctx} />
           <DocumentsTile ctx={ctx} />
         </div>
@@ -2688,7 +2752,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
 function AllPropertiesMap({ c, rows, onOpen }) {
   const ref = useRef(null); const objRef = useRef(null);
   const pinned = rows.filter((p) => p.lat && p.lng);
-  const DEAL_COLOR = { "فروش": "#2f7cf6", "پیش‌فروش": "#7c6ff5" };
+  const DEAL_COLOR = { "فروش": "#0F5132", "پیش‌فروش": "#C5A880" };
 
   useEffect(() => {
     let cancelled = false;
@@ -2699,7 +2763,7 @@ function AllPropertiesMap({ c, rows, onOpen }) {
       L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
 
       pinned.forEach((p) => {
-        const color = DEAL_COLOR[p.deal] || "#2f7cf6";
+        const color = DEAL_COLOR[p.deal] || "#0F5132";
         const sold = p.stage === "فروخته شد";
         const icon = L.divIcon({
           className: "",
@@ -2709,7 +2773,7 @@ function AllPropertiesMap({ c, rows, onOpen }) {
         const m = L.marker([p.lat, p.lng], { icon }).addTo(map);
         m.bindPopup(`<div style="font-family:Vazirmatn,sans-serif;direction:rtl;text-align:right;min-width:130px">
           <b style="font-size:12px">${p.title}</b><br/>
-          <span style="font-size:11px;color:#2f7cf6;direction:ltr;display:inline-block">${(p.price || 0).toLocaleString("en-US")} تومان</span><br/>
+          <span style="font-size:11px;color:#0F5132;direction:ltr;display:inline-block">${(p.price || 0).toLocaleString("en-US")} تومان</span><br/>
           <span style="font-size:10px;color:#666">${p.deal} · ${p.area} متر</span>
         </div>`);
         m.on("popupopen", () => {
@@ -3061,7 +3125,7 @@ function CalendarTab({ ctx }) {
             const isSel = iso === selected;
             const hasVisit = visitDays[d];
             return (
-              <button key={i} onClick={() => setSelected(iso)} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: isSel ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : isToday ? c.primarySoft : "transparent", position: "relative" }}>
+              <button key={i} onClick={() => setSelected(iso)} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: isSel ? "linear-gradient(135deg,#0F5132,#C5A880)" : isToday ? c.primarySoft : "transparent", position: "relative" }}>
                 <span style={{ fontSize: FS.body, fontWeight: isSel || isToday ? FW.heavy : FW.medium, color: isSel ? "#fff" : isToday ? c.primary : c.ink }}>{faDigits(d)}</span>
                 {hasVisit && <span style={{ position: "absolute", bottom: 5, width: 5, height: 5, borderRadius: RAD.pill, background: isSel ? "#fff" : c.success }} />}
               </button>
@@ -3190,7 +3254,7 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
     notify("مشخصات دفتر ذخیره شد");
   };
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
+    <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
       <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
       <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
       {!editing ? (
@@ -3670,7 +3734,7 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
           <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>فایل و مشتری را انتخاب کن تا اطلاعات خودکار در قرارداد بنشیند.</p>
           <Field c={c} label="فایل ملک"><Select c={c} value={draft.propertyId} onChange={(e) => setDraft({ ...draft, propertyId: e.target.value })} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
           <Field c={c} label="مشتری"><Select c={c} value={draft.customerId} onChange={(e) => setDraft({ ...draft, customerId: e.target.value })} placeholder="انتخاب مشتری" options={customers.map((x) => ({ value: x.id, label: x.name }))} /></Field>
-          <button onClick={generate} disabled={draft.loading} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
+          <button onClick={generate} disabled={draft.loading} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
             {draft.loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{draft.loading ? "در حال نوشتن..." : draft.text ? "نوشتن دوباره" : "تنظیم قرارداد با AI"}
           </button>
         </div>
@@ -3797,7 +3861,7 @@ function InvestmentCenterView({ ctx, onBack }) {
         </div>
       )}
 
-      <button onClick={() => setShowForm(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body, marginBottom: SP.lg }}>
+      <button onClick={() => setShowForm(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body, marginBottom: SP.lg }}>
         <Plus size={17} color="#fff" />ثبت پروژه‌ی جدید
       </button>
 
@@ -4444,7 +4508,7 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
       </div>
 
       {!variants && !loading && (
-        <button onClick={generate} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 14px 30px -10px rgba(47,124,246,0.45)" }}>
+        <button onClick={generate} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 14px 30px -10px rgba(47,124,246,0.45)" }}>
           <Sparkles size={17} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>ساخت آگهی حرفه‌ای با هوش مصنوعی</span>
         </button>
       )}
@@ -4493,7 +4557,7 @@ function VirtualStagingCard({ ctx, p }) {
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>استیجینگ مجازی با AI</h2>
       </div>
       {hasPhotos ? (
-        <button onClick={() => setOpen(true)} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#7c6ff5,#c084fc)", boxShadow: "0 14px 30px -10px rgba(124,111,245,0.45)" }}>
+        <button onClick={() => setOpen(true)} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#C5A880,#c084fc)", boxShadow: "0 14px 30px -10px rgba(124,111,245,0.45)" }}>
           <Wand2 size={17} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>عکس‌های خالی رو با مبلمان دکور کن</span>
         </button>
       ) : (
@@ -4637,7 +4701,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
               ); })}
             </div>
             <input value={customStyle} onChange={(e) => setCustomStyle(e.target.value)} placeholder="یا خودت بنویس، مثلاً «کلاسیک گرم»" style={inputStyle(c)} />
-            <button onClick={run} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>شروع استیجینگ</button>
+            <button onClick={run} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>شروع استیجینگ</button>
           </div>
         )}
 
@@ -4670,7 +4734,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
         {phase === "done" && (
           <div>
             {results.some((r) => r.staged) && (
-              <button onClick={() => { results.forEach((r, i) => { if (r.staged) setTimeout(() => downloadImage(r.staged, `staged-${i + 1}.png`), i * 300); }); notify("دانلود همه شروع شد — تو گالری گوشیت ذخیره می‌شن"); }} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, marginBottom: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#7c6ff5,#c084fc)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
+              <button onClick={() => { results.forEach((r, i) => { if (r.staged) setTimeout(() => downloadImage(r.staged, `staged-${i + 1}.png`), i * 300); }); notify("دانلود همه شروع شد — تو گالری گوشیت ذخیره می‌شن"); }} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, marginBottom: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#C5A880,#c084fc)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
                 <Download size={16} color="#fff" />دانلود همه با کیفیت کامل
               </button>
             )}
@@ -5223,7 +5287,7 @@ function MissionOfTheDay({ ctx }) {
       {/* progress bar */}
       <div className="flex items-center gap-2 mb-3">
         <div style={{ flex: 1, height: 8, borderRadius: 8, background: c.surface2, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: pct >= 100 ? c.success : "linear-gradient(90deg,#2f7cf6,#7c6ff5)", transition: "width .5s cubic-bezier(.34,1.3,.64,1)" }} />
+          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: pct >= 100 ? c.success : "linear-gradient(90deg,#0F5132,#C5A880)", transition: "width .5s cubic-bezier(.34,1.3,.64,1)" }} />
         </div>
         <span style={{ fontSize: 13, fontWeight: 800, color: pct >= 100 ? c.success : c.primary }}>{faDigits(pct)}%</span>
       </div>
@@ -5231,7 +5295,7 @@ function MissionOfTheDay({ ctx }) {
 
       {/* AI coach message */}
       {mission.coach && (
-        <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}>
+        <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)" }}>
           <Bot size={16} color="#fff" className="shrink-0" style={{ marginTop: 1 }} />
           <p style={{ fontSize: 11, color: "#fff", lineHeight: 1.85, fontWeight: 500 }}>{mission.coach}</p>
         </div>
@@ -5341,7 +5405,7 @@ function CallsView({ ctx, onBack }) {
   return (
     <div className="pt-3 pb-6">
       <BackHeader c={c} title="پیگیری تماس‌ها" onBack={onBack} />
-      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}>
+      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)" }}>
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><PhoneCall size={20} color="#fff" /></div>
         <div>
           <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار پیگیری` : "همه پیگیری شده"}</p>
@@ -5583,6 +5647,7 @@ const FIN_TABS = [
   { id: "overview", label: "نمای کلی" },
   { id: "split", label: "تقسیم کمیسیون" },
   { id: "transactions", label: "معاملات" },
+  { id: "checks", label: "چک‌ها" },
   { id: "office", label: "درآمد و هزینه" },
   { id: "debtors", label: "بدهکاران" },
   { id: "reports", label: "گزارشات" },
@@ -5593,7 +5658,7 @@ const FIN_TABS = [
 // same source of truth (the payments list).
 const SPLIT_PARTIES = [
   { id: "agent", label: "سهم من", icon: UserCircle2, color: "#22c55e" },
-  { id: "management", label: "سهم مدیریت", icon: Award, color: "#7c6ff5" },
+  { id: "management", label: "سهم مدیریت", icon: Award, color: "#C5A880" },
   { id: "rent", label: "اجاره دفتر", icon: Home, color: "#f59e0b" },
 ];
 function splitAmounts(total, shares) {
@@ -5695,6 +5760,182 @@ function RecentActivityCard({ ctx, onSeeAll }) {
 }
 
 
+// ---------- Checks to pay ----------
+// A check only needs three things to be useful later: who gets paid, how
+// much, and when it's due. Voice input goes through the same
+// transcribe→AI-extract pattern as voice notes elsewhere in the app, just
+// with a prompt scoped to these three fields instead of a whole call summary.
+function formatAmountInput(v) {
+  const digits = String(v || "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  return Number(digits).toLocaleString("en-US");
+}
+
+function ChecksVoiceCapture({ ctx, onExtracted, onClose }) {
+  const { c, canTranscribe, transcribeAudio, hasAiKey, callAI } = ctx;
+  const [phase, setPhase] = useState("idle"); // idle | recording | transcribing | extracting | error
+  const [error, setError] = useState("");
+  const [seconds, setSeconds] = useState(0);
+  const mediaRef = useRef(null);
+  const chunksRef = useRef([]);
+  const timerRef = useRef(null);
+
+  useEffect(() => { start(); return () => { clearInterval(timerRef.current); mediaRef.current?.stream?.getTracks().forEach((t) => t.stop()); }; }, []); // eslint-disable-line
+
+  const start = async () => {
+    if (!canTranscribe) { setError("اول کلید AvalAI را در تنظیمات وارد کن"); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || "";
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onstop = () => { stream.getTracks().forEach((t) => t.stop()); done(rec.mimeType || "audio/webm"); };
+      mediaRef.current = rec; rec.start();
+      setPhase("recording"); setSeconds(0);
+      timerRef.current = setInterval(() => setSeconds((s) => { if (s + 1 >= 25) stop(); return s + 1; }), 1000);
+    } catch (e) { setError("دسترسی به میکروفون داده نشد"); }
+  };
+  const stop = () => { clearInterval(timerRef.current); if (mediaRef.current?.state === "recording") mediaRef.current.stop(); };
+
+  const done = async (mimeType) => {
+    setPhase("transcribing");
+    try {
+      const text = await transcribeAudio(new Blob(chunksRef.current, { type: mimeType }));
+      setPhase("extracting");
+      if (!hasAiKey) throw new Error("کلید هوش مصنوعی لازم است");
+      const [jy, jm, jd] = isoToJalali(todayISO());
+      const prompt = `مشاور یک چک پرداختی را با صدا توصیف کرده. امروز شمسی ${faDigits(jd)} ${MONTHS_FA[jm - 1]} ${faDigits(jy)} است.
+متن: «${text}»
+این JSON خام را برگردان: {"recipient":"اسم گیرنده چک یا خالی","amount":0,"dueDateJalali":"تاریخ شمسی سررسید مثل ۲۵ مرداد ۱۴۰۵، اگر نسبی گفته (مثل دو هفته دیگه) خودت حساب کن، وگرنه خالی","notes":"هر توضیح اضافه یا خالی"}`;
+      const raw = await callAI(prompt);
+      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      onExtracted(parsed);
+    } catch (e) { setError(e.message || "خطا در پردازش"); setPhase("error"); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", padding: SP.xl }}>
+      <div style={{ background: c.surface, borderRadius: RAD.lg, padding: SP.xl, maxWidth: 300, width: "100%", textAlign: "center" }}>
+        {phase === "recording" && (
+          <>
+            <div className="flex items-center justify-center" style={{ width: 70, height: 70, borderRadius: "50%", background: c.dangerSoft, margin: "0 auto" }}>
+              <button onClick={stop} className="press flex items-center justify-center" style={{ width: 50, height: 50, borderRadius: "50%", background: c.danger }}><div style={{ width: 16, height: 16, borderRadius: 4, background: "#fff" }} /></button>
+            </div>
+            <p style={{ marginTop: SP.md, fontSize: 13, color: c.muted }}>بگو برای کی، چقدر، کِی — {faDigits(seconds)} ثانیه</p>
+          </>
+        )}
+        {(phase === "transcribing" || phase === "extracting") && (<><Loader2 size={28} color={c.primary} className="animate-spin" style={{ margin: "0 auto" }} /><p style={{ marginTop: SP.md, fontSize: 13, color: c.muted }}>{phase === "transcribing" ? "در حال شنیدن..." : "در حال فهمیدن..."}</p></>)}
+        {phase === "error" && (<><AlertTriangle size={26} color={c.danger} style={{ margin: "0 auto" }} /><p style={{ marginTop: SP.md, fontSize: 12, color: c.danger }}>{error}</p></>)}
+        <button onClick={onClose} className="press w-full rounded-xl py-2.5 mt-4" style={{ background: c.surface2, fontSize: 12, fontWeight: 700 }}>لغو</button>
+      </div>
+    </div>
+  );
+}
+
+function ChecksPanel({ ctx }) {
+  const { c, checks, setChecks, notify } = ctx;
+  const [showForm, setShowForm] = useState(false);
+  const [showVoice, setShowVoice] = useState(false);
+  const [recipient, setRecipient] = useState("");
+  const [amount, setAmount] = useState("");
+  const [dueDate, setDueDate] = useState(todayISO());
+  const [notes, setNotes] = useState("");
+
+  const resetForm = () => { setRecipient(""); setAmount(""); setDueDate(todayISO()); setNotes(""); setShowForm(false); };
+
+  const save = () => {
+    if (!recipient.trim() || !toNum(amount)) { notify("گیرنده و مبلغ لازم است"); return; }
+    setChecks((prev) => [{ id: uid(), recipient: recipient.trim(), amount: toNum(amount), dueDate, notes: notes.trim(), createdAt: new Date().toISOString(), paid: false }, ...prev]);
+    notify("چک ثبت شد");
+    resetForm();
+  };
+
+  const togglePaid = (id) => setChecks((prev) => prev.map((ch) => ch.id === id ? { ...ch, paid: !ch.paid } : ch));
+  const remove = (id) => setChecks((prev) => prev.filter((ch) => ch.id !== id));
+
+  const handleVoiceExtracted = (parsed) => {
+    setShowVoice(false);
+    if (parsed.recipient) setRecipient(parsed.recipient);
+    if (parsed.amount) setAmount(String(parsed.amount));
+    if (parsed.notes) setNotes(parsed.notes);
+    // dueDateJalali comes back as Persian text (e.g. "۲۵ مرداد ۱۴۰۵") — left
+    // for the agent to confirm/adjust in the date field rather than guessing
+    // a parse of free-form Jalali text into a Gregorian ISO string.
+    if (parsed.dueDateJalali) notify(`تاریخ گفته‌شده: ${parsed.dueDateJalali} — در فرم تنظیم کن`);
+    setShowForm(true);
+  };
+
+  const sorted = [...checks].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const unpaidTotal = checks.filter((ch) => !ch.paid).reduce((s, ch) => s + ch.amount, 0);
+
+  return (
+    <div className="mt-4">
+      {showVoice && <ChecksVoiceCapture ctx={ctx} onExtracted={handleVoiceExtracted} onClose={() => setShowVoice(false)} />}
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p style={{ fontSize: 12, color: c.muted }}>مجموع چک‌های پرداخت‌نشده</p>
+          <p style={{ fontSize: 18, fontWeight: 800, color: c.attn }}>{fmtToman(unpaidTotal)}</p>
+        </div>
+        <div className="flex" style={{ gap: 6 }}>
+          <button onClick={() => setShowVoice(true)} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Mic size={15} color={c.primary} /></button>
+          <button onClick={() => setShowForm(true)} className="press flex items-center gap-1 rounded-lg px-3 py-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11 }}><Plus size={12} /> چک جدید</button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="rounded-xl p-3.5 mb-3" style={glass(c, 20)}>
+          <Field c={c} label="گیرنده چک"><input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={inputStyle(c)} placeholder="مثلاً آقای احمدی" /></Field>
+          <Field c={c} label="مبلغ (تومان)"><input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} style={inputStyle(c)} inputMode="numeric" placeholder="۱۰۰,۰۰۰,۰۰۰" dir="ltr" /></Field>
+          {amount && <p style={{ fontSize: 11, color: c.muted, marginTop: -8, marginBottom: 10 }}>{formatAmountInput(amount)} تومان</p>}
+          <Field c={c} label="تاریخ سررسید"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle(c)} /></Field>
+          <Field c={c} label="توضیحات (اختیاری)"><input value={notes} onChange={(e) => setNotes(e.target.value)} style={inputStyle(c)} /></Field>
+          <div className="flex" style={{ gap: SP.sm }}>
+            <button onClick={resetForm} className="press flex-1 rounded-xl py-2.5" style={{ background: c.surface2, fontSize: 12, fontWeight: 700 }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontSize: 12, fontWeight: 700 }}>ثبت چک</button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 flora-stagger">
+        {sorted.map((ch) => (
+          <div key={ch.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={{ ...glass(c, 20), opacity: ch.paid ? 0.55 : 1 }}>
+            <button onClick={() => togglePaid(ch.id)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: ch.paid ? c.successSoft : c.attnSoft }}>
+              {ch.paid ? <CheckCircle2 size={16} color={c.success} /> : <Clock size={16} color={c.attn} />}
+            </button>
+            <div className="flex-1 min-w-0">
+              <p style={{ fontSize: 13, fontWeight: 700, textDecoration: ch.paid ? "line-through" : "none" }}>{ch.recipient}</p>
+              <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{fmtJalali(ch.dueDate)}{ch.notes ? ` · ${ch.notes}` : ""}</p>
+            </div>
+            <div className="text-left shrink-0"><p style={{ fontSize: 13, fontWeight: 800 }}>{fmtToman(ch.amount)}</p></div>
+            <button onClick={() => remove(ch.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
+          </div>
+        ))}
+        {sorted.length === 0 && <EmptyLine c={c} text="چکی ثبت نشده" />}
+      </div>
+    </div>
+  );
+}
+
+// Home dashboard widget — this week's checks only, tap to jump into Finance.
+function ChecksWeekWidget({ ctx }) {
+  const { c, checks, setTab } = ctx;
+  const in7Days = Date.now() + 7 * 86400000;
+  const dueThisWeek = checks.filter((ch) => !ch.paid && new Date(ch.dueDate).getTime() <= in7Days);
+  const total = dueThisWeek.reduce((s, ch) => s + ch.amount, 0);
+  if (checks.length === 0) return null; // nothing to show until the agent has logged at least one check
+  return (
+    <button onClick={() => setTab("finance")} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), marginBottom: SP.xl }}>
+      <div className="flex items-center justify-between">
+        <p style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>چک‌های این هفته</p>
+        <ChevronLeft size={16} color={c.muted} />
+      </div>
+      <p style={{ fontSize: 22, fontWeight: 800, color: dueThisWeek.length ? c.attn : c.success, marginTop: 4 }}>{dueThisWeek.length ? fmtToman(total) : "چکی سررسید ندارد"}</p>
+      {dueThisWeek.length > 0 && <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{faDigits(dueThisWeek.length)} چک در ۷ روز آینده</p>}
+    </button>
+  );
+}
+
 function FinanceCenterView({ ctx, onBack }) {
   const { c, deals, payments, setPayments, setSheet, simpleMode } = ctx;
   const [tab, setTab] = useState("overview");
@@ -5780,7 +6021,7 @@ function FinanceCenterView({ ctx, onBack }) {
       {onBack && <BackHeader c={c} title="مرکز مالی" onBack={onBack} />}
       <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
         {visibleTabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
+          <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#0F5132,#C5A880)" } : glass(c, 18)}>
             <span style={{ fontSize: 11, fontWeight: 700, color: tab === t.id ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
           </button>
         ))}
@@ -5807,7 +6048,7 @@ function FinanceCenterView({ ctx, onBack }) {
           </div>
 
           {simpleMode && (
-            <button onClick={() => setSheet("deal")} className="press w-full rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 30px rgba(47,124,246,0.32)" }}>
+            <button onClick={() => setSheet("deal")} className="press w-full rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)", boxShadow: "0 12px 30px rgba(47,124,246,0.32)" }}>
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.2)" }}><FileText size={24} color="#fff" /></div>
               <div className="text-right">
                 <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>ثبت قرارداد جدید</p>
@@ -5852,7 +6093,7 @@ function FinanceCenterView({ ctx, onBack }) {
           <SearchBox c={c} value={search} setValue={setSearch} />
           <div className="flex gap-2 overflow-x-auto pb-1 my-3">
             {["همه", "تسویه شده", "در انتظار پرداخت", "در حال مذاکره"].map((s) => (
-              <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
+              <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: "linear-gradient(135deg,#0F5132,#C5A880)" } : glass(c, 18)}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: statusFilter === s ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span>
               </button>
             ))}
@@ -5908,6 +6149,8 @@ function FinanceCenterView({ ctx, onBack }) {
           </div>
         </div>
       )}
+
+      {tab === "checks" && <ChecksPanel ctx={ctx} />}
 
       {tab === "office" && (
         <div>
@@ -6166,7 +6409,7 @@ function MonthlyDealsChart({ c, data, max }) {
               <div style={{ width: "100%", position: "relative", display: "flex", justifyContent: "center" }}>
                 <div style={{
                   width: "72%", borderRadius: "7px 7px 3px 3px",
-                  background: isBest ? "linear-gradient(180deg,#7c6ff5,#2f7cf6)" : `linear-gradient(180deg,${c.primary}88,${c.primary}33)`,
+                  background: isBest ? "linear-gradient(180deg,#C5A880,#0F5132)" : `linear-gradient(180deg,${c.primary}88,${c.primary}33)`,
                   boxShadow: isBest ? "0 6px 16px rgba(124,111,245,.45)" : "none",
                   height: show ? `${h}px` : "3px",
                   transition: `height .8s cubic-bezier(.34,1.3,.64,1) ${i * 0.07}s`,
@@ -6201,7 +6444,7 @@ function SplitTab({ ctx, deals, payments }) {
 
   return (
     <div>
-      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
         <span style={{ position: "absolute", top: "-45%", left: "-20%", width: 190, height: 190, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
         <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>کمیسیون دریافت‌شده (قابل تقسیم)</p>
@@ -6452,7 +6695,7 @@ function QuickAddSheet({ ctx, onClose }) {
   );
 }
 function Select({ c, value, onChange, options, placeholder }) { return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>; }
-function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full" style={{ borderRadius: RAD.md, paddingBlock: SP.md + 2, marginTop: SP.sm, background: disabled ? c.surface2 : "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: disabled ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>{label}</button>; }
+function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full" style={{ borderRadius: RAD.md, paddingBlock: SP.md + 2, marginTop: SP.sm, background: disabled ? c.surface2 : "linear-gradient(135deg,#0F5132,#C5A880)", color: disabled ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>{label}</button>; }
 
 function JalaliDatePicker({ c, value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -7073,7 +7316,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           {importState === "idle" && (
             <>
               <Field c={c} label="لینک آگهی دیوار"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
-              <button type="button" onClick={() => extractFromDivarAI()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
+              <button type="button" onClick={() => extractFromDivarAI()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
                 <Link2 size={15} /> دریافت اطلاعات آگهی
               </button>
               <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
@@ -7202,7 +7445,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
               {importData.description && <p style={{ fontSize: 12, color: c.muted, lineHeight: 1.8, marginBottom: SP.lg }}>{importData.description}</p>}
               <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
                 <button type="button" onClick={editImportedProperty} className="press rounded-xl py-3" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>ویرایش اطلاعات</button>
-                <button type="button" onClick={saveImportedProperty} className="press rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره در CRM</button>
+                <button type="button" onClick={saveImportedProperty} className="press rounded-xl py-3" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره در CRM</button>
               </div>
             </div>
           )}
@@ -7723,7 +7966,7 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
         {deal.status !== "تسویه شده" && (
           <button onClick={() => { setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, status: "تسویه شده" } : d)); notify("وضعیت به‌روزرسانی شد"); }} className="press flex-1 rounded-xl py-3" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 13 }}>علامت به‌عنوان تسویه‌شده</button>
         )}
-        <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ثبت پرداخت</button>
+        <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: "linear-gradient(135deg,#0F5132,#C5A880)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ثبت پرداخت</button>
       </div>
     </SheetShell>
   );

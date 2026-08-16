@@ -5,11 +5,11 @@
 html, body, #root {
   margin: 0;
   /* The rubber-band bounce reveals the page background, so it must match the app */
-  background: #0A0E1A;
+  background: #050F0B;
 }
 
 html {
-  background-color: #0A0E1A;
+  background-color: #050F0B;
   /* min-height, not height: a fixed 100% here fights the app shell's
      min-h-screen child, which leaves the page in a state where neither the
      document nor any container is a clean scroll root — scroll-linked effects
