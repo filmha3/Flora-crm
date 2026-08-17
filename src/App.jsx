@@ -2321,12 +2321,14 @@ function BuildingScrollHero({ ctx }) {
 
 // Big day number, small month name underneath — the "امروز" badge, sized to
 // sit comfortably next to the avatar without crowding the greeting text.
+// Big faded numeral + month, sitting on its own row above the greeting —
+// reads as a soft date stamp rather than a bold focal element.
 function DateBadge({ c }) {
   const [jy, jm, jd] = isoToJalali(todayISO());
   return (
-    <div className="flex flex-col items-center justify-center" style={{ opacity: 0.55 }}>
-      <p style={{ fontSize: 15, fontWeight: FW.heavy, color: c.muted, lineHeight: 1.1 }}>{faDigits(jd)}</p>
-      <p style={{ fontSize: 8, color: c.muted, fontWeight: FW.medium, marginTop: 1 }}>{MONTHS_FA[jm - 1]}</p>
+    <div className="flex items-baseline justify-end" style={{ gap: SP.sm, opacity: 0.32 }}>
+      <span style={{ fontSize: 15, fontWeight: FW.bold, color: c.ink }}>{MONTHS_FA[jm - 1]}</span>
+      <span style={{ fontSize: 46, fontWeight: FW.heavy, color: c.ink, lineHeight: 1 }}>{faDigits(jd)}</span>
     </div>
   );
 }
@@ -2389,12 +2391,10 @@ function HomeTab({ ctx }) {
         <div className="absolute" style={{ top: -18, left: -10, width: 150, height: 150, pointerEvents: "none", maskImage: "radial-gradient(circle at 40% 45%, #000 35%, transparent 72%)", WebkitMaskImage: "radial-gradient(circle at 40% 45%, #000 35%, transparent 72%)" }}>
           <SareinMap color={c.primary} opacity={0.16} strokeWidth={1.3} />
         </div>
+        <div className="relative" style={{ marginBottom: SP.sm }}><DateBadge c={c} /></div>
         <div className="flex items-center justify-between relative">
           <div className="flex items-center" style={{ gap: SP.md }}>
-            <div className="flex flex-col items-center">
-              <DateBadge c={c} />
-              <AgentAvatar ctx={ctx} />
-            </div>
+            <AgentAvatar ctx={ctx} />
             <div>
               <p style={{ fontSize: FS.caption, color: c.muted }}>{greetingPhrase()}</p>
               <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{agentName || "مشاور"}</p>
@@ -2410,11 +2410,7 @@ function HomeTab({ ctx }) {
       {/* Live market strip */}
       <div style={{ marginBottom: SP.xl }}><MarketWidget c={c} /></div>
 
-      {!simpleMode && <div style={{ marginBottom: SP.xl }}><MomentumCard ctx={ctx} /></div>}
-
-      <ChecksWeekWidget ctx={ctx} />
-
-      <PropertyMarketInsightCard ctx={ctx} />
+      <HomeInsightSlider ctx={ctx} />
 
       {/* Deal Coach — the first actionable thing the agent sees */}
       <NextBestActionCard ctx={ctx} />
@@ -5919,21 +5915,89 @@ function ChecksPanel({ ctx }) {
   );
 }
 
-// Home dashboard widget — this week's checks only, tap to jump into Finance.
-function ChecksWeekWidget({ ctx }) {
-  const { c, checks, setTab } = ctx;
+// Home dashboard — checks-due-this-week and the market insight card,
+// combined into one auto-rotating slider (same 4.5s rotation + dot pattern
+// already used by MomentumCard) instead of two separate static cards.
+// Slides with nothing to say (no checks logged yet, not enough listing
+// history for a trend) are left out of the rotation entirely rather than
+// shown empty.
+function HomeInsightSlider({ ctx }) {
+  const { c, checks, properties, agencyCity, setTab } = ctx;
+  const [face, setFace] = useState(0);
+
   const in7Days = Date.now() + 7 * 86400000;
   const dueThisWeek = checks.filter((ch) => !ch.paid && new Date(ch.dueDate).getTime() <= in7Days);
-  const total = dueThisWeek.reduce((s, ch) => s + ch.amount, 0);
-  if (checks.length === 0) return null; // nothing to show until the agent has logged at least one check
+  const checksTotal = dueThisWeek.reduce((s, ch) => s + ch.amount, 0);
+  const hasChecksSlide = checks.length > 0;
+
+  const [cjy, cjm] = isoToJalali(todayISO());
+  let py = cjy, pm = cjm - 1; if (pm <= 0) { pm = 12; py -= 1; }
+  const inMonth = (p, y, m) => { const [jy, jm] = isoToJalali((p.createdAt || todayISO()).slice(0, 10)); return jy === y && jm === m; };
+  const avgPPM = (list) => { const vals = list.map((p) => p.pricePerMeter).filter(Boolean); return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null; };
+  const thisMonthAvg = avgPPM(properties.filter((p) => inMonth(p, cjy, cjm)));
+  const lastMonthAvg = avgPPM(properties.filter((p) => inMonth(p, py, pm)));
+  const pctChange = thisMonthAvg && lastMonthAvg ? Math.round(((thisMonthAvg - lastMonthAvg) / lastMonthAvg) * 100) : null;
+  const streetOf = (addr) => {
+    if (!addr) return null;
+    const m = addr.match(/(خیابان|بلوار|کوچه)\s+([^\،,]+)/);
+    if (m) return `${m[1]} ${m[2].trim().split(" ").slice(0, 2).join(" ")}`;
+    const first = addr.trim().split(/[\،,]/)[0].trim();
+    return first ? first.slice(0, 24) : null;
+  };
+  const streetCounts = {};
+  properties.forEach((p) => { const s = streetOf(p.address); if (s) streetCounts[s] = (streetCounts[s] || 0) + 1; });
+  const topStreet = Object.entries(streetCounts).sort((a, b) => b[1] - a[1])[0];
+  const hasMarketSlide = pctChange !== null || !!topStreet;
+
+  const slides = [
+    hasChecksSlide && "checks",
+    hasMarketSlide && "market",
+  ].filter(Boolean);
+
+  useEffect(() => {
+    if (slides.length < 2) return;
+    const t = setInterval(() => setFace((f) => (f + 1) % slides.length), 4500);
+    return () => clearInterval(t);
+  }, [slides.length]);
+
+  if (slides.length === 0) return null;
+  const current = slides[face % slides.length];
+
   return (
-    <button onClick={() => setTab("finance")} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), marginBottom: SP.xl }}>
-      <div className="flex items-center justify-between">
-        <p style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>چک‌های این هفته</p>
-        <ChevronLeft size={16} color={c.muted} />
-      </div>
-      <p style={{ fontSize: 22, fontWeight: 800, color: dueThisWeek.length ? c.attn : c.success, marginTop: 4 }}>{dueThisWeek.length ? fmtToman(total) : "چکی سررسید ندارد"}</p>
-      {dueThisWeek.length > 0 && <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{faDigits(dueThisWeek.length)} چک در ۷ روز آینده</p>}
+    <button onClick={() => setTab("finance")} className="press w-full text-right rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c, 22), marginBottom: SP.xl }}>
+      {current === "checks" && (
+        <>
+          <div className="flex items-center justify-between">
+            <p style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>چک‌های این هفته</p>
+            <Clock size={14} color={c.attn} />
+          </div>
+          <p style={{ fontSize: 22, fontWeight: 800, color: dueThisWeek.length ? c.attn : c.success, marginTop: 4 }}>{dueThisWeek.length ? fmtToman(checksTotal) : "چکی سررسید ندارد"}</p>
+          {dueThisWeek.length > 0 && <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{faDigits(dueThisWeek.length)} چک در ۷ روز آینده</p>}
+        </>
+      )}
+      {current === "market" && (
+        <>
+          <div className="flex items-center justify-between">
+            <p style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>تحلیل بازار — بر اساس فایل‌های خودت</p>
+            <TrendingUp size={14} color={c.primary} />
+          </div>
+          {pctChange !== null && (
+            <p style={{ fontSize: 13, lineHeight: 1.9, marginTop: 6 }}>
+              {agencyCity || "منطقه‌ی تو"} {faDigits(Math.abs(pctChange))}٪ {pctChange >= 0 ? "افزایش" : "کاهش"} قیمت هر متر نسبت به ماه قبل داشته
+            </p>
+          )}
+          {topStreet && (
+            <p style={{ fontSize: 13, color: c.muted, marginTop: pctChange !== null ? 4 : 6, lineHeight: 1.9 }}>
+              بیشترین فایل فعال: <b style={{ color: c.ink }}>{topStreet[0]}</b> ({faDigits(topStreet[1])} فایل)
+            </p>
+          )}
+        </>
+      )}
+      {slides.length > 1 && (
+        <div className="flex items-center justify-center" style={{ gap: 4, marginTop: SP.md }}>
+          {slides.map((_, i) => <div key={i} style={{ width: i === face % slides.length ? 14 : 5, height: 5, borderRadius: 3, background: i === face % slides.length ? c.primary : c.border, transition: "all .3s" }} />)}
+        </div>
+      )}
     </button>
   );
 }
