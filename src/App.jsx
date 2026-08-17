@@ -24,6 +24,7 @@ import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputSt
 import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, OnboardingScreen, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
+import { NotificationsView } from "./components/Notifications.jsx";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -105,6 +106,25 @@ export default function FloraCRM() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // A notification was tapped while the app was in the background/closed —
+  // the service worker has no app state of its own to navigate with, so it
+  // just posts what it knows and this decides where that actually goes once
+  // a real window exists to route in.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event) => {
+      if (event.data?.type !== "flora-notification-click") return;
+      const data = event.data.data || {};
+      if (data.type === "property" && data.id) setDetail({ type: "property", id: data.id });
+      else if (data.type === "customer" && data.id) setDetail({ type: "customer", id: data.id });
+      else if (data.type === "finance") setTab("finance");
+      else if (data.type === "legal") setLegalOpen(true);
+      else setTab("home");
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, []); // eslint-disable-line
+
   // null = checking/not-yet-known, false = title+city missing (show onboarding),
   // true = profile complete
   const [profileReady, setProfileReady] = useState(null);
@@ -152,6 +172,7 @@ export default function FloraCRM() {
   const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
   const [divarSearchOpen, setDivarSearchOpen] = useState(false);
   const [legalOpen, setLegalOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [homeStagingOpen, setHomeStagingOpen] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
@@ -218,6 +239,106 @@ export default function FloraCRM() {
     return () => clearTimeout(t);
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
+
+  // Appointments live only in this device's IndexedDB (local-first, like
+  // everything else in Flora) — but a push notification still needs to fire
+  // even if the app has been closed for hours, which nothing running only
+  // in this tab can do. This mirrors two advance reminders per upcoming
+  // appointment (1 hour before, 30 minutes before) out to Supabase, where a
+  // cron job (see process-due-reminders) can act on them independent of
+  // whether Flora is open anywhere. Deliberately omits `sent` from the
+  // upsert payload — see below.
+  const APPOINTMENT_OFFSETS = [
+    { suffix: "60m", minutesBefore: 60, label: "۱ ساعت" },
+    { suffix: "30m", minutesBefore: 30, label: "۳۰ دقیقه" },
+  ];
+  useEffect(() => {
+    if (!loaded || !session?.user) return;
+    const t = setTimeout(() => {
+      (async () => {
+        const now = Date.now();
+        const withDueTime = appointments
+          .map((a) => ({ a, dueAt: a.date ? new Date(`${a.date}T${(a.time || "09:00")}:00`) : null }))
+          .filter(({ dueAt }) => dueAt && !isNaN(dueAt.getTime()));
+
+        const scheduledIds = [];
+        for (const { a, dueAt } of withDueTime) {
+          for (const off of APPOINTMENT_OFFSETS) {
+            const remindAt = new Date(dueAt.getTime() - off.minutesBefore * 60000);
+            if (remindAt.getTime() <= now) continue; // that warning point has already passed
+            const sourceId = `appt-${a.id}-${off.suffix}`;
+            scheduledIds.push(sourceId);
+            // `sent` is intentionally left out of this payload: on conflict,
+            // Supabase's upsert only overwrites columns present in the
+            // object, so an already-fired reminder's `sent: true` survives a
+            // later resync instead of being reset back to false and firing
+            // again every time this effect re-runs.
+            await supabase.from("scheduled_reminders").upsert({
+              user_id: session.user.id,
+              source_id: sourceId,
+              remind_at: remindAt.toISOString(),
+              title: "Flora",
+              body: `تا ${off.label} دیگر بازدید ${a.customerName || "مشتری"} دارید (ساعت ${a.time || "؟"}).`,
+              category: "visits",
+            }, { onConflict: "user_id,source_id" }).catch(() => {});
+          }
+        }
+
+        // An appointment that got deleted, edited, or moved into the past
+        // shouldn't leave a stale future-dated reminder behind to fire later.
+        const stillValidIds = new Set(scheduledIds);
+        const { data: existingRows } = await supabase.from("scheduled_reminders").select("id, source_id").eq("user_id", session.user.id).like("source_id", "appt-%").eq("sent", false);
+        const toDelete = (existingRows || []).filter((r) => !stillValidIds.has(r.source_id)).map((r) => r.id);
+        if (toDelete.length) await supabase.from("scheduled_reminders").delete().in("id", toDelete).catch(() => {});
+      })();
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [loaded, appointments, session]);
+
+  // Same pattern for checks: 2 days before and 1 day before the due date, at
+  // 09:00 — a check due-date has no time-of-day of its own, so 9am is a
+  // fixed, predictable point rather than guessing one.
+  const CHECK_OFFSETS = [
+    { suffix: "2d", daysBefore: 2, label: "۲ روز" },
+    { suffix: "1d", daysBefore: 1, label: "۱ روز" },
+  ];
+  useEffect(() => {
+    if (!loaded || !session?.user) return;
+    const t = setTimeout(() => {
+      (async () => {
+        const now = Date.now();
+        const unpaid = checks.filter((ch) => !ch.paid && ch.dueDate);
+
+        const scheduledIds = [];
+        for (const ch of unpaid) {
+          const due9am = new Date(`${ch.dueDate}T09:00:00`);
+          if (isNaN(due9am.getTime())) continue;
+          for (const off of CHECK_OFFSETS) {
+            const remindAt = new Date(due9am.getTime() - off.daysBefore * 86400000);
+            if (remindAt.getTime() <= now) continue;
+            const sourceId = `check-${ch.id}-${off.suffix}`;
+            scheduledIds.push(sourceId);
+            await supabase.from("scheduled_reminders").upsert({
+              user_id: session.user.id,
+              source_id: sourceId,
+              remind_at: remindAt.toISOString(),
+              title: "Flora",
+              body: `${off.label} تا سررسید چک ${ch.recipient} به مبلغ ${fmtToman(ch.amount)}.`,
+              category: "finance",
+            }, { onConflict: "user_id,source_id" }).catch(() => {});
+          }
+        }
+
+        // A check that got deleted, marked paid, or edited shouldn't leave a
+        // stale reminder behind either.
+        const stillValidIds = new Set(scheduledIds);
+        const { data: existingRows } = await supabase.from("scheduled_reminders").select("id, source_id").eq("user_id", session.user.id).like("source_id", "check-%").eq("sent", false);
+        const toDelete = (existingRows || []).filter((r) => !stillValidIds.has(r.source_id)).map((r) => r.id);
+        if (toDelete.length) await supabase.from("scheduled_reminders").delete().in("id", toDelete).catch(() => {});
+      })();
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [loaded, checks, session]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
   // Real auto-backup: every 3 days, push a snapshot to Supabase Storage via
@@ -535,7 +656,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen,
+    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -717,6 +838,7 @@ export default function FloraCRM() {
             into the rail's own box instead of covering the screen. */}
         {divarSearchOpen && <DivarSearchSheet ctx={ctx} onClose={() => setDivarSearchOpen(false)} />}
         {legalOpen && <LegalHome ctx={ctx} />}
+        {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
         {homeStagingOpen && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setHomeStagingOpen(false)} />}
 
         {celebration && <CelebrationOverlay c={c} celebration={celebration} />}
@@ -3349,6 +3471,15 @@ function MoreTab({ ctx }) {
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>پیگیری تماس‌ها</p>
           <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار` : "همه پیگیری شده"}</p>
+        </div>
+        <ChevronLeft size={17} color={c.muted} />
+      </button>
+
+      <button onClick={() => ctx.setNotificationsOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Bell size={20} color={c.primary} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>اعلان‌ها</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>فعال‌سازی، دسته‌بندی، ساعات سکوت</p>
         </div>
         <ChevronLeft size={17} color={c.muted} />
       </button>
