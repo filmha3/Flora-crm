@@ -2898,7 +2898,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
           <div style={{ width: 30, height: 17, borderRadius: 999, background: showCustomerPrice ? c.primary : c.surface2, position: "relative", transition: "background .2s" }}>
             <div style={{ position: "absolute", top: 2, [showCustomerPrice ? "left" : "right"]: 2, width: 13, height: 13, borderRadius: "50%", background: "#fff", transition: "all .2s" }} />
           </div>
-          نمایش قیمت به مشتری (۳ میلیون تومان بالاتر از هر متر)
+          نمایش قیمت به مشتری
         </button>
       )}
 
