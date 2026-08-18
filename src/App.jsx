@@ -25,6 +25,8 @@ import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, Onboardin
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
+import { SIZE_CATEGORIES, sizeCategoryOf, toCustomerView, calculateCustomerDisplayPrice } from "./lib/customerMode.js";
+import floraBrandIcon from "./assets/flora-icon.webp";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -2815,36 +2817,102 @@ function PropertyMiniCard({ p, c, onClick }) {
 }
 
 // ---------- Properties tab: big list + pipeline ----------
+const SORT_OPTIONS = [
+  { key: "newest", label: "جدیدترین" },
+  { key: "oldest", label: "قدیمی‌ترین" },
+  { key: "cheapest", label: "ارزان‌ترین" },
+  { key: "priciest", label: "گران‌ترین" },
+  { key: "largest", label: "بیشترین متراژ" },
+  { key: "smallest", label: "کمترین متراژ" },
+];
+function sortProperties(list, sortKey) {
+  const sorted = [...list];
+  switch (sortKey) {
+    case "oldest": return sorted.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    case "cheapest": return sorted.sort((a, b) => (a.price || 0) - (b.price || 0));
+    case "priciest": return sorted.sort((a, b) => (b.price || 0) - (a.price || 0));
+    case "largest": return sorted.sort((a, b) => (b.area || 0) - (a.area || 0));
+    case "smallest": return sorted.sort((a, b) => (a.area || 0) - (b.area || 0));
+    case "newest": default: return sorted.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+}
+
 function PropertiesTab({ ctx, search, setSearch, stageHint }) {
-  const { c, properties, setDetail } = ctx;
+  const { c, properties, owners, setDetail } = ctx;
   const [mode, setMode] = useState("list");
   const [dealFilter, setDealFilter] = useState("همه");
   const [typeFilter, setTypeFilter] = useState("همه");
   const [stageFilter, setStageFilter] = useState(stageHint || "همه");
-  const [sortAsc, setSortAsc] = useState(true);
+  const [sortKey, setSortKey] = useState("newest");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [openCategory, setOpenCategory] = useState(null); // only one accordion section open at a time
+  const [customerMode, setCustomerMode] = useState(false);
 
   const filtered = useMemo(() => {
     let out = properties;
-    if (search) { const q = search.toLowerCase(); out = out.filter((p) => Object.values(p).some((v) => String(v).toLowerCase().includes(q))); }
+    if (search) {
+      const q = search.toLowerCase();
+      out = out.filter((p) => {
+        if (Object.values(p).some((v) => String(v).toLowerCase().includes(q))) return true;
+        const owner = owners.find((o) => o.id === p.ownerId);
+        return owner && (owner.name?.toLowerCase().includes(q) || owner.phone?.includes(q));
+      });
+    }
     if (dealFilter !== "همه") out = out.filter((p) => p.deal === dealFilter);
     if (typeFilter !== "همه") out = out.filter((p) => p.type === typeFilter);
     if (stageFilter !== "همه") out = out.filter((p) => p.stage === stageFilter);
-    return [...out].sort((a, b) => (sortAsc ? a.price - b.price : b.price - a.price));
-  }, [properties, search, dealFilter, typeFilter, stageFilter, sortAsc]);
+    return out;
+  }, [properties, owners, search, dealFilter, typeFilter, stageFilter]);
+
+  // Grouped by size category regardless of view mode — pipeline/map still
+  // want the flat sorted list, only "list" mode renders as an accordion.
+  const grouped = useMemo(() => {
+    const byKey = Object.fromEntries(SIZE_CATEGORIES.map((cat) => [cat.key, []]));
+    for (const p of filtered) byKey[sizeCategoryOf(p.area).key].push(p);
+    for (const key of Object.keys(byKey)) byKey[key] = sortProperties(byKey[key], sortKey);
+    return byKey;
+  }, [filtered, sortKey]);
+
+  const flatSorted = useMemo(() => sortProperties(filtered, sortKey), [filtered, sortKey]);
+
+  // Customer Mode swaps the whole tab into a full-screen, agent-hands-the-
+  // phone-to-the-customer presentation. It reads from `flatSorted` (already
+  // filtered) but only ever passes each property through toCustomerView —
+  // see lib/customerMode.js for why that boundary matters.
+  if (customerMode) {
+    return <CustomerPresentation properties={flatSorted} ctx={ctx} onExit={() => setCustomerMode(false)} />;
+  }
 
   return (
     <div className="pt-4">
-      <SearchBox c={c} value={search} setValue={setSearch} />
-      <div style={{ height: 14 }} />
+      {/* Advisor / Customer mode switch */}
+      <div className="flex items-center rounded-full p-1 mb-4" style={glass(c, 20)}>
+        <button onClick={() => setCustomerMode(false)} className="press flex-1 flex items-center justify-center gap-1.5 rounded-full py-2" style={{ background: c.primary }}>
+          <UserCircle2 size={13} color="#fff" /><span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>حالت مشاور</span>
+        </button>
+        <button onClick={() => setCustomerMode(true)} className="press flex-1 flex items-center justify-center gap-1.5 rounded-full py-2">
+          <Users size={13} color={c.muted} /><span style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>حالت مشتری</span>
+        </button>
+      </div>
+
       <div className="flex items-center gap-2 mb-3">
         <div className="flex items-center rounded-full p-1 gap-1" style={glass(c, 20)}>
           <button onClick={() => setMode("list")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "list" ? c.primary : "transparent" }}><LayoutGrid size={13} color={mode === "list" ? "#fff" : c.muted} /></button>
           <button onClick={() => setMode("pipeline")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "pipeline" ? c.primary : "transparent" }}><Columns3 size={13} color={mode === "pipeline" ? "#fff" : c.muted} /></button>
           <button onClick={() => setMode("map")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "map" ? c.primary : "transparent" }}><MapPin size={13} color={mode === "map" ? "#fff" : c.muted} /></button>
         </div>
-        <button onClick={() => setSortAsc((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2 mr-auto" style={glass(c, 20)}>
-          <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{sortAsc ? "ارزان‌ترین" : "گران‌ترین"}</span>
-        </button>
+        <div className="relative mr-auto">
+          <button onClick={() => setSortMenuOpen((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2" style={glass(c, 20)}>
+            <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{SORT_OPTIONS.find((s) => s.key === sortKey).label}</span>
+          </button>
+          {sortMenuOpen && (
+            <div className="absolute left-0 z-20 rounded-xl overflow-hidden" style={{ top: "110%", minWidth: 150, ...glass(c, 16), boxShadow: c.shadow }}>
+              {SORT_OPTIONS.map((s) => (
+                <button key={s.key} onClick={() => { setSortKey(s.key); setSortMenuOpen(false); }} className="press w-full text-right px-3 py-2.5" style={{ fontSize: 12, fontWeight: s.key === sortKey ? 700 : 500, color: s.key === sortKey ? c.primary : c.ink, background: s.key === sortKey ? c.primarySoft : "transparent" }}>{s.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
         {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c, 18)}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
@@ -2854,15 +2922,141 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
       </div>
 
       {mode === "list" ? (
-        <div className="grid grid-cols-2 gap-3 pb-4 flora-stagger">
-          {filtered.map((p) => <PropertyGridCard key={p.id} p={p} ctx={ctx} onClick={() => setDetail({ type: "property", id: p.id })} />)}
-          {filtered.length === 0 && <div className="col-span-2"><EmptyLine c={c} text="فایلی پیدا نشد" /></div>}
+        <div className="pb-4 flex flex-col gap-2">
+          {SIZE_CATEGORIES.map((cat) => {
+            const items = grouped[cat.key];
+            const isOpen = openCategory === cat.key;
+            return (
+              <div key={cat.key} className="rounded-2xl overflow-hidden" style={glass(c, 20)}>
+                <button onClick={() => setOpenCategory(isOpen ? null : cat.key)} className="press w-full flex items-center justify-between px-4" style={{ paddingBlock: 14 }}>
+                  <div className="flex items-center gap-2">
+                    <ChevronDown size={15} color={c.muted} style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .25s" }} />
+                    <span style={{ fontSize: 13.5, fontWeight: 700 }}>{cat.label}</span>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>{faDigits(items.length)}</span>
+                </button>
+                {/* A closed accordion never renders its (potentially long) card
+                    list — only mounted once opened, matching the spec's own
+                    performance requirement without needing a separate
+                    virtualization library for what's normally a modest count
+                    per size bracket. */}
+                {isOpen && (
+                  <div className="px-3 pb-3 grid grid-cols-2 gap-3 flora-stagger" style={{ borderTop: `1px solid ${c.border}` }}>
+                    {items.length === 0 ? (
+                      <div className="col-span-2" style={{ paddingTop: 12 }}><EmptyLine c={c} text="فایلی در این دسته نیست" /></div>
+                    ) : items.map((p) => <PropertyGridCard key={p.id} p={p} ctx={ctx} onClick={() => setDetail({ type: "property", id: p.id })} />)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : mode === "map" ? (
-        <AllPropertiesMap c={c} rows={filtered} onOpen={(id) => setDetail({ type: "property", id })} />
+        <AllPropertiesMap c={c} rows={flatSorted} onOpen={(id) => setDetail({ type: "property", id })} />
       ) : (
-        <PipelineBoard rows={filtered} ctx={ctx} />
+        <PipelineBoard rows={flatSorted} ctx={ctx} />
       )}
+    </div>
+  );
+}
+
+// Full-screen "hand the phone to the customer" view. This component's own
+// props are the only security boundary that matters: it receives already-
+// whitelisted customer-view objects (see lib/customerMode.js), never the
+// raw property array. There's no internal state here that could reach back
+// into `properties`, `owners`, or anything CRM-side — nothing to hide with
+// CSS because the sensitive data was never passed in to begin with.
+function CustomerPresentation({ properties, ctx, onExit }) {
+  const { c } = ctx;
+  const [index, setIndex] = useState(0);
+  const [showPrice, setShowPrice] = useState(false); // spec §24: off by default, agent opts in per showing
+  const [imgIndex, setImgIndex] = useState(0);
+
+  const current = properties[index];
+  const view = useMemo(() => (current ? toCustomerView(current, { showPrice }) : null), [current, showPrice]);
+
+  useEffect(() => { setImgIndex(0); }, [index]);
+
+  if (!current || !view) {
+    return (
+      <div className="fixed inset-0 z-[500] flex flex-col items-center justify-center" style={{ background: c.bg }}>
+        <p style={{ fontSize: 14, color: c.muted, marginBottom: SP.lg }}>فایلی برای نمایش نیست</p>
+        <button onClick={onExit} className="press rounded-xl px-5 py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>خروج از حالت مشتری</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[500] flex flex-col" style={{ background: c.bg }}>
+      {/* Deliberately no sidebar, no CRM chrome, no financial widgets — just
+          the mark and an exit door, per spec §15/§19 (premium, minimal). */}
+      <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: "calc(18px + env(safe-area-inset-top, 0px))" }}>
+        <img src={floraBrandIcon} alt="" style={{ width: 26, height: "auto" }} />
+        <button onClick={onExit} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Photo */}
+        <div className="relative" style={{ aspectRatio: "4 / 3", background: c.surface2, marginInline: SP.lg, borderRadius: RAD.lg, overflow: "hidden" }}>
+          {view.images[imgIndex] ? (
+            <img src={view.images[imgIndex]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center"><Home size={40} color={c.muted} /></div>
+          )}
+          {view.images.length > 1 && (
+            <div className="absolute flex items-center justify-center" style={{ bottom: 10, left: 0, right: 0, gap: 5 }}>
+              {view.images.map((_, i) => <div key={i} style={{ width: i === imgIndex ? 14 : 5, height: 5, borderRadius: 3, background: i === imgIndex ? "#fff" : "rgba(255,255,255,0.5)" }} onClick={() => setImgIndex(i)} />)}
+            </div>
+          )}
+        </div>
+
+        {/* Details — big, clear typography, generous whitespace per spec §19 */}
+        <div style={{ padding: SP.xl }}>
+          <p style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.4 }}>{view.title}</p>
+
+          <div className="flex items-center flex-wrap" style={{ gap: SP.lg, marginTop: SP.lg }}>
+            {view.size != null && <div><p style={{ fontSize: 11, color: c.muted }}>متراژ</p><p style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{faDigits(view.size)} متر</p></div>}
+            {view.bedrooms != null && <div><p style={{ fontSize: 11, color: c.muted }}>خواب</p><p style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{faDigits(view.bedrooms)}</p></div>}
+            {view.floor != null && <div><p style={{ fontSize: 11, color: c.muted }}>طبقه</p><p style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{faDigits(view.floor)}</p></div>}
+          </div>
+
+          {view.features.length > 0 && (
+            <div className="flex flex-wrap" style={{ gap: 8, marginTop: SP.lg }}>
+              {view.features.map((f, i) => <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 999, border: `1px solid ${c.border}` }}>{f}</span>)}
+            </div>
+          )}
+
+          {view.description && <p style={{ fontSize: 13.5, color: c.muted, lineHeight: 2, marginTop: SP.xl }}>{view.description}</p>}
+
+          {view.customerDisplayTotalPrice != null && (
+            <div style={{ marginTop: SP.xl, paddingTop: SP.lg, borderTop: `1px solid ${c.border}` }}>
+              <p style={{ fontSize: 26, fontWeight: 800, color: c.primary }}>{fmtToman(view.customerDisplayTotalPrice)}</p>
+              <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{fmtToman(view.customerDisplayPricePerMeter)} / متر</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Agent-only strip — a customer holding the phone sees the nav
+          arrows either way, but the price toggle is small/secondary since
+          it's meant to be set once before handing the phone over, not
+          fiddled with mid-presentation. */}
+      <div className="shrink-0" style={{ padding: SP.lg, paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))", borderTop: `1px solid ${c.border}` }}>
+        <button onClick={() => setShowPrice((v) => !v)} className="press flex items-center gap-1.5 mb-3" style={{ fontSize: 11, color: c.muted }}>
+          <div style={{ width: 30, height: 17, borderRadius: 999, background: showPrice ? c.primary : c.surface2, position: "relative" }}>
+            <div style={{ position: "absolute", top: 2, [showPrice ? "left" : "right"]: 2, width: 13, height: 13, borderRadius: "50%", background: "#fff" }} />
+          </div>
+          نمایش قیمت به مشتری
+        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0} className="press flex-1 flex items-center justify-center gap-1 rounded-xl py-3" style={{ background: c.surface2, opacity: index === 0 ? 0.4 : 1 }}>
+            <ChevronRight size={15} color={c.ink} /><span style={{ fontSize: 13, fontWeight: 700 }}>قبلی</span>
+          </button>
+          <button onClick={() => setIndex((i) => Math.min(properties.length - 1, i + 1))} disabled={index === properties.length - 1} className="press flex-1 flex items-center justify-center gap-1 rounded-xl py-3" style={{ background: c.primary, opacity: index === properties.length - 1 ? 0.4 : 1 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>بعدی</span><ChevronLeft size={15} color="#fff" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
