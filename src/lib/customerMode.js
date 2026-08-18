@@ -60,6 +60,21 @@ export function toCustomerView(property, opts = {}) {
   return view;
 }
 
+/**
+ * What a price field should actually render, given the current mode.
+ * - Advisor mode (customerMode=false): always the real price, untouched.
+ * - Customer mode, price hidden (showCustomerPrice=false): nothing shown.
+ * - Customer mode, price shown (showCustomerPrice=true): real + 3,000,000
+ *   per meter — never the real number itself.
+ */
+export function getPriceForDisplay({ realPrice, realPricePerMeter, area, customerMode, showCustomerPrice, markupPerMeter = 3000000 }) {
+  if (!customerMode) return { visible: true, price: realPrice ?? null, pricePerMeter: realPricePerMeter ?? null };
+  if (!showCustomerPrice) return { visible: false, price: null, pricePerMeter: null };
+  const displayPerMeter = calculateCustomerDisplayPrice(realPricePerMeter, markupPerMeter);
+  const displayTotal = area ? displayPerMeter * area : (realPrice != null ? realPrice + markupPerMeter * 0 : null);
+  return { visible: true, price: displayTotal, pricePerMeter: displayPerMeter };
+}
+
 // Size-category boundaries used by the Files accordion. A single source of
 // truth so the grouping logic and any future filter/search UI agree on
 // exactly the same cutoffs.
