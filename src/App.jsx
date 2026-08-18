@@ -25,8 +25,7 @@ import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, Onboardin
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
-import { SIZE_CATEGORIES, sizeCategoryOf, toCustomerView, calculateCustomerDisplayPrice } from "./lib/customerMode.js";
-import floraBrandIcon from "./assets/flora-icon.webp";
+import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -175,6 +174,11 @@ export default function FloraCRM() {
   const [divarSearchOpen, setDivarSearchOpen] = useState(false);
   const [legalOpen, setLegalOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  // Hoisted (not local to the Files tab) so the same mode carries through
+  // into PropertyDetail when the agent taps into a file to actually show it
+  // to the customer — not just on the grid.
+  const [customerMode, setCustomerMode] = useState(false);
+  const [showCustomerPrice, setShowCustomerPrice] = useState(false);
   const [homeStagingOpen, setHomeStagingOpen] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
@@ -658,7 +662,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen,
+    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -2838,7 +2842,7 @@ function sortProperties(list, sortKey) {
 }
 
 function PropertiesTab({ ctx, search, setSearch, stageHint }) {
-  const { c, properties, owners, setDetail } = ctx;
+  const { c, properties, owners, setDetail, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice } = ctx;
   const [mode, setMode] = useState("list");
   const [dealFilter, setDealFilter] = useState("همه");
   const [typeFilter, setTypeFilter] = useState("همه");
@@ -2846,7 +2850,6 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
   const [sortKey, setSortKey] = useState("newest");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [openCategory, setOpenCategory] = useState(null); // only one accordion section open at a time
-  const [customerMode, setCustomerMode] = useState(false);
 
   const filtered = useMemo(() => {
     let out = properties;
@@ -2875,25 +2878,29 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
 
   const flatSorted = useMemo(() => sortProperties(filtered, sortKey), [filtered, sortKey]);
 
-  // Customer Mode swaps the whole tab into a full-screen, agent-hands-the-
-  // phone-to-the-customer presentation. It reads from `flatSorted` (already
-  // filtered) but only ever passes each property through toCustomerView —
-  // see lib/customerMode.js for why that boundary matters.
-  if (customerMode) {
-    return <CustomerPresentation properties={flatSorted} ctx={ctx} onExit={() => setCustomerMode(false)} />;
-  }
-
   return (
     <div className="pt-4">
-      {/* Advisor / Customer mode switch */}
-      <div className="flex items-center rounded-full p-1 mb-4" style={glass(c, 20)}>
-        <button onClick={() => setCustomerMode(false)} className="press flex-1 flex items-center justify-center gap-1.5 rounded-full py-2" style={{ background: c.primary }}>
-          <UserCircle2 size={13} color="#fff" /><span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>حالت مشاور</span>
+      {/* Advisor / Customer mode switch — this is the ONLY difference
+          Customer Mode makes: the exact same grid/accordion/detail screens,
+          just with price hidden (or shown +3M/meter when revealed). No
+          separate presentation screen, per explicit correction from the
+          original spec. */}
+      <div className="flex items-center rounded-full p-1 mb-2" style={glass(c, 20)}>
+        <button onClick={() => setCustomerMode(false)} className="press flex-1 flex items-center justify-center gap-1.5 rounded-full py-2" style={{ background: !customerMode ? c.primary : "transparent" }}>
+          <UserCircle2 size={13} color={!customerMode ? "#fff" : c.muted} /><span style={{ fontSize: 12, fontWeight: 700, color: !customerMode ? "#fff" : c.muted }}>حالت مشاور</span>
         </button>
-        <button onClick={() => setCustomerMode(true)} className="press flex-1 flex items-center justify-center gap-1.5 rounded-full py-2">
-          <Users size={13} color={c.muted} /><span style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>حالت مشتری</span>
+        <button onClick={() => setCustomerMode(true)} className="press flex-1 flex items-center justify-center gap-1.5 rounded-full py-2" style={{ background: customerMode ? c.primary : "transparent" }}>
+          <Users size={13} color={customerMode ? "#fff" : c.muted} /><span style={{ fontSize: 12, fontWeight: 700, color: customerMode ? "#fff" : c.muted }}>حالت مشتری</span>
         </button>
       </div>
+      {customerMode && (
+        <button onClick={() => setShowCustomerPrice((v) => !v)} className="press flex items-center gap-1.5 mb-4" style={{ fontSize: 11.5, color: c.muted }}>
+          <div style={{ width: 30, height: 17, borderRadius: 999, background: showCustomerPrice ? c.primary : c.surface2, position: "relative", transition: "background .2s" }}>
+            <div style={{ position: "absolute", top: 2, [showCustomerPrice ? "left" : "right"]: 2, width: 13, height: 13, borderRadius: "50%", background: "#fff", transition: "all .2s" }} />
+          </div>
+          نمایش قیمت به مشتری (۳ میلیون تومان بالاتر از هر متر)
+        </button>
+      )}
 
       <div className="flex items-center gap-2 mb-3">
         <div className="flex items-center rounded-full p-1 gap-1" style={glass(c, 20)}>
@@ -2922,34 +2929,55 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
       </div>
 
       {mode === "list" ? (
-        <div className="pb-4 flex flex-col gap-2">
-          {SIZE_CATEGORIES.map((cat) => {
-            const items = grouped[cat.key];
-            const isOpen = openCategory === cat.key;
-            return (
-              <div key={cat.key} className="rounded-2xl overflow-hidden" style={glass(c, 20)}>
-                <button onClick={() => setOpenCategory(isOpen ? null : cat.key)} className="press w-full flex items-center justify-between px-4" style={{ paddingBlock: 14 }}>
-                  <div className="flex items-center gap-2">
-                    <ChevronDown size={15} color={c.muted} style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .25s" }} />
-                    <span style={{ fontSize: 13.5, fontWeight: 700 }}>{cat.label}</span>
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>{faDigits(items.length)}</span>
-                </button>
-                {/* A closed accordion never renders its (potentially long) card
-                    list — only mounted once opened, matching the spec's own
-                    performance requirement without needing a separate
-                    virtualization library for what's normally a modest count
-                    per size bracket. */}
-                {isOpen && (
-                  <div className="px-3 pb-3 grid grid-cols-2 gap-3 flora-stagger" style={{ borderTop: `1px solid ${c.border}` }}>
-                    {items.length === 0 ? (
-                      <div className="col-span-2" style={{ paddingTop: 12 }}><EmptyLine c={c} text="فایلی در این دسته نیست" /></div>
-                    ) : items.map((p) => <PropertyGridCard key={p.id} p={p} ctx={ctx} onClick={() => setDetail({ type: "property", id: p.id })} />)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div className="pb-4 flex flex-col gap-3">
+          {(() => {
+            const totalCount = properties.length || 1;
+            const accentColors = [c.primary, c.purple, c.attn, c.success];
+            const iconSizes = [17, 21, 25, 29];
+            return SIZE_CATEGORIES.map((cat, idx) => {
+              const items = grouped[cat.key];
+              const isOpen = openCategory === cat.key;
+              const accent = accentColors[idx % accentColors.length];
+              const pct = Math.round((items.length / totalCount) * 100);
+              return (
+                <div key={cat.key} className="rounded-2xl overflow-hidden relative" style={{ ...glass(c, 22), border: isOpen ? `1.5px solid ${accent}66` : "1px solid transparent", boxShadow: isOpen ? `0 8px 24px -12px ${accent}55` : "none", transition: "border .25s, box-shadow .25s" }}>
+                  <button onClick={() => setOpenCategory(isOpen ? null : cat.key)} className="press w-full flex items-center justify-between px-4" style={{ paddingBlock: 15 }}>
+                    <div className="flex items-center" style={{ gap: SP.md }}>
+                      {/* Icon grows across the four tiers — a size metaphor
+                          instead of a generic identical glyph on every card. */}
+                      <div className="flex items-center justify-center shrink-0 relative" style={{ width: 44, height: 44, borderRadius: RAD.md, background: `linear-gradient(150deg, ${accent}2e, ${accent}14)` }}>
+                        <Home size={iconSizes[idx]} color={accent} className={isOpen ? "flora-float" : ""} />
+                      </div>
+                      <div className="text-right">
+                        <span style={{ fontSize: 13.5, fontWeight: 700 }}>{cat.label}</span>
+                        {/* Share of the total file count, filled in on open —
+                            a quiet extra signal beyond the raw count. */}
+                        <div style={{ width: 64, height: 3, borderRadius: 2, background: c.surface2, marginTop: 6, overflow: "hidden" }}>
+                          <div style={{ width: `${pct}%`, height: "100%", background: accent, borderRadius: 2, transition: "width .7s cubic-bezier(.22,1,.36,1)" }} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center" style={{ gap: 10 }}>
+                      <CountUpNum value={items.length} style={{ fontSize: 24, fontWeight: 800, color: accent, fontVariantNumeric: "tabular-nums", minWidth: 20, textAlign: "center", display: "inline-block" }} />
+                      <ChevronDown size={15} color={c.muted} style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .25s" }} />
+                    </div>
+                  </button>
+                  {/* A closed accordion never renders its (potentially long) card
+                      list — only mounted once opened, matching the spec's own
+                      performance requirement without needing a separate
+                      virtualization library for what's normally a modest count
+                      per size bracket. */}
+                  {isOpen && (
+                    <div className="px-3 pb-3 grid grid-cols-2 gap-3 flora-stagger" style={{ borderTop: `1px solid ${c.border}` }}>
+                      {items.length === 0 ? (
+                        <div className="col-span-2" style={{ paddingTop: 12 }}><EmptyLine c={c} text="فایلی در این دسته نیست" /></div>
+                      ) : items.map((p) => <PropertyGridCard key={p.id} p={p} ctx={ctx} onClick={() => setDetail({ type: "property", id: p.id })} />)}
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
         </div>
       ) : mode === "map" ? (
         <AllPropertiesMap c={c} rows={flatSorted} onOpen={(id) => setDetail({ type: "property", id })} />
@@ -2960,106 +2988,6 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
   );
 }
 
-// Full-screen "hand the phone to the customer" view. This component's own
-// props are the only security boundary that matters: it receives already-
-// whitelisted customer-view objects (see lib/customerMode.js), never the
-// raw property array. There's no internal state here that could reach back
-// into `properties`, `owners`, or anything CRM-side — nothing to hide with
-// CSS because the sensitive data was never passed in to begin with.
-function CustomerPresentation({ properties, ctx, onExit }) {
-  const { c } = ctx;
-  const [index, setIndex] = useState(0);
-  const [showPrice, setShowPrice] = useState(false); // spec §24: off by default, agent opts in per showing
-  const [imgIndex, setImgIndex] = useState(0);
-
-  const current = properties[index];
-  const view = useMemo(() => (current ? toCustomerView(current, { showPrice }) : null), [current, showPrice]);
-
-  useEffect(() => { setImgIndex(0); }, [index]);
-
-  if (!current || !view) {
-    return (
-      <div className="fixed inset-0 z-[500] flex flex-col items-center justify-center" style={{ background: c.bg }}>
-        <p style={{ fontSize: 14, color: c.muted, marginBottom: SP.lg }}>فایلی برای نمایش نیست</p>
-        <button onClick={onExit} className="press rounded-xl px-5 py-2.5" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>خروج از حالت مشتری</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-[500] flex flex-col" style={{ background: c.bg }}>
-      {/* Deliberately no sidebar, no CRM chrome, no financial widgets — just
-          the mark and an exit door, per spec §15/§19 (premium, minimal). */}
-      <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: "calc(18px + env(safe-area-inset-top, 0px))" }}>
-        <img src={floraBrandIcon} alt="" style={{ width: 26, height: "auto" }} />
-        <button onClick={onExit} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {/* Photo */}
-        <div className="relative" style={{ aspectRatio: "4 / 3", background: c.surface2, marginInline: SP.lg, borderRadius: RAD.lg, overflow: "hidden" }}>
-          {view.images[imgIndex] ? (
-            <img src={view.images[imgIndex]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center"><Home size={40} color={c.muted} /></div>
-          )}
-          {view.images.length > 1 && (
-            <div className="absolute flex items-center justify-center" style={{ bottom: 10, left: 0, right: 0, gap: 5 }}>
-              {view.images.map((_, i) => <div key={i} style={{ width: i === imgIndex ? 14 : 5, height: 5, borderRadius: 3, background: i === imgIndex ? "#fff" : "rgba(255,255,255,0.5)" }} onClick={() => setImgIndex(i)} />)}
-            </div>
-          )}
-        </div>
-
-        {/* Details — big, clear typography, generous whitespace per spec §19 */}
-        <div style={{ padding: SP.xl }}>
-          <p style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.4 }}>{view.title}</p>
-
-          <div className="flex items-center flex-wrap" style={{ gap: SP.lg, marginTop: SP.lg }}>
-            {view.size != null && <div><p style={{ fontSize: 11, color: c.muted }}>متراژ</p><p style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{faDigits(view.size)} متر</p></div>}
-            {view.bedrooms != null && <div><p style={{ fontSize: 11, color: c.muted }}>خواب</p><p style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{faDigits(view.bedrooms)}</p></div>}
-            {view.floor != null && <div><p style={{ fontSize: 11, color: c.muted }}>طبقه</p><p style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{faDigits(view.floor)}</p></div>}
-          </div>
-
-          {view.features.length > 0 && (
-            <div className="flex flex-wrap" style={{ gap: 8, marginTop: SP.lg }}>
-              {view.features.map((f, i) => <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 999, border: `1px solid ${c.border}` }}>{f}</span>)}
-            </div>
-          )}
-
-          {view.description && <p style={{ fontSize: 13.5, color: c.muted, lineHeight: 2, marginTop: SP.xl }}>{view.description}</p>}
-
-          {view.customerDisplayTotalPrice != null && (
-            <div style={{ marginTop: SP.xl, paddingTop: SP.lg, borderTop: `1px solid ${c.border}` }}>
-              <p style={{ fontSize: 26, fontWeight: 800, color: c.primary }}>{fmtToman(view.customerDisplayTotalPrice)}</p>
-              <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{fmtToman(view.customerDisplayPricePerMeter)} / متر</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Agent-only strip — a customer holding the phone sees the nav
-          arrows either way, but the price toggle is small/secondary since
-          it's meant to be set once before handing the phone over, not
-          fiddled with mid-presentation. */}
-      <div className="shrink-0" style={{ padding: SP.lg, paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))", borderTop: `1px solid ${c.border}` }}>
-        <button onClick={() => setShowPrice((v) => !v)} className="press flex items-center gap-1.5 mb-3" style={{ fontSize: 11, color: c.muted }}>
-          <div style={{ width: 30, height: 17, borderRadius: 999, background: showPrice ? c.primary : c.surface2, position: "relative" }}>
-            <div style={{ position: "absolute", top: 2, [showPrice ? "left" : "right"]: 2, width: 13, height: 13, borderRadius: "50%", background: "#fff" }} />
-          </div>
-          نمایش قیمت به مشتری
-        </button>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0} className="press flex-1 flex items-center justify-center gap-1 rounded-xl py-3" style={{ background: c.surface2, opacity: index === 0 ? 0.4 : 1 }}>
-            <ChevronRight size={15} color={c.ink} /><span style={{ fontSize: 13, fontWeight: 700 }}>قبلی</span>
-          </button>
-          <button onClick={() => setIndex((i) => Math.min(properties.length - 1, i + 1))} disabled={index === properties.length - 1} className="press flex-1 flex items-center justify-center gap-1 rounded-xl py-3" style={{ background: c.primary, opacity: index === properties.length - 1 ? 0.4 : 1 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>بعدی</span><ChevronLeft size={15} color="#fff" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // Every pinned property on one Sarein map. Markers are colour-coded by deal type and
 // tapping one opens that file.
@@ -3188,8 +3116,14 @@ function PropertyGridCard({ p, ctx, onClick }) {
       {/* bottom gradient, tinted by the photo's own dominant color */}
       <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to top, rgba(${tint},0.96) 0%, rgba(${tint},0.82) 26%, rgba(${tint},0.30) 52%, transparent 72%)`, transition: "background .5s ease" }} />
 
-      {/* price pill (top-right in RTL) */}
-      <span className="absolute" style={{ top: 10, right: 10, fontSize: 11, fontWeight: FW.heavy, color: "#fff", background: "rgba(20,26,40,0.55)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", padding: "6px 12px", borderRadius: RAD.pill, direction: "ltr" }}>{fmtBudgetShort(p.price)}</span>
+      {/* price pill (top-right in RTL) — hidden entirely in customer mode
+          unless the agent has explicitly revealed it, and even then this is
+          never the real number (see getPriceForDisplay). */}
+      {(() => {
+        const priceInfo = getPriceForDisplay({ realPrice: p.price, realPricePerMeter: p.pricePerMeter, area: p.area, customerMode: ctx.customerMode, showCustomerPrice: ctx.showCustomerPrice });
+        if (!priceInfo.visible) return null;
+        return <span className="absolute" style={{ top: 10, right: 10, fontSize: 11, fontWeight: FW.heavy, color: "#fff", background: "rgba(20,26,40,0.55)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", padding: "6px 12px", borderRadius: RAD.pill, direction: "ltr" }}>{fmtBudgetShort(priceInfo.price)}</span>;
+      })()}
 
       {/* content over the gradient */}
       <div className="absolute" style={{ bottom: 0, right: 0, left: 0, padding: 12 }}>
@@ -5296,7 +5230,11 @@ function PropertyDetail({ id, ctx, onBack }) {
 
         <div style={{ marginTop: SP.lg }}>
           <p style={{ fontSize: FS.caption, color: c.muted }}>قیمت</p>
-          <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.xs }}>{fmtToman(p.price)}</p>
+          {(() => {
+            const priceInfo = getPriceForDisplay({ realPrice: p.price, realPricePerMeter: p.pricePerMeter, area: p.area, customerMode: ctx.customerMode, showCustomerPrice: ctx.showCustomerPrice });
+            if (!priceInfo.visible) return <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.xs }}>—</p>;
+            return <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.xs }}>{fmtToman(priceInfo.price)}</p>;
+          })()}
         </div>
 
         {p.furnished && <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.md, color: c.muted, fontSize: FS.caption }}><BadgeCheck size={13} />{p.furnished}</div>}
