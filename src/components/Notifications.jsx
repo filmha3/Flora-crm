@@ -263,13 +263,15 @@ function NotificationTestPanel({ ctx }) {
   const [message, setMessage] = useState("پیام تستی از Flora");
   const [busy, setBusy] = useState(false);
   const [activeDeviceCount, setActiveDeviceCount] = useState(null);
+  const [devices, setDevices] = useState([]);
   const [testReminders, setTestReminders] = useState([]);
 
   const loadStatus = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data: subs } = await supabase.from("push_subscriptions").select("id").eq("user_id", user.id).eq("is_active", true);
-    setActiveDeviceCount(subs?.length ?? 0);
+    const { data: subs } = await supabase.from("push_subscriptions").select("id, device_name, is_active, last_used_at, last_send_status, last_send_error").eq("user_id", user.id).order("created_at", { ascending: false });
+    setDevices(subs || []);
+    setActiveDeviceCount((subs || []).filter((s) => s.is_active).length);
     const { data: reminders } = await supabase.from("scheduled_reminders").select("*").eq("user_id", user.id).eq("category", "test").order("remind_at", { ascending: false }).limit(10);
     setTestReminders(reminders || []);
   };
@@ -317,6 +319,24 @@ function NotificationTestPanel({ ctx }) {
           <div className="flex items-start gap-2 mt-2" style={{ padding: SP.sm, borderRadius: RAD.sm, background: c.dangerSoft }}>
             <AlertTriangle size={12} color={c.danger} style={{ flexShrink: 0, marginTop: 1 }} />
             <p style={{ fontSize: 11, color: c.danger, lineHeight: 1.8 }}>هیچ دستگاه فعالی نداری — حتی اگه تست رو ثبت کنی، جایی برای فرستادن نیست. برو تب «تنظیمات» و دوباره «اعلان‌های Flora را فعال کن» رو بزن.</p>
+          </div>
+        )}
+        {devices.length > 0 && (
+          <div className="flex flex-col gap-2 mt-3" style={{ paddingTop: 10, borderTop: `1px solid ${c.border}` }}>
+            {devices.map((d) => (
+              <div key={d.id}>
+                <div className="flex items-center justify-between">
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: d.is_active ? c.ink : c.muted }}>{d.device_name || "دستگاه"}{!d.is_active && " (غیرفعال)"}</span>
+                  {d.last_send_status && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: d.last_send_error ? c.danger : c.success }}>
+                      {d.last_send_error ? `خطا (${d.last_send_status})` : `پذیرفته شد توسط سرور Apple/Google (${d.last_send_status})`}
+                    </span>
+                  )}
+                </div>
+                {d.last_send_error && <p style={{ fontSize: 10, color: c.danger, marginTop: 2, lineHeight: 1.7 }}>{d.last_send_error}</p>}
+                {d.last_used_at && !d.last_send_error && <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>آخرین ارسال موفق: {new Date(d.last_used_at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</p>}
+              </div>
+            ))}
           </div>
         )}
       </div>
