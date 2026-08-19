@@ -70,10 +70,19 @@ Deno.serve(async (req: Request) => {
       const payload = JSON.stringify(applyPreviewLevel({ title: reminder.title, body: reminder.body, url: reminder.url || "/" }, prefs?.preview_level || "full"));
       for (const sub of subs || []) {
         try {
-          await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
-          await admin.from("push_subscriptions").update({ last_used_at: new Date().toISOString() }).eq("id", sub.id);
+          const result = await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
+          await admin.from("push_subscriptions").update({
+            last_used_at: new Date().toISOString(),
+            last_send_status: String(result?.statusCode ?? "ok"),
+            last_send_error: null,
+          }).eq("id", sub.id);
         } catch (e: unknown) {
-          const status = (e as { statusCode?: number; status?: number })?.statusCode ?? (e as { status?: number })?.status;
+          const err = e as { statusCode?: number; status?: number; body?: string; message?: string };
+          const status = err?.statusCode ?? err?.status;
+          await admin.from("push_subscriptions").update({
+            last_send_status: String(status ?? "error"),
+            last_send_error: (err?.body || err?.message || "unknown error").slice(0, 300),
+          }).eq("id", sub.id);
           if (status === 404 || status === 410) await admin.from("push_subscriptions").update({ is_active: false }).eq("id", sub.id);
         }
       }
