@@ -131,10 +131,27 @@ export default function FloraCRM() {
   const [profileReady, setProfileReady] = useState(null);
   useEffect(() => {
     if (!session) { setProfileReady(null); return; }
+    let cancelled = false;
     (async () => {
-      const { data } = await supabase.from("profiles").select("title, city").eq("id", session.user.id).single();
-      setProfileReady(!!(data?.title && data?.city));
+      try {
+        // A brand-new signup has no `profiles` row yet at all (it's only
+        // created once onboarding is submitted) — .single() against zero
+        // rows returns an error (PGRST116), which is the expected, normal
+        // case here, not a failure. The race against a timeout is the real
+        // fix: any genuine problem (RLS hiccup, dropped connection) used to
+        // leave profileReady stuck at null forever, stranding the person on
+        // the loading screen with no way forward. Now it always resolves to
+        // a real boolean within 8s, worst case sending them to onboarding.
+        const { data } = await Promise.race([
+          supabase.from("profiles").select("title, city").eq("id", session.user.id).single(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("profile check timed out")), 8000)),
+        ]);
+        if (!cancelled) setProfileReady(!!(data?.title && data?.city));
+      } catch (e) {
+        if (!cancelled) setProfileReady(false);
+      }
     })();
+    return () => { cancelled = true; };
   }, [session?.user?.id]); // eslint-disable-line
 
   const [tab, setTab] = useState("home");
