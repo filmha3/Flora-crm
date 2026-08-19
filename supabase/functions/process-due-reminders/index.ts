@@ -58,7 +58,7 @@ Deno.serve(async (req: Request) => {
   for (const reminder of due) {
     const { data: prefs } = await admin.from("notification_preferences").select("*").eq("user_id", reminder.user_id).single();
     const categoryEnabled = !reminder.category || !prefs || prefs[reminder.category] !== false;
-    const inQuietHours = isQuietHoursNow(prefs);
+    const inQuietHours = reminder.category === "test" ? false : isQuietHoursNow(prefs);
 
     await admin.from("notifications").insert({
       user_id: reminder.user_id, category: reminder.category || "general",
