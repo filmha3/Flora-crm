@@ -7,7 +7,7 @@ import { supabase } from "./supabaseClient.js";
 // how a push service verifies which server is allowed to send to a given
 // subscription, not a secret. The private key never leaves Supabase's
 // function secrets.
-export const VAPID_PUBLIC_KEY = "BJD8bAkPRn57CTs0hJ7ZjyUdkKMdmXcGoADvr2ORteS_g1tv_sY_zkdcWaXjUijN7eLIxmZGl5H6w00ovP7fBQ0";
+export const VAPID_PUBLIC_KEY = "BPGNW5dl9kONUBHInDSkRmxp7NtRX43fSJ1JF14YBAxUApmielyYg32Kn_dPUid_kduogMkrJkAZTFvAm8DEx-A";
 
 export function isPushSupported() {
   return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
