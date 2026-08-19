@@ -1513,6 +1513,8 @@ function DivarSearchSheet({ ctx, onClose }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [adShots, setAdShots] = useState([]); // up to 3 screenshots for ad diagnosis
+  const [linkForDiagnosis, setLinkForDiagnosis] = useState("");
+  const [viewCountInput, setViewCountInput] = useState("");
   const scrollRef = useRef(null);
   const shotRef = useRef(null);
   const DIVAR_URL_RE = /https?:\/\/(www\.)?divar\.ir\/v\/\S+/g;
@@ -1584,6 +1586,85 @@ function DivarSearchSheet({ ctx, onClose }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error?.message || `خطا (کد ${res.status})`);
       const text = data?.choices?.[0]?.message?.content || "پاسخی دریافت نشد";
+      setMessages((prev) => [...prev, { role: "assistant", text }]);
+    } catch (e) {
+      setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}`, error: true }]);
+    }
+    setLoading(false);
+  };
+
+  // Same diagnostic questions as the screenshot version, but sourced from
+  // real extracted data (via the already-hardened import-divar pipeline)
+  // instead of asking the agent to screenshot three separate things. Real
+  // photos get attached too when available, so the AI can still critique
+  // them visually — this ends up more reliable than screenshots, not less,
+  // since the text fields are exact extracted values, not an OCR guess off
+  // a photo of a phone screen.
+  const diagnoseAdFromLink = async () => {
+    const url = linkForDiagnosis.trim();
+    if (!/^https?:\/\/(www\.)?divar\.ir\/v\//i.test(url)) { notify("لینک آگهی دیوار معتبر نیست"); return; }
+    if (!canStage) { notify("این قابلیت به کلید AvalAI نیاز دارد — در تنظیمات هوش مصنوعی واردش کن"); return; }
+    const views = viewCountInput.trim();
+    setMessages((prev) => [...prev, { role: "user", text: `تحلیل آگهی از روی لینک${views ? ` (بازدید: ${faDigits(views)})` : ""}` }]);
+    setLinkForDiagnosis(""); setViewCountInput("");
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("import-divar", { body: { url } });
+      if (error || !data?.ok) {
+        const code = data?.code;
+        const msg = code === "LINK_INVALID" ? "این لینک، لینک معتبر آگهی دیوار نیست."
+          : code === "PAGE_NOT_ACCESSIBLE" ? "این آگهی الان در دسترس نیست — ممکنه حذف شده باشه."
+          : code === "EXTRACTION_FAILED" ? "نتونستم اطلاعاتی از این آگهی استخراج کنم."
+          : code === "RATE_LIMITED" ? "درخواست زیاده — چند لحظه صبر کن."
+          : "خطا در دریافت اطلاعات آگهی.";
+        throw new Error(msg);
+      }
+      const d = data.data;
+      const facts = [
+        `عنوان: ${d.title || "نامشخص"}`,
+        d.price ? `قیمت کل: ${fmtToman(d.price)}` : null,
+        d.area ? `متراژ: ${faDigits(d.area)} متر` : null,
+        d.rooms != null ? `تعداد خواب: ${faDigits(d.rooms)}` : null,
+        d.floor != null ? `طبقه: ${faDigits(d.floor)}` : null,
+        d.parking != null ? `پارکینگ: ${d.parking ? "دارد" : "ندارد"}` : null,
+        d.elevator != null ? `آسانسور: ${d.elevator ? "دارد" : "ندارد"}` : null,
+        d.storage != null ? `انباری: ${d.storage ? "دارد" : "ندارد"}` : null,
+        `تعداد عکس: ${faDigits(d.images?.length || 0)}`,
+        d.description ? `متن آگهی: ${d.description}` : null,
+        views ? `بازدید آگهی: ${faDigits(views)}` : null,
+      ].filter(Boolean).join("\n");
+
+      const availableImages = (d.images || []).filter((im) => im.base64).slice(0, 3);
+      const content = [
+        { type: "text", text: `این اطلاعات واقعی یک آگهی ملکی در دیوار است (استخراج‌شده مستقیم از خود آگهی، نه حدسی):
+${facts}
+
+به‌عنوان یک متخصص فروش املاک تحلیل کن که چرا این آگهی${views ? " با وجود این میزان بازدید" : ""} تماس کمی می‌گیرد.
+
+این آگهی را دقیقاً با این معیارها بسنج:
+- قانون اوگیلوی: آیا کلمات توخالی («سوپرلوکس»، «سلطنتی»، «بی‌نظیر») دارد؟ هر ادعای بدون عدد یا جنس مشخص را نام ببر و جایگزین واقعی پیشنهاد بده.
+- سه ترس خریدار ایرانی: آیا به واقعی‌بودن عکس‌ها، وضعیت سند، و شفافیت شرایط پرداخت اشاره شده؟ هرکدام که غایب است را بگو.
+- قانون ۳ ثانیه: آیا با بولت و شکست خط در ۳ ثانیه اسکن می‌شود یا پاراگراف طولانی و خسته‌کننده است؟
+- دعوت به اقدام: آیا دلیل مشخصی برای تماس داده (ویدیو، بررسی سند، بازدید) یا فقط شماره گذاشته؟
+- تعداد عکس: کم بودن عکس (کمتر از ۵) خودش یک دلیل رایج کم‌تماسی است — اگر کم است بگو.
+${views ? "- نسبت بازدید به تماس: با توجه به بازدید داده‌شده، آیا این نرخ نرمال به‌نظر می‌رسد یا پایین است؟" : ""}
+
+سپس دقیقاً به این موارد بپرداز:
+۱. عنوان: آیا لوکیشن + مشخصه‌ی یکتا + قلاب مالی دارد؟ عنوان بهتر را دقیقاً بنویس.
+۲. قیمت: نسبت به بازار چطور به‌نظر می‌رسد؟
+۳. متن آگهی: چه چیزی کم دارد، چه چیزی زیادی است، لحنش چطور است؟
+۴. عکس‌ها: بر اساس تعداد و آنچه در تصاویر پیوست‌شده می‌بینی چطورند؟
+۵. سه اقدام مشخص و فوری که همین امروز باید انجام دهد.
+کوتاه، صریح و به فارسی جواب بده — بدون تعارف. هیچ‌چیزی که در اطلاعات بالا نیامده را حدس نزن یا نساز.` },
+        ...availableImages.map((im) => ({ type: "image_url", image_url: { url: `data:${im.contentType};base64,${im.base64}` } })),
+      ];
+      const res = await fetch("https://api.avalai.ir/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
+        body: JSON.stringify({ model: avalaiModel && avalaiModel.startsWith("gpt-4o") ? avalaiModel : "gpt-4o", messages: [{ role: "user", content }] }),
+      });
+      const respData = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(respData?.error?.message || `خطا (کد ${res.status})`);
+      const text = respData?.choices?.[0]?.message?.content || "پاسخی دریافت نشد";
       setMessages((prev) => [...prev, { role: "assistant", text }]);
     } catch (e) {
       setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}`, error: true }]);
@@ -1667,6 +1748,17 @@ function DivarSearchSheet({ ctx, onClose }) {
             </div>
             <button onClick={diagnoseAd} disabled={adShots.length === 0 || loading} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: adShots.length ? c.primary : c.surface2, color: adShots.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}تحلیل حرفه‌ای آگهی
+            </button>
+          </div>
+
+          {/* Ad diagnosis — real listing link, no screenshots needed */}
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c, 22) }}>
+            <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>یا لینک آگهی رو بده</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>خودم اطلاعات واقعی آگهی رو می‌گیرم و کامل تحلیل می‌کنم — نیازی به اسکرین‌شات نیست.</p>
+            <input value={linkForDiagnosis} onChange={(e) => setLinkForDiagnosis(e.target.value)} dir="ltr" placeholder="https://divar.ir/v/..." style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: "10px 14px", fontSize: FS.body, color: c.ink, marginBottom: SP.sm }} />
+            <input value={viewCountInput} onChange={(e) => setViewCountInput(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="میزان بازدید آگهی (اختیاری)" style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: "10px 14px", fontSize: FS.body, color: c.ink, marginBottom: SP.md }} />
+            <button onClick={diagnoseAdFromLink} disabled={!linkForDiagnosis.trim() || loading} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: linkForDiagnosis.trim() ? c.primary : c.surface2, color: linkForDiagnosis.trim() ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}تحلیل کامل آگهی
             </button>
           </div>
 
@@ -3608,6 +3700,15 @@ function MoreTab({ ctx }) {
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>اعلان‌ها</p>
           <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>فعال‌سازی، دسته‌بندی، ساعات سکوت</p>
+        </div>
+        <ChevronLeft size={17} color={c.muted} />
+      </button>
+
+      <button onClick={() => ctx.setDivarSearchOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.purpleSoft }}><Sparkles size={20} color={c.purple} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>چرا آگهی‌ام زنگ نمی‌خوره؟</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>لینک آگهی دیوار رو بده، تحلیل کامل بگیر</p>
         </div>
         <ChevronLeft size={17} color={c.muted} />
       </button>
