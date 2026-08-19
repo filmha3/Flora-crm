@@ -247,9 +247,118 @@ function NotificationsSettings({ ctx }) {
   );
 }
 
+// ---------- Test panel — lets the person schedule one real reminder for a
+// time they pick, with a message they write, and watch it move from
+// pending to sent. This exists specifically because "notifications aren't
+// arriving" is otherwise impossible to debug from inside the app — this
+// runs the exact same pipeline a real appointment/check reminder would
+// (insert into scheduled_reminders → picked up by the cron job → sent via
+// the same send path), so if this doesn't arrive, nothing else would either.
+function NotificationTestPanel({ ctx }) {
+  const { c, notify } = ctx;
+  const [time, setTime] = useState(() => {
+    const soon = new Date(Date.now() + 2 * 60000); // default: 2 minutes from now
+    return soon.toTimeString().slice(0, 5);
+  });
+  const [message, setMessage] = useState("پیام تستی از Flora");
+  const [busy, setBusy] = useState(false);
+  const [activeDeviceCount, setActiveDeviceCount] = useState(null);
+  const [testReminders, setTestReminders] = useState([]);
+
+  const loadStatus = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: subs } = await supabase.from("push_subscriptions").select("id").eq("user_id", user.id).eq("is_active", true);
+    setActiveDeviceCount(subs?.length ?? 0);
+    const { data: reminders } = await supabase.from("scheduled_reminders").select("*").eq("user_id", user.id).eq("category", "test").order("remind_at", { ascending: false }).limit(10);
+    setTestReminders(reminders || []);
+  };
+
+  useEffect(() => {
+    loadStatus();
+    // Poll every 10s while this panel is open, so "pending → sent" updates
+    // on screen without the person needing to back out and back in.
+    const t = setInterval(loadStatus, 10000);
+    return () => clearInterval(t);
+  }, []);
+
+  const scheduleTest = async () => {
+    if (!message.trim()) { notify("یه پیام بنویس"); return; }
+    setBusy(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("ابتدا وارد حساب شو");
+      const today = new Date().toISOString().slice(0, 10);
+      const remindAt = new Date(`${today}T${time}:00`);
+      // If the picked time already passed today, this still submits it —
+      // remind_at will already be <= now(), so the next cron tick (within 5
+      // minutes) picks it up right away instead of waiting until tomorrow.
+      // category:"test" bypasses quiet hours (see process-due-reminders) so
+      // a test at any hour still actually fires.
+      await supabase.from("scheduled_reminders").insert({
+        user_id: user.id, remind_at: remindAt.toISOString(),
+        title: "Flora (تست)", body: message.trim(), category: "test",
+      });
+      notify("تست ثبت شد — حداکثر تا ۵ دقیقه بعد از ساعتی که زدی باید برسه");
+      setMessage("پیام تستی از Flora");
+      loadStatus();
+    } catch (e) { notify(e.message || "ثبت تست ناموفق بود"); }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <div className="rounded-2xl p-4 mb-5" style={glass(c, 22)}>
+        <div className="flex items-center justify-between mb-1">
+          <span style={{ fontSize: 13, fontWeight: 700 }}>دستگاه‌های فعال برای دریافت اعلان</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: activeDeviceCount > 0 ? c.success : c.danger }}>{activeDeviceCount === null ? "..." : activeDeviceCount}</span>
+        </div>
+        {activeDeviceCount === 0 && (
+          <div className="flex items-start gap-2 mt-2" style={{ padding: SP.sm, borderRadius: RAD.sm, background: c.dangerSoft }}>
+            <AlertTriangle size={12} color={c.danger} style={{ flexShrink: 0, marginTop: 1 }} />
+            <p style={{ fontSize: 11, color: c.danger, lineHeight: 1.8 }}>هیچ دستگاه فعالی نداری — حتی اگه تست رو ثبت کنی، جایی برای فرستادن نیست. برو تب «تنظیمات» و دوباره «اعلان‌های Flora را فعال کن» رو بزن.</p>
+          </div>
+        )}
+      </div>
+
+      <p style={{ fontSize: 12, fontWeight: 700, color: c.muted, marginBottom: SP.sm }}>ارسال یک اعلان تستی</p>
+      <div className="rounded-2xl p-4 mb-5" style={glass(c, 22)}>
+        <div className="mb-3">
+          <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 6 }}>ساعت ارسال (امروز)</p>
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.sm, padding: "10px 12px", fontSize: 14, color: c.ink }} />
+        </div>
+        <div className="mb-3">
+          <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 6 }}>متن پیام</p>
+          <input value={message} onChange={(e) => setMessage(e.target.value)} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.sm, padding: "10px 12px", fontSize: 13, color: c.ink }} />
+        </div>
+        <button onClick={scheduleTest} disabled={busy} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontSize: 13, fontWeight: 700, opacity: busy ? 0.6 : 1 }}>
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />} ارسال تست
+        </button>
+      </div>
+
+      {testReminders.length > 0 && (
+        <>
+          <p style={{ fontSize: 12, fontWeight: 700, color: c.muted, marginBottom: SP.sm }}>تست‌های اخیر</p>
+          <div className="flex flex-col gap-2">
+            {testReminders.map((r) => (
+              <div key={r.id} className="flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 10, ...glassLite(c, RAD.md) }}>
+                <div className="min-w-0">
+                  <p style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.body}</p>
+                  <p style={{ fontSize: 10.5, color: c.muted, marginTop: 2 }}>{new Date(r.remind_at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</p>
+                </div>
+                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: r.sent ? c.successSoft : c.attnSoft, color: r.sent ? c.success : c.attn, flexShrink: 0 }}>{r.sent ? "ارسال شد" : "در انتظار"}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function NotificationsView({ ctx, onBack }) {
   const { c } = ctx;
-  const [tab, setTab] = useState("settings"); // settings | history
+  const [tab, setTab] = useState("settings"); // settings | history | test
 
   return (
     <BodyPortal>
@@ -259,12 +368,12 @@ function NotificationsView({ ctx, onBack }) {
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>اعلان‌ها</p>
         </div>
         <div className="flex px-4 mb-4" style={{ gap: 6 }}>
-          {[["settings", "تنظیمات"], ["history", "تاریخچه"]].map(([k, label]) => (
+          {[["settings", "تنظیمات"], ["history", "تاریخچه"], ["test", "تست"]].map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)} className="press rounded-lg" style={{ padding: "8px 16px", fontSize: 12.5, fontWeight: 700, background: tab === k ? c.primary : c.surface2, color: tab === k ? "#fff" : c.ink }}>{label}</button>
           ))}
         </div>
         <div className="flex-1 overflow-y-auto px-4 pb-8">
-          {tab === "settings" ? <NotificationsSettings ctx={ctx} /> : <NotificationHistory ctx={ctx} />}
+          {tab === "settings" ? <NotificationsSettings ctx={ctx} /> : tab === "history" ? <NotificationHistory ctx={ctx} /> : <NotificationTestPanel ctx={ctx} />}
         </div>
       </div>
     </BodyPortal>
