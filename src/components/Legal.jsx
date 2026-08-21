@@ -31,7 +31,7 @@ const newCase = (title) => ({
 function LegalTile({ ctx }) {
   const { c, setLegalOpen } = ctx;
   return (
-    <button onClick={() => setLegalOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setLegalOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
       <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.dangerSoft, marginBottom: SP.md }}><Scale size={20} color={c.danger} /></div>
       <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>Flora Legal</p>
       <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>دستیار حقوقی صوتی</p>
@@ -194,7 +194,9 @@ function LegalHome({ ctx }) {
     if (!hasAiKey) { setError("برای فهمیدن منظورت، یک کلید هوش مصنوعی در تنظیمات لازم است."); setMode("home"); return; }
     try {
       const raw = await callAI(buildCaseMatchPrompt(text, openCases, clarifyQA));
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new SyntaxError("no JSON found");
+      const parsed = JSON.parse(jsonMatch[0]);
       if (parsed.clarifyQuestion && !clarifyQA) { setClarify({ q: parsed.clarifyQuestion, parsed, text }); setMode("clarify"); return; }
       applyResult(parsed, text);
     } catch (e) {
@@ -237,7 +239,7 @@ function LegalHome({ ctx }) {
     <BodyPortal>
       <div className="fixed inset-0 z-[95] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={() => setLegalOpen(false)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+          <button onClick={() => setLegalOpen(false)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
           <div className="flex-1">
             <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>FLORA LEGAL</p>
             <p style={{ fontSize: FS.caption, color: c.muted }}>دستیار حقوقی، نه وکیل واقعی</p>
@@ -359,7 +361,9 @@ function LegalCaseView({ ctx, legalCase, onUpdate, onDelete, onBack }) {
     setBusy(true);
     try {
       const raw = await callAI(buildLegalAnalysisPrompt(legalCase.facts));
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new SyntaxError("no JSON found");
+      const parsed = JSON.parse(jsonMatch[0]);
       onUpdate({ ...legalCase, legalAnalysis: parsed, updatedAt: new Date().toISOString() });
     } catch (e) { notify(e.message || "تحلیل حقوقی ناموفق بود"); }
     setBusy(false);
@@ -409,11 +413,11 @@ function LegalCaseView({ ctx, legalCase, onUpdate, onDelete, onBack }) {
     <BodyPortal>
       <div className="fixed inset-0 z-[96] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={onBack} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><ChevronLeft size={16} color={c.ink} /></button>
+          <button onClick={onBack} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><ChevronLeft size={16} color={c.ink} /></button>
           <div className="flex-1 min-w-0">
             <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{legalCase.title}</p>
           </div>
-          <button onClick={() => setConfirmDelete(true)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={15} color={c.danger} /></button>
+          <button onClick={() => setConfirmDelete(true)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={15} color={c.danger} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-8">
@@ -429,7 +433,7 @@ function LegalCaseView({ ctx, legalCase, onUpdate, onDelete, onBack }) {
           <div className="flex flex-col" style={{ gap: 6, marginBottom: SP.xl }}>
             {factKeys.map((k) => (
               <div key={k} className="flex items-center justify-between" style={{ padding: "8px 10px", borderRadius: RAD.sm, background: c.surface2 }}>
-                <span style={{ fontSize: 11.5, color: c.muted, flexShrink: 0 }}>{FACT_LABELS[k]}</span>
+                <span style={{ fontSize: 12, color: c.muted, flexShrink: 0 }}>{FACT_LABELS[k]}</span>
                 {factEdits ? (
                   <input value={factEdits[k] || ""} onChange={(e) => setFactEdits({ ...factEdits, [k]: e.target.value })} style={{ background: "transparent", border: "none", outline: "none", textAlign: "left", fontSize: 12, color: c.ink, flex: 1, marginRight: 8 }} dir="auto" />
                 ) : (
@@ -443,7 +447,7 @@ function LegalCaseView({ ctx, legalCase, onUpdate, onDelete, onBack }) {
           {legalCase.legalAnalysis ? (
             <div style={{ padding: SP.md, borderRadius: RAD.md, background: c.dangerSoft, marginBottom: SP.lg }}>
               <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>نتیجه کوتاه</p>
-              <p style={{ fontSize: 12.5, lineHeight: 1.9, marginBottom: SP.sm }}>{legalCase.legalAnalysis.summary}</p>
+              <p style={{ fontSize: 13, lineHeight: 1.9, marginBottom: SP.sm }}>{legalCase.legalAnalysis.summary}</p>
               {legalCase.legalAnalysis.nextSteps?.length > 0 && (
                 <>
                   <p style={{ fontSize: 12, fontWeight: 700, marginTop: SP.sm, marginBottom: 6 }}>اقدام بعدی</p>
@@ -452,11 +456,11 @@ function LegalCaseView({ ctx, legalCase, onUpdate, onDelete, onBack }) {
               )}
               <div className="flex items-start" style={{ gap: 6, marginTop: SP.md, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
                 <ShieldAlert size={12} color={c.danger} style={{ flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 10.5, color: c.danger, lineHeight: 1.7 }}>این پاسخ جایگزین بررسی وکیل دادگستری نیست.</p>
+                <p style={{ fontSize: 11, color: c.danger, lineHeight: 1.7 }}>این پاسخ جایگزین بررسی وکیل دادگستری نیست.</p>
               </div>
             </div>
           ) : (
-            <button onClick={runLegalAnalysis} disabled={busy} className="press w-full flex items-center justify-center rounded-xl mb-5" style={{ gap: 6, paddingBlock: 12, background: c.surface2, fontSize: 12.5, fontWeight: 700 }}>
+            <button onClick={runLegalAnalysis} disabled={busy} className="press w-full flex items-center justify-center rounded-xl mb-5" style={{ gap: 6, paddingBlock: 12, background: c.surface2, fontSize: 13, fontWeight: 700 }}>
               <Sparkles size={13} color={c.danger} /> تحلیل حقوقی بگیر
             </button>
           )}
@@ -504,10 +508,10 @@ function LegalCaseView({ ctx, legalCase, onUpdate, onDelete, onBack }) {
           {(legalCase.contractDrafts || []).map((d) => (
             <div key={d.id} style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2, marginBottom: SP.sm }}>
               <p style={{ fontSize: 11, fontWeight: 700, color: c.attn, marginBottom: 6 }}>پیش‌نویس قرارداد — {fmtJalali(d.createdAt.slice(0, 10))}</p>
-              <p style={{ fontSize: 11.5, lineHeight: 2, whiteSpace: "pre-wrap" }}>{d.text}</p>
+              <p style={{ fontSize: 12, lineHeight: 2, whiteSpace: "pre-wrap" }}>{d.text}</p>
             </div>
           ))}
-          <button onClick={draftContract} disabled={busy} className="press w-full flex items-center justify-center rounded-xl mt-3" style={{ gap: 6, paddingBlock: 12, background: "linear-gradient(135deg,#c8102e,#e63946)", color: "#fff", fontSize: 12.5, fontWeight: 700, opacity: busy ? 0.6 : 1 }}>
+          <button onClick={draftContract} disabled={busy} className="press w-full flex items-center justify-center rounded-xl mt-3" style={{ gap: 6, paddingBlock: 12, background: "linear-gradient(135deg,#c8102e,#e63946)", color: "#fff", fontSize: 13, fontWeight: 700, opacity: busy ? 0.5 : 1 }}>
             <FileText size={14} color="#fff" /> پیش‌نویس قرارداد بساز
           </button>
         </div>

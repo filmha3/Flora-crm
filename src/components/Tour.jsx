@@ -19,7 +19,7 @@ function TourEntryCard({ ctx }) {
       <button
         onClick={() => setTourBuilder({ step: "customer", customerId: "", customerName: "", customerPhone: "", propertyIds: [] })}
         className="press w-full flex items-center relative overflow-hidden text-right"
-        style={{ gap: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
+        style={{ gap: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
       >
         <span style={{ position: "absolute", top: "-50%", left: "-10%", width: 160, height: 160, borderRadius: "50%", background: `radial-gradient(circle, ${c.purple}22, transparent 70%)`, pointerEvents: "none" }} />
         <div className="flex items-center justify-center shrink-0 relative" style={{ width: 48, height: 48, borderRadius: RAD.md, background: c.purpleSoft, border: `1px solid ${c.purple}33` }}>
@@ -42,7 +42,7 @@ function TourEntryCard({ ctx }) {
     <button
       onClick={() => setOpenTourId(active.id)}
       className="press w-full text-right relative overflow-hidden"
-      style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
+      style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c), background: `linear-gradient(135deg, ${c.purpleSoft}, ${c.surface} 65%)` }}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center" style={{ gap: SP.md }}>
@@ -86,7 +86,7 @@ function TourWizard({ ctx }) {
     <BodyPortal>
       <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-          <button onClick={goBack} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}>
+          <button onClick={goBack} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}>
             {stepIdx === 0 ? <X size={16} color={c.ink} /> : <ArrowRight size={16} color={c.ink} />}
           </button>
           <div className="flex-1">
@@ -140,7 +140,7 @@ function TourStepCustomer({ ctx, b, patch }) {
             <Plus size={16} color={c.primary} /> مشتری جدید
           </button>
         ) : (
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
             <Field c={c} label="نام مشتری"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} autoFocus /></Field>
             <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
             <div className="flex" style={{ gap: SP.sm }}>
@@ -213,7 +213,7 @@ function TourStepProperties({ ctx, b, patch }) {
             <Plus size={16} color={c.primary} /> افزودن سریع فایل (خارج از CRM)
           </button>
         ) : (
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
             <Field c={c} label="نام/عنوان"><input style={inputStyle(c)} value={qa.title} onChange={(e) => setQa({ ...qa, title: e.target.value })} autoFocus /></Field>
             <Field c={c} label="آدرس"><input style={inputStyle(c)} value={qa.address} onChange={(e) => setQa({ ...qa, address: e.target.value })} /></Field>
             <Field c={c} label="قیمت (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={qa.price} onChange={(e) => setQa({ ...qa, price: e.target.value })} /></Field>
@@ -262,8 +262,8 @@ function TourStepReview({ ctx, b, patch, onStart }) {
                   <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 1 }}>{fmtToman(p.price)}</p>
                 </div>
                 <div className="flex flex-col items-center" style={{ gap: 2 }}>
-                  <button onClick={() => move(idx, -1)} disabled={idx === 0} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === 0 ? 0.4 : 1 }}><ArrowUp size={12} color={c.muted} /></button>
-                  <button onClick={() => move(idx, 1)} disabled={idx === items.length - 1} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === items.length - 1 ? 0.4 : 1 }}><ArrowDown size={12} color={c.muted} /></button>
+                  <button onClick={() => move(idx, -1)} disabled={idx === 0} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === 0 ? 0.5 : 1 }}><ArrowUp size={12} color={c.muted} /></button>
+                  <button onClick={() => move(idx, 1)} disabled={idx === items.length - 1} className="press w-6 h-6 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: idx === items.length - 1 ? 0.5 : 1 }}><ArrowDown size={12} color={c.muted} /></button>
                 </div>
                 <button onClick={() => remove(idx)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><X size={13} color={c.danger} /></button>
               </div>
@@ -282,7 +282,7 @@ function TourStepReview({ ctx, b, patch, onStart }) {
       </div>
 
       {items.length > 0 && (
-        <div style={{ marginTop: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+        <div style={{ marginTop: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
           <p style={{ fontSize: FS.body, fontWeight: FW.heavy, marginBottom: SP.md }}>آماده شروع</p>
           <div className="flex flex-col" style={{ gap: SP.xs + 2 }}>
             <div className="flex items-center justify-between"><span style={{ fontSize: FS.caption, color: c.muted }}>مشتری</span><span style={{ fontSize: FS.caption, fontWeight: FW.bold }}>{b.customerName}</span></div>
@@ -354,7 +354,7 @@ function TourFocusMode({ ctx, tour }) {
     <BodyPortal>
       <div className="fixed inset-0 z-[95] flex flex-col flora-focus-in" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-          <button onClick={() => ctx.setOpenTourId(null)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+          <button onClick={() => ctx.setOpenTourId(null)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
           <div className="flex-1 flex" style={{ gap: SP.xs }}>
             {tour.items.map((it, idx) => <div key={it.id} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: it.visited ? c.purple : idx === i ? c.purpleSoft : c.surface2, border: idx === i ? `1px solid ${c.purple}` : "none" }} />)}
           </div>

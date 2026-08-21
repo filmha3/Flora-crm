@@ -44,7 +44,7 @@ function IosInstallOnboarding({ ctx, onClose }) {
     <BodyPortal>
       <div className="fixed inset-0 z-[400] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+          <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>Flora را مثل یک اپ روی آیفون نصب کن</p>
         </div>
         <div className="flex-1 overflow-y-auto px-4 pb-8">
@@ -53,7 +53,7 @@ function IosInstallOnboarding({ ctx, onClose }) {
               <div className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: "50%", background: c.primarySoft, fontWeight: 800, fontSize: 15, color: c.primary }}>{i + 1}</div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1"><s.icon size={16} color={c.primary} /><p style={{ fontSize: 14, fontWeight: 700 }}>{s.title}</p></div>
-                <p style={{ fontSize: 12.5, color: c.muted, lineHeight: 1.9 }}>{s.desc}</p>
+                <p style={{ fontSize: 13, color: c.muted, lineHeight: 1.9 }}>{s.desc}</p>
               </div>
             </div>
           ))}
@@ -95,7 +95,7 @@ function NotificationHistory({ ctx }) {
       ) : (
         <div className="flex flex-col gap-2">
           {visible.map((n) => (
-            <button key={n.id} onClick={() => !n.read && markRead(n.id)} className="press w-full text-right" style={{ padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md), opacity: n.read ? 0.6 : 1 }}>
+            <button key={n.id} onClick={() => !n.read && markRead(n.id)} className="press w-full text-right" style={{ padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md), opacity: n.read ? 0.5 : 1 }}>
               <div className="flex items-start justify-between gap-2">
                 <p style={{ fontSize: 13, fontWeight: 700 }}>{n.title}</p>
                 {!n.read && <div style={{ width: 7, height: 7, borderRadius: "50%", background: c.primary, marginTop: 4, flexShrink: 0 }} />}
@@ -173,14 +173,14 @@ function NotificationsSettings({ ctx }) {
       {showIosOnboarding && <IosInstallOnboarding ctx={ctx} onClose={() => setShowIosOnboarding(false)} />}
 
       {/* Enable/disable */}
-      <div className="rounded-2xl p-4 mb-5" style={glass(c, 22)}>
+      <div className="rounded-2xl p-4 mb-5" style={glass(c)}>
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: permState === "granted" ? c.successSoft : c.primarySoft }}>
             {permState === "granted" ? <Bell size={20} color={c.success} /> : <BellOff size={20} color={c.primary} />}
           </div>
           <div className="flex-1">
             <p style={{ fontSize: 14, fontWeight: 700 }}>{permState === "granted" ? "اعلان‌ها فعال است" : "اعلان‌های Flora را فعال کن"}</p>
-            <p style={{ fontSize: 11.5, color: c.muted, marginTop: 2 }}>
+            <p style={{ fontSize: 12, color: c.muted, marginTop: 2 }}>
               {!supported && !ios ? "اعلان‌های این دستگاه در این حالت در دسترس نیست." :
                 needsIosInstall ? "روی آیفون، اول باید Flora رو به صفحه اصلی اضافه کنی" :
                   permState === "granted" ? "روی این دستگاه اعلان دریافت می‌کنی" : "برای دریافت اعلان، اول اجازه بده"}
@@ -200,7 +200,7 @@ function NotificationsSettings({ ctx }) {
 
       {/* Categories */}
       <p style={{ fontSize: 12, fontWeight: 700, color: c.muted, marginBottom: SP.sm }}>دسته‌بندی اعلان‌ها</p>
-      <div className="rounded-2xl p-1 mb-5" style={glass(c, 22)}>
+      <div className="rounded-2xl p-1 mb-5" style={glass(c)}>
         {CATEGORIES.map((cat, i) => (
           <div key={cat.key} className="flex items-center justify-between px-3" style={{ paddingBlock: 12, borderTop: i > 0 ? `1px solid ${c.border}` : "none" }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{cat.label}</span>
@@ -211,7 +211,7 @@ function NotificationsSettings({ ctx }) {
 
       {/* Quiet hours */}
       <p style={{ fontSize: 12, fontWeight: 700, color: c.muted, marginBottom: SP.sm }}>ساعات سکوت</p>
-      <div className="rounded-2xl p-4 mb-5" style={glass(c, 22)}>
+      <div className="rounded-2xl p-4 mb-5" style={glass(c)}>
         <div className="flex items-center justify-between mb-3">
           <span style={{ fontSize: 13, fontWeight: 600 }}>در ساعات سکوت اعلان نفرست</span>
           <Toggle c={c} on={prefs.quiet_hours_enabled} onChange={() => savePrefs({ ...prefs, quiet_hours_enabled: !prefs.quiet_hours_enabled })} />
@@ -227,7 +227,7 @@ function NotificationsSettings({ ctx }) {
 
       {/* Preview level */}
       <p style={{ fontSize: 12, fontWeight: 700, color: c.muted, marginBottom: SP.sm }}>پیش‌نمایش اعلان</p>
-      <div className="rounded-2xl p-1 mb-5" style={glass(c, 22)}>
+      <div className="rounded-2xl p-1 mb-5" style={glass(c)}>
         {[["full", "کامل"], ["summary", "خلاصه"], ["generic", "فقط «یک اعلان جدید از Flora»"]].map(([val, label], i) => (
           <button key={val} onClick={() => savePrefs({ ...prefs, preview_level: val })} className="press w-full flex items-center justify-between px-3" style={{ paddingBlock: 12, borderTop: i > 0 ? `1px solid ${c.border}` : "none" }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
@@ -240,7 +240,7 @@ function NotificationsSettings({ ctx }) {
       {(prefs.preview_level === "full") && (
         <div className="flex items-start gap-2 mb-5" style={{ padding: SP.sm, borderRadius: RAD.sm, background: c.attnSoft }}>
           <AlertTriangle size={12} color={c.attn} style={{ flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 10.5, color: c.attn, lineHeight: 1.7 }}>با پیش‌نمایش «کامل»، جزئیات حساس حقوقی/مالی هم روی صفحه‌ی قفل گوشی نشون داده می‌شه.</p>
+          <p style={{ fontSize: 11, color: c.attn, lineHeight: 1.7 }}>با پیش‌نمایش «کامل»، جزئیات حساس حقوقی/مالی هم روی صفحه‌ی قفل گوشی نشون داده می‌شه.</p>
         </div>
       )}
     </div>
@@ -310,7 +310,7 @@ function NotificationTestPanel({ ctx }) {
 
   return (
     <div>
-      <div className="rounded-2xl p-4 mb-5" style={glass(c, 22)}>
+      <div className="rounded-2xl p-4 mb-5" style={glass(c)}>
         <div className="flex items-center justify-between mb-1">
           <span style={{ fontSize: 13, fontWeight: 700 }}>دستگاه‌های فعال برای دریافت اعلان</span>
           <span style={{ fontSize: 15, fontWeight: 800, color: activeDeviceCount > 0 ? c.success : c.danger }}>{activeDeviceCount === null ? "..." : activeDeviceCount}</span>
@@ -326,7 +326,7 @@ function NotificationTestPanel({ ctx }) {
             {devices.map((d) => (
               <div key={d.id}>
                 <div className="flex items-center justify-between">
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: d.is_active ? c.ink : c.muted }}>{d.device_name || "دستگاه"}{!d.is_active && " (غیرفعال)"}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: d.is_active ? c.ink : c.muted }}>{d.device_name || "دستگاه"}{!d.is_active && " (غیرفعال)"}</span>
                   {d.last_send_status && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: d.last_send_error ? c.danger : c.success }}>
                       {d.last_send_error ? `خطا (${d.last_send_status})` : `پذیرفته شد توسط سرور Apple/Google (${d.last_send_status})`}
@@ -342,16 +342,16 @@ function NotificationTestPanel({ ctx }) {
       </div>
 
       <p style={{ fontSize: 12, fontWeight: 700, color: c.muted, marginBottom: SP.sm }}>ارسال یک اعلان تستی</p>
-      <div className="rounded-2xl p-4 mb-5" style={glass(c, 22)}>
+      <div className="rounded-2xl p-4 mb-5" style={glass(c)}>
         <div className="mb-3">
-          <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 6 }}>ساعت ارسال (امروز)</p>
+          <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>ساعت ارسال (امروز)</p>
           <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.sm, padding: "10px 12px", fontSize: 14, color: c.ink }} />
         </div>
         <div className="mb-3">
-          <p style={{ fontSize: 11.5, color: c.muted, marginBottom: 6 }}>متن پیام</p>
+          <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>متن پیام</p>
           <input value={message} onChange={(e) => setMessage(e.target.value)} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.sm, padding: "10px 12px", fontSize: 13, color: c.ink }} />
         </div>
-        <button onClick={scheduleTest} disabled={busy} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontSize: 13, fontWeight: 700, opacity: busy ? 0.6 : 1 }}>
+        <button onClick={scheduleTest} disabled={busy} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontSize: 13, fontWeight: 700, opacity: busy ? 0.5 : 1 }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />} ارسال تست
         </button>
       </div>
@@ -363,10 +363,10 @@ function NotificationTestPanel({ ctx }) {
             {testReminders.map((r) => (
               <div key={r.id} className="flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 10, ...glassLite(c, RAD.md) }}>
                 <div className="min-w-0">
-                  <p style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.body}</p>
-                  <p style={{ fontSize: 10.5, color: c.muted, marginTop: 2 }}>{new Date(r.remind_at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.body}</p>
+                  <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{new Date(r.remind_at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</p>
                 </div>
-                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: r.sent ? c.successSoft : c.attnSoft, color: r.sent ? c.success : c.attn, flexShrink: 0 }}>{r.sent ? "ارسال شد" : "در انتظار"}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: r.sent ? c.successSoft : c.attnSoft, color: r.sent ? c.success : c.attn, flexShrink: 0 }}>{r.sent ? "ارسال شد" : "در انتظار"}</span>
               </div>
             ))}
           </div>
@@ -384,12 +384,12 @@ function NotificationsView({ ctx, onBack }) {
     <BodyPortal>
       <div className="fixed inset-0 z-[90] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={onBack} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronLeft size={16} color={c.ink} /></button>
+          <button onClick={onBack} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronLeft size={16} color={c.ink} /></button>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>اعلان‌ها</p>
         </div>
         <div className="flex px-4 mb-4" style={{ gap: 6 }}>
           {[["settings", "تنظیمات"], ["history", "تاریخچه"], ["test", "تست"]].map(([k, label]) => (
-            <button key={k} onClick={() => setTab(k)} className="press rounded-lg" style={{ padding: "8px 16px", fontSize: 12.5, fontWeight: 700, background: tab === k ? c.primary : c.surface2, color: tab === k ? "#fff" : c.ink }}>{label}</button>
+            <button key={k} onClick={() => setTab(k)} className="press rounded-lg" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 700, background: tab === k ? c.primary : c.surface2, color: tab === k ? "#fff" : c.ink }}>{label}</button>
           ))}
         </div>
         <div className="flex-1 overflow-y-auto px-4 pb-8">

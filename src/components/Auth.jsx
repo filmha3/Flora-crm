@@ -151,7 +151,7 @@ function AuthScreen({ c, dark }) {
           onClick={submit}
           disabled={loading}
           className="press w-full"
-          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
+          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.5 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
         >
           {loading ? "..." : "ورود / ساخت حساب"}
         </button>
@@ -163,49 +163,34 @@ function AuthScreen({ c, dark }) {
 // Runs exactly once, right after the very first sign-in: how the app should
 // address this consultant, and which city's map to center on when they add
 // a new listing. Two taps and a text field — never shown again once saved.
-function OnboardingScreen({ c, session, onDone }) {
-  const [title, setTitle] = useState("");
+// A light popup over the already-usable home screen, not a blocking screen
+// before the app loads — city is nice-to-have for a couple of home-screen
+// insights, not a hard requirement to start using Flora.
+function CityPopup({ c, session, onDone }) {
   const [city, setCity] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
-  const [step, setStep] = useState(0); // 0 = title, 1 = city
 
   const saveAndFinish = async () => {
     if (!city.trim()) { setMsg("شهر را وارد کن"); return; }
     setBusy(true);
-    const { error } = await supabase.from("profiles").update({ title, city: city.trim() }).eq("id", session.user.id);
+    const { error } = await supabase.from("profiles").update({ city: city.trim() }).eq("id", session.user.id);
     setBusy(false);
     if (error) { setMsg("ذخیره نشد، دوباره امتحان کن"); return; }
     onDone();
   };
 
   return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl }}>
-      <style>{`@keyframes floraStepIn { from { opacity:0; transform: translateY(10px) scale(.98); } to { opacity:1; transform: translateY(0) scale(1); } }`}</style>
-      <div className="w-full" style={{ maxWidth: 340, animation: "floraStepIn .35s cubic-bezier(.22,1,.36,1)" }} key={step}>
-        {step === 0 ? (
-          <>
-            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>خوش اومدی 👋</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>چطور صدات کنیم؟</p>
-            <div className="flex" style={{ gap: SP.md }}>
-              {["آقای", "خانم"].map((t) => (
-                <button key={t} onClick={() => { setTitle(t); setStep(1); }} className="press flex-1" style={{ paddingBlock: SP.xl, borderRadius: RAD.lg, ...glassLite(c, RAD.lg), fontSize: FS.body + 1, fontWeight: FW.bold }}>{t}</button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <p style={{ fontSize: FS.title, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>{title} مشاور 🏙️</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.xxl }}>تو کدوم شهر فعالیت می‌کنی؟</p>
-            {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
-            <Field c={c} label="شهر"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً تهران" autoFocus /></Field>
-            <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.6 : 1 }}>{busy ? "..." : "شروع کن"}</button>
-            <button onClick={() => setStep(0)} className="press w-full" style={{ marginTop: SP.md, fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>بازگشت</button>
-          </>
-        )}
+    <div className="fixed inset-0 z-[500] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", padding: SP.xl }}>
+      <div className="w-full" style={{ maxWidth: 320, background: c.surface, borderRadius: RAD.lg, padding: SP.xl }}>
+        <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>خوش اومدی 👋</p>
+        <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.lg }}>تو کدوم شهر فعالیت می‌کنی؟</p>
+        {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
+        <Field c={c} label="شهر"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً تهران" autoFocus /></Field>
+        <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.5 : 1 }}>{busy ? "..." : "ثبت"}</button>
       </div>
     </div>
   );
 }
 
-export { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, OnboardingScreen, formatPhoneDisplay, phoneToE164 };
+export { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, formatPhoneDisplay, phoneToE164 };
