@@ -25,11 +25,22 @@ const T = {
   },
 };
 
-const FS = { caption: 11, body: 13, subtitle: 15, title: 20, hero: 28, display: 34 };
+// micro/small formalize two sizes that were already in heavy use ad hoc
+// (75 and 18 call sites respectively) without ever being added as real
+// scale steps — this documents what the app actually does rather than
+// leaving a gap between caption and body that every screen quietly filled
+// in on its own.
+const FS = { micro: 10, small: 12, caption: 11, body: 13, subtitle: 15, title: 20, hero: 28, display: 34 };
 const FW = { regular: 500, medium: 600, bold: 700, heavy: 800 };
 const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
 
+// Every large card in the app shares one radius (22) by design — a real
+// design-system decision, not a limitation. Cards used to be built with
+// glass(c, 20), glass(c, 24), etc., which looked like per-card
+// customization but silently did nothing (this function never accepted a
+// second argument); every one of those cards was already rendering at 22.
+// That's now made explicit instead of implied by a no-op argument.
 const glass = (c) => ({
   background: c.surface,
   backdropFilter: "blur(20px) saturate(180%)",
