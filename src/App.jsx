@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
-  MessageSquare, AlertTriangle, TrendingUp, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
+  MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
   CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
   Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
 } from "lucide-react";
@@ -26,6 +26,7 @@ import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourSt
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
+import { computeValuation } from "./lib/valuation.js";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -184,6 +185,12 @@ export default function FloraCRM() {
   const [splitShares, setSplitShares] = useState({ agent: 1, management: 1, rent: 1 });
   const [officeIncomes, setOfficeIncomes] = useState(seedOfficeIncomes);
   const [investments, setInvestments] = useState([]); // Investment Center (Portfolio) — Phase 1
+  // Manual reference prices an advisor enters for a street when Flora's own
+  // comparable listings aren't enough. Never system-computed, never AI-
+  // guessed — always the advisor's own real market knowledge, kept separate
+  // from (and clearly labeled apart from) comparables actually in the
+  // database, per the "no fake data" rule.
+  const [streetPrices, setStreetPrices] = useState([]);
   const [checks, setChecks] = useState([]); // Checks to pay — recipient, amount, due date, voice-capable
   const [tours, setTours] = useState([]); // Showing / Tour Mode
   const [tourBuilder, setTourBuilder] = useState(null); // { step, customerId, customerName, customerPhone, propertyIds, items }
@@ -211,7 +218,15 @@ export default function FloraCRM() {
   const [loaded, setLoaded] = useState(false);
 
   const [toast, setToast] = useState(null);
-  const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), Math.min(6000, 2000 + msg.length * 40)); };
+  // notify() is the one shared touchpoint every save/delete/error confirmation
+  // in the app already passes through — a short haptic pulse here makes
+  // tactile feedback consistent everywhere in one change, instead of the
+  // previous state where only two unrelated recording features (each with
+  // their own separate vibrate() copy) had any haptic feedback at all.
+  const notify = (msg) => {
+    try { navigator.vibrate?.(12); } catch (e) { /* not supported — silent, as it should be */ }
+    setToast(msg); setTimeout(() => setToast(null), Math.min(6000, 2000 + msg.length * 40));
+  };
 
   useEffect(() => {
     if (session === undefined) return; // ACTIVE_UID isn't set yet — wait rather than read the wrong user's key
@@ -230,6 +245,7 @@ export default function FloraCRM() {
         setOfficeIncomes(saved?.officeIncomes || []);
         setInvestments(saved?.investments || []);
         setChecks(saved?.checks || []);
+        setStreetPrices(saved?.streetPrices || []);
         setTours(saved?.tours || []);
 
         const settings = await dbGet(SETTINGS_KEY);
@@ -257,10 +273,10 @@ export default function FloraCRM() {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks }).catch(() => {});
+      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks]);
+  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices]);
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Appointments live only in this device's IndexedDB (local-first, like
@@ -362,6 +378,28 @@ export default function FloraCRM() {
     }, 1200);
     return () => clearTimeout(t);
   }, [loaded, checks, session]);
+
+  // The nightly digest used to be one fixed sentence for every user, every
+  // night — the cron job had no way to know anything real, since Flora's
+  // data lives only in this device's IndexedDB. This mirrors just the
+  // handful of numbers already computed for the home screen anyway (not a
+  // second copy of the whole data model) so the notification can actually
+  // say something true about today.
+  useEffect(() => {
+    if (!loaded || !session?.user) return;
+    const t = setTimeout(() => {
+      const activeCustomers = customers.filter((cu) => !["خرید کرد", "منصرف شد", "بدون پیگیری"].includes(cu.stage));
+      const hot = [...activeCustomers].sort((a, b) => (b.lastContactTs || 0) - (a.lastContactTs || 0))[0];
+      supabase.from("digest_summary").upsert({
+        user_id: session.user.id,
+        pending_calls: calls.filter((cl) => cl.status !== "انجام‌شد").length,
+        todays_appointments: appointments.filter((a) => a.date === todayISO()).length,
+        hot_customer_name: hot?.name || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [loaded, calls, appointments, customers, session]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
   // Real auto-backup: every 3 days, push a snapshot to Supabase Storage via
@@ -570,7 +608,7 @@ export default function FloraCRM() {
 
   // Persian (Jalali) date for filenames — e.g. "۶-مرداد-۱۴۰۵" instead of 2026-07-28.
   const jalaliFileDate = () => { const [jy, jm, jd] = isoToJalali(todayISO()); return `${faDigits(jd)}-${MONTHS_FA[jm - 1]}-${faDigits(jy)}`; };
-  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks });
+  const buildBackupPayload = () => ({ version: 1, exportedAt: new Date().toISOString(), properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices });
   const downloadBackup = (payload, label) => {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -626,6 +664,7 @@ export default function FloraCRM() {
     if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
     if (data.investments) setInvestments(data.investments);
         if (data.checks) setChecks(data.checks);
+        if (data.streetPrices) setStreetPrices(data.streetPrices);
     if (data.tours) setTours(data.tours);
     notify("بازیابی انجام شد");
     return true;
@@ -660,6 +699,7 @@ export default function FloraCRM() {
         if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
         if (data.investments) setInvestments(data.investments);
         if (data.checks) setChecks(data.checks);
+        if (data.streetPrices) setStreetPrices(data.streetPrices);
         if (data.tours) setTours(data.tours);
         notify("بکاپ با موفقیت بازیابی شد");
       } catch (e) { notify("فایل بکاپ نامعتبر است"); }
@@ -677,7 +717,7 @@ export default function FloraCRM() {
     c, dark, session, signOut: () => supabase.auth.signOut(),
     properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, splitShares, setSplitShares, simpleMode, setSimpleMode,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
@@ -2022,6 +2062,7 @@ ${activeListings}
   "need": "خلاصه‌ی نیاز مشتری (نوع ملک، منطقه) یا خالی",
   "budget": 0,
   "area": "منطقه/محله اگر گفته شده یا خالی",
+  "suggestedStage": "فقط اگر جمله به‌وضوح نشون می‌ده مرحله‌ی مشتری عوض شده، دقیقاً یکی از این مقادیر را بنویس: «خرید کرد» (قطعی خرید کرد) یا «منصرف شد» (به‌وضوح دیگر نمی‌خواهد) یا «دنبال سرمایه‌گذاری» یا «دنبال پیش‌فروش» — در غیر این صورت این فیلد را کاملاً خالی بگذار، مرحله‌ی فعلی مشتری را حدس نزن یا تغییر نده",
   "note": "خلاصه‌ی یک یا دو خطی از کل مکالمه به فارسی روان",
   "reminder": "اگر مشاور خواسته یادش بیفتد کاری بکند اینجا بنویس، وگرنه خالی",
   "nextAction": "یک پیشنهاد کوتاه برای قدم بعدی — اگر فایل مناسبی در لیست بالا هست، دقیقاً نامش را بیاور",
@@ -2055,6 +2096,10 @@ ${activeListings}
       return;
     }
     const name = (extracted.customerName || "").trim();
+    // Only a real, known stage value is ever applied — anything else the
+    // model might have written gets silently ignored rather than trusted,
+    // matching the app's own "never hallucinate" rule from the master spec.
+    const validStage = CUSTOMER_STAGES.includes(extracted.suggestedStage) ? extracted.suggestedStage : null;
     let customerId = "";
     if (name) {
       const match = customers.find((cu) => cu.name.trim() === name || cu.name.includes(name) || name.includes(cu.name.trim()));
@@ -2066,10 +2111,11 @@ ${activeListings}
           budget: extracted.budget > 0 ? extracted.budget : x.budget,
           lastCallNote: extracted.note || x.lastCallNote,
           lastContactAt: todayISO(), lastContactTs: Date.now(),
+          stage: validStage || x.stage, // never resets to a default — only moves on a real signal
         } : x));
       } else {
         customerId = uid();
-        setCustomers((prev) => [{ id: customerId, name, phone: extracted.phone || "", need: extracted.need || "", budget: extracted.budget || 0, stage: "در حال بررسی", lastContactAt: todayISO(), lastContactTs: Date.now(), lastCallNote: extracted.note || "" }, ...prev]);
+        setCustomers((prev) => [{ id: customerId, name, phone: extracted.phone || "", need: extracted.need || "", budget: extracted.budget || 0, stage: validStage || "در حال بررسی", lastContactAt: todayISO(), lastContactTs: Date.now(), lastCallNote: extracted.note || "" }, ...prev]);
       }
     }
     if (extracted.callHappened) {
@@ -2088,6 +2134,7 @@ ${activeListings}
       : [
           extracted.callHappened && "تماس در تاریخچه ثبت شد",
           extracted.meetingDate && `بازدید در تقویم — ${fmtJalali(extracted.meetingDate)}`,
+          extracted.suggestedStage && CUSTOMER_STAGES.includes(extracted.suggestedStage) && `مرحله‌ی مشتری تغییر کرد به «${extracted.suggestedStage}»`,
           (extracted.need || extracted.budget > 0) && "پروفایل مشتری به‌روزرسانی شد",
           extracted.reminder && `یادآوری: ${extracted.reminder}`,
         ].filter(Boolean)
@@ -2729,7 +2776,7 @@ function HomeTab({ ctx }) {
       </div>
       <div className="flex flex-col" style={{ gap: SP.md, marginBottom: SP.xxl }}>
         {properties.slice(0, simpleMode ? 3 : 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
-        {properties.length === 0 && <EmptyLine c={c} text="فایلی ثبت نشده" />}
+        {properties.length === 0 && <EmptyLine c={c} text="هنوز فایلی ثبت نکردی — از تب «فایل‌ها» یا با صدات اضافه کن" />}
       </div>
     </div>
   );
@@ -5330,12 +5377,181 @@ function ScheduleVisitCard({ ctx, property }) {
   );
 }
 
+// Flora Valuation — every number here traces back to either a real
+// comparable in the local database or something the advisor typed in
+// themselves for this exact street. Nothing is ever the model's own guess
+// at a market price (see lib/valuation.js — that rule lives at the pure-
+// function level, this component just presents whatever it returns).
+function ValuationSheet({ ctx, propertyId, onClose }) {
+  const { c, properties, setProperties, streetPrices, setStreetPrices, notify, setDetail } = ctx;
+  const property = properties.find((p) => p.id === propertyId);
+  const [streetInput, setStreetInput] = useState(property?.street || "");
+  const [manualAmount, setManualAmount] = useState("");
+  const [manualArea, setManualArea] = useState("");
+
+  if (!property) return null;
+
+  const result = computeValuation(property, properties, streetPrices);
+  const streetManualPrices = property.street ? streetPrices.filter((s) => s.street === property.street) : [];
+
+  const saveStreet = () => {
+    if (!streetInput.trim()) return;
+    setProperties((prev) => prev.map((p) => p.id === propertyId ? { ...p, street: streetInput.trim() } : p));
+  };
+
+  const addManualPrice = () => {
+    const amt = toNum(manualAmount);
+    if (!amt) { notify("مبلغ رو وارد کن"); return; }
+    // Accept either a direct price-per-meter, or a total price + area to
+    // derive it — whichever the advisor actually has in mind for that unit.
+    const pricePerMeter = manualArea ? Math.round(amt / toNum(manualArea)) : amt;
+    setStreetPrices((prev) => [...prev, { id: uid(), street: property.street, pricePerMeter, enteredAt: new Date().toISOString() }]);
+    notify("قیمت ثبت شد");
+    setManualAmount(""); setManualArea("");
+  };
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
+        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
+          <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+          <div>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>Flora Valuation</p>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>برآورد ارزش بازار — {property.title}</p>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-8">
+          {/* Step 1: street is the single biggest accuracy factor and the
+              spec's own required first question — ask for it inline rather
+              than sending the advisor back to the edit form. */}
+          {!property.street && (
+            <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+              <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>خیابان این فایل کجاست؟</p>
+              <p style={{ fontSize: 11.5, color: c.muted, marginBottom: SP.md, lineHeight: 1.8 }}>بدون خیابان، فقط فایل‌های نزدیک روی نقشه (اگه موقعیت ثبت شده) در نظر گرفته می‌شن — دقت پایین‌تر می‌مونه.</p>
+              <div className="flex gap-2">
+                <input value={streetInput} onChange={(e) => setStreetInput(e.target.value)} style={{ ...inputStyle(c), flex: 1 }} placeholder="مثلاً خیابان امام" />
+                <button onClick={saveStreet} disabled={!streetInput.trim()} className="press shrink-0 rounded-xl px-4" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5, opacity: streetInput.trim() ? 1 : 0.5 }}>ثبت</button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2 (only reachable once street is known): if Flora's own
+              database doesn't have enough on this street, ask the advisor's
+              own market knowledge instead of guessing — exact instruction
+              from spec. */}
+          {property.street && result.needsManualPrice && (
+            <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+              <div className="flex items-start gap-2 mb-3">
+                <AlertTriangle size={14} color={c.attn} style={{ flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 12.5, lineHeight: 1.9 }}>{result.ok ? `فقط ${result.sameStreetCount} فایل مشابه توی «${property.street}» داریم — برای دقت بیشتر، قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن.` : `برای «${property.street}» فایل مشابهی نداریم. قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن تا برآورد بدیم.`}</p>
+              </div>
+              {streetManualPrices.length > 0 && (
+                <div className="flex flex-col gap-1.5 mb-3">
+                  {streetManualPrices.map((sp) => (
+                    <div key={sp.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: c.surface2 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{fmtToman(sp.pricePerMeter)} / متر</span>
+                      <span style={{ fontSize: 10, color: c.muted }}>وارد‌شده توسط تو</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 mb-2">
+                <input value={manualAmount} onChange={(e) => setManualAmount(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), flex: 1 }} placeholder="قیمت هر متر یا کل" dir="ltr" />
+                <input value={manualArea} onChange={(e) => setManualArea(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), width: 90 }} placeholder="متراژ (اختیاری)" dir="ltr" />
+              </div>
+              <p style={{ fontSize: 10, color: c.muted, marginBottom: SP.md }}>اگه متراژ رو هم بدی، مبلغ رو به قیمت‌هرمتر تبدیل می‌کنیم؛ وگرنه مبلغ رو مستقیم قیمت‌هرمتر در نظر می‌گیریم.</p>
+              <button onClick={addManualPrice} className="press w-full rounded-xl" style={{ paddingBlock: 10, background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>افزودن قیمت</button>
+            </div>
+          )}
+
+          {!result.ok && !result.needsStreet && !result.needsManualPrice && (
+            <EmptyLine c={c} text={result.reason} />
+          )}
+
+          {result.ok && (
+            <>
+              <div className="rounded-2xl p-5 mb-4 text-center" style={glass(c)}>
+                <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>ارزش تخمینی ملک</p>
+                <p style={{ fontSize: 26, fontWeight: 800, color: c.primary }}>{fmtToman(result.pricePerMeter)}<span style={{ fontSize: 13, fontWeight: 600, color: c.muted }}> / متر</span></p>
+                <p style={{ fontSize: 20, fontWeight: 800, marginTop: 6 }}>{fmtToman(result.fairValue)}</p>
+                <p style={{ fontSize: 11, color: c.muted }}>ارزش کل — برآورد بازار، نه قیمت قطعی</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="rounded-xl p-3 text-center" style={glassLite(c)}>
+                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>خوش‌قیمت</p>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.goodDeal)}</p>
+                </div>
+                <div className="rounded-xl p-3 text-center" style={{ ...glassLite(c), border: `1.5px solid ${c.primary}55` }}>
+                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>منصفانه</p>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairValue)}</p>
+                </div>
+                <div className="rounded-xl p-3 text-center" style={glassLite(c)}>
+                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>پیشنهاد فروش</p>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: c.attn }}>{fmtBudgetShort(result.askingPrice)}</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+                <div className="flex items-center justify-between mb-1">
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>اطمینان محاسبه</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: c.primary }}>{result.confidence.label} — {faDigits(result.confidence.pct)}٪</span>
+                </div>
+                <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.8 }}>
+                  بر اساس {faDigits(result.databaseComparableCount)} فایل مشابه از دیتابیس{result.usedManualStreetPrices ? ` + ${faDigits(result.manualStreetPriceCount)} قیمت دستی خودت` : ""}
+                  {result.excludedOutliers > 0 ? ` (${faDigits(result.excludedOutliers)} فایل به‌عنوان قیمت غیرعادی کنار گذاشته شد)` : ""}.
+                </p>
+              </div>
+
+              {result.adjustments.length > 0 && (
+                <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+                  <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: SP.sm }}>چرا این قیمت؟</p>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between"><span style={{ fontSize: 11.5, color: c.muted }}>قیمت پایه‌ی منطقه</span><span style={{ fontSize: 11.5, fontWeight: 700 }}>{fmtToman(result.basePricePerMeter)}</span></div>
+                    {result.adjustments.map((adj, i) => (
+                      <div key={i} className="flex items-center justify-between"><span style={{ fontSize: 11.5, color: c.muted }}>{adj.label}</span><span style={{ fontSize: 11.5, fontWeight: 700, color: c.success }}>+{faDigits(adj.pct)}٪</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {result.comparables.length > 0 && (
+                <>
+                  <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: SP.sm }}>فایل‌های مشابه</p>
+                  <div className="flex flex-col gap-2 mb-4">
+                    {result.comparables.map((comp) => (
+                      <button key={comp.property.id} onClick={() => { onClose(); setDetail({ type: "property", id: comp.property.id }); }} className="press w-full text-right flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 10, ...glassLite(c) }}>
+                        <div>
+                          <p style={{ fontSize: 12, fontWeight: 700 }}>{comp.property.title}</p>
+                          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{faDigits(comp.property.area)} متر{comp.property.street === property.street ? " · همین خیابان" : ""}</p>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{fmtToman(comp.pricePerMeter)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="flex items-start gap-2" style={{ padding: SP.sm }}>
+                <ShieldAlert size={12} color={c.muted} style={{ flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 10, color: c.muted, lineHeight: 1.7 }}>این یک برآورد بازار بر اساس فایل‌های آگهی‌شده است، نه قیمت قطعی معامله — قیمت آگهی با قیمت معامله‌ی واقعی می‌تواند متفاوت باشد.</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </BodyPortal>
+  );
+}
+
 function PropertyDetail({ id, ctx, onBack }) {
   const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, setSheet } = ctx;
   const p = properties.find((x) => x.id === id);
   const owner = owners.find((o) => o.id === p?.ownerId);
   const builder = builders.find((b) => b.id === p?.builderId);
   const [uploading, setUploading] = useState(false);
+  const [valuationOpen, setValuationOpen] = useState(false);
   if (!p) return null;
 
   const addMedia = async (fileList) => { setUploading(true); const items = await filesToMedia(fileList); setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: [...(x.media || []), ...items] } : x)); setUploading(false); };
@@ -5380,6 +5596,12 @@ function PropertyDetail({ id, ctx, onBack }) {
             if (!priceInfo.visible) return <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.xs }}>—</p>;
             return <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.xs }}>{fmtToman(priceInfo.price)}</p>;
           })()}
+          {!ctx.customerMode && (
+            <button onClick={() => setValuationOpen(true)} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, marginTop: SP.sm, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: 12.5 }}>
+              <TrendingUp size={14} /> Flora Valuation — برآورد ارزش بازار
+            </button>
+          )}
+          {valuationOpen && <ValuationSheet ctx={ctx} propertyId={p.id} onClose={() => setValuationOpen(false)} />}
         </div>
 
         {p.furnished && <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.md, color: c.muted, fontSize: FS.caption }}><BadgeCheck size={13} />{p.furnished}</div>}
@@ -6320,7 +6542,7 @@ function ChecksPanel({ ctx }) {
             <button onClick={() => remove(ch.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
           </div>
         ))}
-        {sorted.length === 0 && <EmptyLine c={c} text="چکی ثبت نشده" />}
+        {sorted.length === 0 && <EmptyLine c={c} text="هنوز چکی ثبت نکردی — با دکمه‌ی «چک جدید» یا میکروفون کنارش اضافه کن" />}
       </div>
     </div>
   );
@@ -7574,10 +7796,10 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
   const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
   const [f, setF] = useState(editing ? {
     title: editing.title, type: editing.type, deal: editing.deal, pricePerMeter: String(editing.pricePerMeter), area: String(editing.area),
-    rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address,
+    rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address, street: editing.street || "",
     ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "", lat: editing.lat, lng: editing.lng,
     preDown: String(editing.preDown || ""), preMonths: String(editing.preMonths || ""), preDelivery: String(editing.preDelivery || ""), preDeed: String(editing.preDeed || ""), buildStage: editing.buildStage || BUILD_STAGES[0], desc: editing.desc || "",
-  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0], desc: "" });
+  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", street: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0], desc: "" });
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
   const [showMore, setShowMore] = useState(false);
@@ -7766,7 +7988,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       else { const newOwner = { id: uid(), name: nm, phone: ph }; setOwners((prev) => [newOwner, ...prev]); ownerId = newOwner.id; }
     } else ownerId = "";
     const payload = {
-      title: f.title, type: f.type, deal: f.deal, address: f.address, builderId: f.builderId, furnished: f.furnished, desc: f.desc.trim(),
+      title: f.title, type: f.type, deal: f.deal, address: f.address, street: f.street.trim() || null, builderId: f.builderId, furnished: f.furnished, desc: f.desc.trim(),
       pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId, media, lat: f.lat ?? null, lng: f.lng ?? null,
       preDown: toNum(f.preDown), preMonths: toNum(f.preMonths), preDelivery: toNum(f.preDelivery), preDeed: toNum(f.preDeed), buildStage: f.buildStage,
     };
@@ -7954,6 +8176,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           <p style={{ fontSize: 11, color: c.muted, marginTop: 6 }}>برای ثبت موقعیت دقیق روی نقشه، دکمه‌ی کنار را بزن</p>
         )}
       </Field>
+      <Field c={c} label="خیابان (برای برآورد قیمت دقیق‌تر)"><input style={inputStyle(c)} value={f.street} onChange={set("street")} placeholder="مثلاً خیابان امام" /></Field>
       <button type="button" onClick={() => setShowMore((s) => !s)} className="press w-full flex items-center justify-between rounded-xl px-4 py-3 mb-3" style={{ background: c.surface2 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: c.ink }}>جزئیات بیشتر (اختیاری)</span>
         <ChevronDown size={16} color={c.muted} style={{ transform: showMore ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
