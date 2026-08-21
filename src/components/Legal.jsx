@@ -287,7 +287,7 @@ function LegalHome({ ctx }) {
               {cases === null ? (
                 <p style={{ fontSize: 12, color: c.muted }}>در حال بارگذاری...</p>
               ) : openCases.length === 0 ? (
-                <EmptyLine c={c} text="هنوز پرونده‌ای نداری" />
+                <EmptyLine c={c} text="هنوز پرونده‌ای نداری — روی میکروفون بزن و بگو چی شده" />
               ) : (
                 <div className="flex flex-col" style={{ gap: SP.sm }}>
                   {openCases.map((cs) => (
