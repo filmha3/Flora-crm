@@ -21,7 +21,7 @@ import { T, FS, FW, SP, RAD, glass, glassLite } from "./lib/theme.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
 import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
 import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.jsx";
-import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, OnboardingScreen, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
+import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
@@ -146,7 +146,7 @@ export default function FloraCRM() {
           supabase.from("profiles").select("title, city").eq("id", session.user.id).single(),
           new Promise((_, reject) => setTimeout(() => reject(new Error("profile check timed out")), 8000)),
         ]);
-        if (!cancelled) setProfileReady(!!(data?.title && data?.city));
+        if (!cancelled) setProfileReady(!!data?.city);
       } catch (e) {
         if (!cancelled) setProfileReady(false);
       }
@@ -391,8 +391,8 @@ export default function FloraCRM() {
   // every render, auth state or not.
   if (session === undefined) return <AuthLoadingScreen c={c} />;
   if (!session) return <AuthScreen c={c} dark={dark} />;
-  if (profileReady === null) return <AuthLoadingScreen c={c} />;
-  if (profileReady === false) return <OnboardingScreen c={c} session={session} onDone={() => setProfileReady(true)} />;
+  // profileReady === false no longer blocks the whole app — see the
+  // CityPopup rendered further down, alongside the other overlays.
 
   const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey) || (aiProvider === "perplexity" && perplexityKey);
   // Voice-to-text uses AvalAI's Whisper proxy specifically — the other providers
@@ -863,6 +863,11 @@ export default function FloraCRM() {
         {legalOpen && <LegalHome ctx={ctx} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
         {homeStagingOpen && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setHomeStagingOpen(false)} />}
+        {/* City is no longer a blocking gate before the app loads — this is
+            a light popup that sits on top of the already-usable home
+            screen, per explicit request to reach home first and ask city
+            "like a popup" instead. */}
+        {profileReady === false && <CityPopup c={c} session={session} onDone={() => setProfileReady(true)} />}
 
         {celebration && <CelebrationOverlay c={c} celebration={celebration} />}
 
@@ -873,7 +878,7 @@ export default function FloraCRM() {
         {lightbox && <Lightbox item={lightbox} onClose={() => setLightbox(null)} />}
 
         {toast && (
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-40 px-4 py-2.5 rounded-2xl text-sm flora-up z-40 text-center" style={{ ...glass(c, 20), color: c.ink, fontWeight: 600, maxWidth: 320, lineHeight: 1.7 }}>{toast}</div>
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-40 px-4 py-2.5 rounded-2xl text-sm flora-up z-40 text-center" style={{ ...glass(c), color: c.ink, fontWeight: 600, maxWidth: 320, lineHeight: 1.7 }}>{toast}</div>
         )}
       </div>
     </div>
@@ -900,16 +905,16 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail, setT
             <span style={{ fontSize: 11, fontWeight: 700, color: c.attn }}>{faDigits(pendingCalls)}</span>
           </button>
         )}
-        <button onClick={() => setDetail({ type: "ai-chat" })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><MessageCircle size={16} color={c.ink} /></button>
-        <button onClick={() => setSheet("ai-settings")} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}><Sparkles size={16} color={c.ink} /></button>
-        <button onClick={() => setDark(!dark)} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c, 20)}>{dark ? <Sun size={16} color={c.ink} /> : <Moon size={16} color={c.ink} />}</button>
+        <button onClick={() => setDetail({ type: "ai-chat" })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}><MessageCircle size={16} color={c.ink} /></button>
+        <button onClick={() => setSheet("ai-settings")} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}><Sparkles size={16} color={c.ink} /></button>
+        <button onClick={() => setDark(!dark)} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}>{dark ? <Sun size={16} color={c.ink} /> : <Moon size={16} color={c.ink} />}</button>
       </div>
     </div>
   );
 }
 function SearchBox({ c, value, setValue }) {
   return (
-    <div className="flex items-center rounded-lg px-3.5 py-2.5" style={glass(c, 26)}>
+    <div className="flex items-center rounded-lg px-3.5 py-2.5" style={glass(c)}>
       <Search size={16} color={c.muted} />
       <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="جستجوی سریع..." style={{ background: "transparent", outline: "none", color: c.ink, width: "100%", marginRight: 8, fontSize: 13, fontFamily: "inherit" }} />
       {value && <button onClick={() => setValue("")}><X size={15} color={c.muted} /></button>}
@@ -1127,7 +1132,7 @@ function MarketWidget({ c }) {
 
   if (failed && !data) {
     return (
-      <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c, 18) }}>
+      <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c) }}>
         <div className="flex items-center" style={{ gap: SP.sm }}>
           <TrendingUp size={16} color={c.primary} />
           <span style={{ fontSize: FS.caption, color: c.muted, fontWeight: FW.medium }}>قیمت لحظه‌ای دلار و طلا</span>
@@ -1145,7 +1150,7 @@ function MarketWidget({ c }) {
   );
 
   return (
-    <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c, 18) }}>
+    <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c) }}>
       <div className="flex items-center" style={{ gap: SP.xl }}>
         <Cell label="دلار" value={data?.usd} color={c.primary} />
         <span style={{ width: 1, height: 16, background: c.border }} />
@@ -1250,7 +1255,7 @@ function CelebrationOverlay({ c, celebration }) {
   return (
     <BodyPortal>
     <div className="fixed inset-0 z-[99] flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.55)" }}>
-      <div className="flex flex-col items-center" style={{ padding: SP.xl, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div className="flex flex-col items-center" style={{ padding: SP.xl, borderRadius: RAD.lg, ...glass(c) }}>
         <div className="relative flex items-center justify-center" style={{ width: 72, height: 72, marginBottom: SP.md }}>
           {particles.map((p, i) => (
             <span key={i} style={{ position: "absolute", width: 6, height: 6, borderRadius: "50%", background: p.color, "--px": `${p.x}px`, "--py": `${p.y}px`, animation: `floraConfetti .9s ease-out forwards ${p.delay}s` }} />
@@ -1327,7 +1332,7 @@ function FocusMode({ ctx }) {
 
       {/* top: close + segmented progress (stories-style, not just a fraction) */}
       <div className="flex items-center shrink-0 relative" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={() => setFocusQueue(null)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <button onClick={() => setFocusQueue(null)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <div className="flex-1 flex" style={{ gap: SP.xs }}>
           {actions.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: c.surface2, overflow: "hidden" }}>
@@ -1366,7 +1371,7 @@ function FocusMode({ ctx }) {
             )}
 
             {step === "outcome" && (
-              <div style={{ marginTop: SP.xxl, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg) }}>
+              <div style={{ marginTop: SP.xxl, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
                 <NbaOutcomePicker c={c} options={["جواب داد و علاقه‌مند بود", "جواب داد ولی فعلاً نه", "جواب نداد", "بازدید هماهنگ شد", "رد کرد"]} onSubmit={(res, note) => submitOutcome(res, note)} onCancel={() => setStep("act")} />
               </div>
             )}
@@ -1408,7 +1413,7 @@ function FocusMode({ ctx }) {
 function VoiceAssistantTile({ ctx }) {
   const { c, setSheet } = ctx;
   return (
-    <button onClick={() => setSheet("voice-note")} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setSheet("voice-note")} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
       <div className="relative flex items-center justify-center" style={{ width: 42, height: 42, marginBottom: SP.md }}>
         <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
         <div className="flex items-center justify-center" style={{ position: "relative", width: 42, height: 42, borderRadius: "50%", background: c.primarySoft, border: `1px solid ${c.primary}33` }}><Mic size={19} color={c.primary} /></div>
@@ -1421,7 +1426,7 @@ function VoiceAssistantTile({ ctx }) {
 function SalesCoachTile({ ctx }) {
   const { c, setDetail } = ctx;
   return (
-    <button onClick={() => setDetail({ type: "copilot" })} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setDetail({ type: "copilot" })} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
       <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Bot size={20} color={c.purple} /></div>
       <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>دستیار فروش</p>
       <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>نگاه مدیر فروش</p>
@@ -1454,7 +1459,7 @@ function DocumentsTile({ ctx }) {
   const { c, setDetail } = ctx;
   const total = DOC_CATEGORIES.reduce((s, g) => s + g.docs.length, 0);
   return (
-    <button onClick={() => setDetail({ type: "documents" })} className="press text-right relative overflow-hidden flora-docs-tile flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setDetail({ type: "documents" })} className="press text-right relative overflow-hidden flora-docs-tile flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
       <div className="relative" style={{ width: 42, height: 42, marginBottom: SP.md }}>
         <span className="flora-doc-sheet flora-doc-3" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.surface2, border: `1px solid ${c.border}` }} />
         <span className="flora-doc-sheet flora-doc-2" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.primarySoft, border: `1px solid ${c.primary}33` }} />
@@ -1480,7 +1485,7 @@ function DocumentsTile({ ctx }) {
 function HomeStagingTile({ ctx }) {
   const { c, setHomeStagingOpen } = ctx;
   return (
-    <button onClick={() => setHomeStagingOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setHomeStagingOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
       <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Wand2 size={20} color={c.purple} /></div>
       <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>استیجینگ مجازی</p>
       <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>آپلود مستقیم، کیفیت کامل</p>
@@ -1494,7 +1499,7 @@ function HomeStagingTile({ ctx }) {
 function DivarSearchTile({ ctx }) {
   const { c, setDivarSearchOpen } = ctx;
   return (
-    <button onClick={() => setDivarSearchOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+    <button onClick={() => setDivarSearchOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
       <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}><Search size={20} color={c.primary} /></div>
       <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>جستجوی دیوار</p>
       <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>تحلیل آگهی‌ها با AI</p>
@@ -1724,9 +1729,9 @@ ${views ? "- نسبت بازدید به تماس: با توجه به بازدی�
     <BodyPortal>
     <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>جستجوی دیوار با AI</h2>
-        <button onClick={clearChat} disabled={messages.length === 0} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: messages.length === 0 ? 0.4 : 1 }}><Trash2 size={16} color={messages.length === 0 ? c.muted : c.danger} /></button>
+        <button onClick={clearChat} disabled={messages.length === 0} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: messages.length === 0 ? 0.5 : 1 }}><Trash2 size={16} color={messages.length === 0 ? c.muted : c.danger} /></button>
       </div>
 
       {messages.length === 0 ? (
@@ -1742,7 +1747,7 @@ ${views ? "- نسبت بازدید به تماس: با توجه به بازدی�
           </a>
 
           {/* Ad diagnosis — 3 screenshots */}
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c, 22) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c) }}>
             <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>چرا آگهی‌ام زنگ نمی‌خوره؟</p>
             <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>سه اسکرین‌شات از آگهی دیوارت بفرست: ۱) عنوان و قیمت ۲) متن آگهی ۳) آمار بازدید — تحلیل می‌کنم چرا تماس نمی‌گیرن.</p>
             <input ref={shotRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files?.length) addShots(e.target.files); e.target.value = ""; }} />
@@ -1769,7 +1774,7 @@ ${views ? "- نسبت بازدید به تماس: با توجه به بازدی�
           </div>
 
           {/* Ad diagnosis — real listing link, no screenshots needed */}
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c, 22) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c) }}>
             <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>یا لینک آگهی رو بده</p>
             <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>خودم اطلاعات واقعی آگهی رو می‌گیرم و کامل تحلیل می‌کنم — نیازی به اسکرین‌شات نیست.</p>
             <input value={linkForDiagnosis} onChange={(e) => setLinkForDiagnosis(e.target.value)} dir="ltr" placeholder="https://divar.ir/v/..." style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: "10px 14px", fontSize: FS.body, color: c.ink, marginBottom: SP.sm }} />
@@ -1892,7 +1897,7 @@ function VoiceOrb({ c, level = 0, state = "listening" }) {
 }
 
 function VoiceNoteSheet({ ctx, onClose }) {
-  const { c, canTranscribe, transcribeAudio, hasAiKey, callAI, customers, properties, setCustomers, setCalls, setAppointments, notify, setSheet } = ctx;
+  const { c, canTranscribe, transcribeAudio, hasAiKey, callAI, customers, properties, setCustomers, setCalls, setAppointments, setChecks, notify, setSheet } = ctx;
   const [phase, setPhase] = useState("idle"); // idle | recording | transcribing | extracting | clarify | review | saving | done
   const [seconds, setSeconds] = useState(0);
   const [transcript, setTranscript] = useState("");
@@ -1993,7 +1998,7 @@ function VoiceNoteSheet({ ctx, onClose }) {
     const activeListings = properties.filter((p) => p.stage !== "فروخته شد").slice(0, 40)
       .map((p) => `${p.title} — ${fmtToman(p.price)} — ${p.area} متر${p.type ? ` — ${p.type}` : ""}`).join("\n") || "فایلی ثبت نشده";
     try {
-      const prompt = `تو دستیار یک مشاور املاک ایرانی هستی و به داده‌های واقعی دفتر او دسترسی داری. مشاور این جمله را با صدا گفته (متن پیاده‌شده از صوت، ممکن است غلط تایپی داشته باشد):
+      const prompt = `تو دستیار یک مشاور املاک ایرانی هستی و به داده‌های واقعی دفتر او دسترسی داری. مشاور این جمله را با صدا گفته (متن پیاده‌شده از صوت، ممکن است غلط تایپی داشته باشد) — می‌تواند درباره‌ی یک تماس/بازدید مشتری باشد یا درباره‌ی یک چک پرداختی:
 «${text}»
 ${clarifyQA ? `\nسوال قبلی تو: «${clarifyQA.q}» — جواب مشاور: «${clarifyQA.a}»\n` : ""}
 امروز میلادی ${todayISO()} و شمسی ${faDigits(jd)} ${MONTHS_FA[jm - 1]} ${faDigits(jy)} است (روز هفته: ${["یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه","شنبه"][now.getDay()]}).
@@ -2005,6 +2010,10 @@ ${activeListings}
 
 اطلاعات را استخراج کن و دقیقاً همین JSON خام را برگردان (بدون توضیح، بدون markdown):
 {
+  "isCheck": true,
+  "checkRecipient": "اسم گیرنده‌ی چک اگر این جمله درباره‌ی یک چک پرداختی است، وگرنه خالی",
+  "checkAmount": 0,
+  "checkDueDate": "تاریخ میلادی YYYY-MM-DD سررسید چک — تاریخ‌های نسبی مثل دو هفته‌دیگر را با توجه به امروز حساب کن، وگرنه خالی",
   "customerName": "اسم مشتری یا خالی",
   "phone": "شماره اگر گفته شده یا خالی",
   "callHappened": true,
@@ -2017,9 +2026,12 @@ ${activeListings}
   "reminder": "اگر مشاور خواسته یادش بیفتد کاری بکند اینجا بنویس، وگرنه خالی",
   "nextAction": "یک پیشنهاد کوتاه برای قدم بعدی — اگر فایل مناسبی در لیست بالا هست، دقیقاً نامش را بیاور",
   "clarify": "فقط اگر یک نکته‌ی مهم و مبهم هست که باید از مشاور بپرسی، یک سوال کوتاه اینجا بنویس؛ وگرنه خالی بگذار"
-}`;
+}
+اگر جمله فقط درباره‌ی یک چک است (نه تماس یا بازدید مشتری)، isCheck را true بگذار و فقط فیلدهای check* را پر کن — بقیه‌ی فیلدها (customerName، callHappened، meetingDate و...) را خالی/false بگذار.`;
       const raw = await callAI(prompt);
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      const jsonMatch1 = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch1) throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن");
+      const parsed = JSON.parse(jsonMatch1[0]);
       setExtracted(parsed);
       if (parsed.clarify && !clarifyQA) setPhase("clarify");
       else setPhase("review");
@@ -2033,6 +2045,15 @@ ${activeListings}
 
   const save = () => {
     setPhase("saving");
+    if (extracted.isCheck) {
+      setChecks((prev) => [{
+        id: uid(), recipient: (extracted.checkRecipient || "بدون نام").trim(), amount: toNum(extracted.checkAmount) || 0,
+        dueDate: extracted.checkDueDate || todayISO(), notes: "", createdAt: new Date().toISOString(), paid: false,
+      }, ...prev]);
+      notify("چک از روی یادداشت صوتی ثبت شد");
+      setPhase("done");
+      return;
+    }
     const name = (extracted.customerName || "").trim();
     let customerId = "";
     if (name) {
@@ -2061,12 +2082,16 @@ ${activeListings}
     setPhase("done");
   };
 
-  const savedItems = extracted ? [
-    extracted.callHappened && "تماس در تاریخچه ثبت شد",
-    extracted.meetingDate && `بازدید در تقویم — ${fmtJalali(extracted.meetingDate)}`,
-    (extracted.need || extracted.budget > 0) && "پروفایل مشتری به‌روزرسانی شد",
-    extracted.reminder && `یادآوری: ${extracted.reminder}`,
-  ].filter(Boolean) : [];
+  const savedItems = extracted ? (
+    extracted.isCheck
+      ? [`چک برای ${extracted.checkRecipient || "بدون نام"} — ${fmtToman(toNum(extracted.checkAmount) || 0)}`, extracted.checkDueDate && `سررسید: ${fmtJalali(extracted.checkDueDate)}`].filter(Boolean)
+      : [
+          extracted.callHappened && "تماس در تاریخچه ثبت شد",
+          extracted.meetingDate && `بازدید در تقویم — ${fmtJalali(extracted.meetingDate)}`,
+          (extracted.need || extracted.budget > 0) && "پروفایل مشتری به‌روزرسانی شد",
+          extracted.reminder && `یادآوری: ${extracted.reminder}`,
+        ].filter(Boolean)
+  ) : [];
 
   return (
     <BodyPortal>
@@ -2075,7 +2100,7 @@ ${activeListings}
         <span style={{ position: "absolute", top: "-15%", left: "50%", transform: "translateX(-50%)", width: 340, height: 340, borderRadius: "50%", background: `radial-gradient(circle, #22d3ee22, transparent 70%)`, filter: "blur(10px)" }} />
       </div>
       <div className="flex items-center justify-between shrink-0 relative" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>یادداشت صوتی</h2>
         <div style={{ width: 36 }} />
       </div>
@@ -2141,7 +2166,7 @@ ${activeListings}
           </div>
 
           {/* quick-glance summary — everything at once, no scrolling through a form */}
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22), marginBottom: SP.lg }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c), marginBottom: SP.lg }}>
             <div className="flex items-center" style={{ gap: SP.md, marginBottom: extracted.need || extracted.budget || extracted.meetingDate ? SP.md : 0 }}>
               <div className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: "50%", background: c.primarySoft }}><UserCircle2 size={20} color={c.primary} /></div>
               <div className="flex-1 min-w-0">
@@ -2238,7 +2263,7 @@ function NextBestActionCard({ ctx }) {
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>بهترین اقدام امروز</h2>
         <span style={{ fontSize: FS.caption, color: c.muted }}>{faDigits(actions.length)} پیشنهاد</span>
       </div>
-      <div className="relative overflow-hidden" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div className="relative overflow-hidden" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
         <span className="nba-blob" style={{ background: `radial-gradient(circle, #22d3ee, transparent)` }} />
         <div className="flex flex-col relative" style={{ gap: SP.md }}>
           {actions.map((a, i) => {
@@ -2251,7 +2276,7 @@ function NextBestActionCard({ ctx }) {
                     {oc?.result ? <CheckCircle2 size={19} color={c.success} /> : <Icon size={19} color={accent} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, lineHeight: 1.4, textDecoration: oc?.result ? "line-through" : "none", opacity: oc?.result ? 0.7 : 1 }}>{a.title}</p>
+                    <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, lineHeight: 1.4, textDecoration: oc?.result ? "line-through" : "none", opacity: oc?.result ? 0.5 : 1 }}>{a.title}</p>
                     <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.7 }}>{oc?.result || a.reason}</p>
                   </div>
                   <button onClick={() => setFocusQueue({ actions, index: i })} className="press shrink-0" style={{ paddingInline: SP.lg, paddingBlock: 8, borderRadius: RAD.md, background: oc?.result ? c.surface2 : accent, color: oc?.result ? c.muted : "#fff", fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "دوباره" : "اجرا"}</button>
@@ -2599,7 +2624,7 @@ function PropertyMarketInsightCard({ ctx }) {
   if (pctChange === null && !topStreet) return null; // not enough data yet to say anything honest
 
   return (
-    <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, RAD.lg), marginBottom: SP.xl }}>
+    <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c), marginBottom: SP.xl }}>
       <div className="flex items-center gap-1.5 mb-2"><TrendingUp size={14} color={c.primary} /><p style={{ fontSize: 12, fontWeight: 700 }}>تحلیل بازار — بر اساس فایل‌های خودت</p></div>
       {pctChange !== null && (
         <p style={{ fontSize: 13, lineHeight: 1.9 }}>
@@ -2800,7 +2825,7 @@ function MomentumCard({ ctx }) {
   const ringFrac = growthPct === null ? 0 : Math.min(1, Math.abs(growthPct) / 20); // 20%+ reads as "full"
 
   return (
-    <div className="rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c, 22), background: `linear-gradient(160deg, ${f.tone}1a, ${c.surface} 60%)` }}>
+    <div className="rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c), background: `linear-gradient(160deg, ${f.tone}1a, ${c.surface} 60%)` }}>
       <span style={{ position: "absolute", top: "-40%", left: "-15%", width: 140, height: 140, borderRadius: "50%", background: `radial-gradient(circle, ${f.tone}22, transparent 70%)`, pointerEvents: "none" }} />
       <div className="flex items-center justify-between relative" style={{ marginBottom: 10 }}>
         <div className="flex items-center" style={{ gap: 8 }}>
@@ -2915,7 +2940,7 @@ function ActivityApptRow({ a, ctx, showDelete }) {
 function PropertyMiniCard({ p, c, onClick }) {
   const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
   return (
-    <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c, 22), opacity: sold ? 0.55 : 1 }}>
+    <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c), opacity: sold ? 0.5 : 1 }}>
       <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 56, height: 56, borderRadius: RAD.md, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
         {cover ? (cover.type === "image" ? <img src={cover.url} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
       </div>
@@ -2994,7 +3019,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
           just with price hidden (or shown +3M/meter when revealed). No
           separate presentation screen, per explicit correction from the
           original spec. */}
-      <div className="flex items-center rounded-full p-1 mb-2" style={glass(c, 20)}>
+      <div className="flex items-center rounded-full p-1 mb-2" style={glass(c)}>
         <button onClick={() => setCustomerMode(false)} className="press flex-1 flex items-center justify-center gap-1.5 rounded-full py-2" style={{ background: !customerMode ? c.primary : "transparent" }}>
           <UserCircle2 size={13} color={!customerMode ? "#fff" : c.muted} /><span style={{ fontSize: 12, fontWeight: 700, color: !customerMode ? "#fff" : c.muted }}>حالت مشاور</span>
         </button>
@@ -3003,7 +3028,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
         </button>
       </div>
       {customerMode && (
-        <button onClick={() => setShowCustomerPrice((v) => !v)} className="press flex items-center gap-1.5 mb-4" style={{ fontSize: 11.5, color: c.muted }}>
+        <button onClick={() => setShowCustomerPrice((v) => !v)} className="press flex items-center gap-1.5 mb-4" style={{ fontSize: 12, color: c.muted }}>
           <div style={{ width: 30, height: 17, borderRadius: 999, background: showCustomerPrice ? c.primary : c.surface2, position: "relative", transition: "background .2s" }}>
             <div style={{ position: "absolute", top: 2, [showCustomerPrice ? "left" : "right"]: 2, width: 13, height: 13, borderRadius: "50%", background: "#fff", transition: "all .2s" }} />
           </div>
@@ -3012,17 +3037,17 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
       )}
 
       <div className="flex items-center gap-2 mb-3">
-        <div className="flex items-center rounded-full p-1 gap-1" style={glass(c, 20)}>
+        <div className="flex items-center rounded-full p-1 gap-1" style={glass(c)}>
           <button onClick={() => setMode("list")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "list" ? c.primary : "transparent" }}><LayoutGrid size={13} color={mode === "list" ? "#fff" : c.muted} /></button>
           <button onClick={() => setMode("pipeline")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "pipeline" ? c.primary : "transparent" }}><Columns3 size={13} color={mode === "pipeline" ? "#fff" : c.muted} /></button>
           <button onClick={() => setMode("map")} className="press flex items-center gap-1 rounded-full px-2.5 py-1.5" style={{ background: mode === "map" ? c.primary : "transparent" }}><MapPin size={13} color={mode === "map" ? "#fff" : c.muted} /></button>
         </div>
         <div className="relative mr-auto">
-          <button onClick={() => setSortMenuOpen((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2" style={glass(c, 20)}>
+          <button onClick={() => setSortMenuOpen((s) => !s)} className="press flex items-center gap-1.5 rounded-full px-3 py-2" style={glass(c)}>
             <ArrowUpDown size={12} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary, whiteSpace: "nowrap" }}>{SORT_OPTIONS.find((s) => s.key === sortKey).label}</span>
           </button>
           {sortMenuOpen && (
-            <div className="absolute left-0 z-20 rounded-xl overflow-hidden" style={{ top: "110%", minWidth: 150, ...glass(c, 16), boxShadow: c.shadow }}>
+            <div className="absolute left-0 z-20 rounded-xl overflow-hidden" style={{ top: "110%", minWidth: 150, ...glass(c), boxShadow: c.shadow }}>
               {SORT_OPTIONS.map((s) => (
                 <button key={s.key} onClick={() => { setSortKey(s.key); setSortMenuOpen(false); }} className="press w-full text-right px-3 py-2.5" style={{ fontSize: 12, fontWeight: s.key === sortKey ? 700 : 500, color: s.key === sortKey ? c.primary : c.ink, background: s.key === sortKey ? c.primarySoft : "transparent" }}>{s.label}</button>
               ))}
@@ -3031,10 +3056,10 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
         </div>
       </div>
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-        {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c, 18)}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
+        {DEAL_FILTERS.map((d) => { const active = dealFilter === d; return <button key={d} onClick={() => setDealFilter(d)} className="press shrink-0 rounded-full px-3 py-1.5" style={active ? { background: c.primary } : glass(c)}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{d}</span></button>; })}
       </div>
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-        {TYPE_FILTERS.map((t) => { const active = typeFilter === t; return <button key={t} onClick={() => setTypeFilter(t)} className="press shrink-0 rounded-full px-3 py-1.5 flex items-center gap-1" style={active ? { background: c.purple } : glass(c, 18)}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t}</span></button>; })}
+        {TYPE_FILTERS.map((t) => { const active = typeFilter === t; return <button key={t} onClick={() => setTypeFilter(t)} className="press shrink-0 rounded-full px-3 py-1.5 flex items-center gap-1" style={active ? { background: c.purple } : glass(c)}><span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t}</span></button>; })}
       </div>
 
       {mode === "list" ? (
@@ -3049,7 +3074,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
               const accent = accentColors[idx % accentColors.length];
               const pct = Math.round((items.length / totalCount) * 100);
               return (
-                <div key={cat.key} className="rounded-2xl overflow-hidden relative" style={{ ...glass(c, 22), border: isOpen ? `1.5px solid ${accent}66` : "1px solid transparent", boxShadow: isOpen ? `0 8px 24px -12px ${accent}55` : "none", transition: "border .25s, box-shadow .25s" }}>
+                <div key={cat.key} className="rounded-2xl overflow-hidden relative" style={{ ...glass(c), border: isOpen ? `1.5px solid ${accent}66` : "1px solid transparent", boxShadow: isOpen ? `0 8px 24px -12px ${accent}55` : "none", transition: "border .25s, box-shadow .25s" }}>
                   <button onClick={() => setOpenCategory(isOpen ? null : cat.key)} className="press w-full flex items-center justify-between px-4" style={{ paddingBlock: 15 }}>
                     <div className="flex items-center" style={{ gap: SP.md }}>
                       {/* Icon grows across the four tiers — a size metaphor
@@ -3058,7 +3083,7 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
                         <Home size={iconSizes[idx]} color={accent} className={isOpen ? "flora-float" : ""} />
                       </div>
                       <div className="text-right">
-                        <span style={{ fontSize: 13.5, fontWeight: 700 }}>{cat.label}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>{cat.label}</span>
                         {/* Share of the total file count, filled in on open —
                             a quiet extra signal beyond the raw count. */}
                         <div style={{ width: 64, height: 3, borderRadius: 2, background: c.surface2, marginTop: 6, overflow: "hidden" }}>
@@ -3144,7 +3169,7 @@ function AllPropertiesMap({ c, rows, onOpen }) {
 
   return (
     <div className="pb-4">
-      <div className="rounded-2xl overflow-hidden" style={glass(c, 22)}>
+      <div className="rounded-2xl overflow-hidden" style={glass(c)}>
         <div ref={ref} style={{ width: "100%", height: 420, background: c.surface2 }} />
       </div>
       <div className="flex flex-wrap gap-2 mt-3">
@@ -3269,7 +3294,7 @@ function PipelineBoard({ rows, ctx }) {
       {STAGES.map((stage) => {
         const items = rows.filter((p) => p.stage === stage);
         return (
-          <div key={stage} className="shrink-0 rounded-xl p-3" style={{ ...glass(c, 24), width: 260, scrollSnapAlign: "start" }}>
+          <div key={stage} className="shrink-0 rounded-xl p-3" style={{ ...glass(c), width: 260, scrollSnapAlign: "start" }}>
             <div className="flex items-center justify-between mb-3 px-1">
               <span style={{ fontSize: 13, fontWeight: 800 }}>{stage}</span>
               <span style={{ fontSize: 11, color: c.muted }}>{faDigits(items.length)}</span>
@@ -3278,7 +3303,7 @@ function PipelineBoard({ rows, ctx }) {
               {items.map((p) => {
                 const cover = p.media && p.media[0]; const Icon = typeIcon(p.type);
                 return (
-                  <div key={p.id} className="rounded-lg overflow-hidden" style={glass(c, 22)}>
+                  <div key={p.id} className="rounded-lg overflow-hidden" style={glass(c)}>
                     <button onClick={() => setDetail({ type: "property", id: p.id })} className="press w-full text-right">
                       <div className="w-full" style={{ height: 90, background: c.primarySoft }}>
                         {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} /></div>}
@@ -3464,13 +3489,13 @@ function CalendarTab({ ctx }) {
     <div style={{ paddingTop: SP.lg }}>
       {/* Month header */}
       <div className="flex items-center justify-between" style={{ marginBottom: SP.lg, paddingInline: SP.xs }}>
-        <button onClick={prevMonth} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ ...glass(c, 18) }}><ChevronRight size={18} color={c.ink} /></button>
+        <button onClick={prevMonth} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ ...glass(c) }}><ChevronRight size={18} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.title, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>{MONTHS_FA[view.jm - 1]} {faDigits(view.jy)}</h2>
-        <button onClick={nextMonth} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ ...glass(c, 18) }}><ChevronLeft size={18} color={c.ink} /></button>
+        <button onClick={nextMonth} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ ...glass(c) }}><ChevronLeft size={18} color={c.ink} /></button>
       </div>
 
       {/* Calendar card */}
-      <div style={{ padding: SP.md, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div style={{ padding: SP.md, borderRadius: RAD.lg, ...glass(c) }}>
         <div className="grid grid-cols-7" style={{ marginBottom: SP.sm }}>
           {WEEK.map((w, i) => <div key={i} style={{ textAlign: "center", fontSize: FS.caption, color: c.muted, fontWeight: FW.bold }}>{w}</div>)}
         </div>
@@ -3581,7 +3606,7 @@ function OfflineMapButton({ c, notify }) {
 function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-2xl overflow-hidden mb-3" style={glass(c, 22)}>
+    <div className="rounded-2xl overflow-hidden mb-3" style={glass(c)}>
       <button onClick={() => setOpen((o) => !o)} className="press w-full text-right p-4 flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint + "22" }}><Icon size={18} color={tint} /></div>
         <div className="flex-1 min-w-0">
@@ -3658,7 +3683,7 @@ function MoreTab({ ctx }) {
   return (
     <div className="pt-3">
       {/* Simple / advanced mode switch — the master control for how busy the app feels */}
-      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={glass(c, 22)}>
+      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={glass(c)}>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: simpleMode ? c.successSoft : c.primarySoft }}>
           {simpleMode ? <Sparkles size={18} color={c.success} /> : <LayoutGrid size={18} color={c.primary} />}
         </div>
@@ -3678,24 +3703,24 @@ function MoreTab({ ctx }) {
       {/* Quick-launch grid — calendar, messages, and (when relevant) finance/investment,
           all the same compact tile so this doesn't turn into a stack of mismatched rows */}
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <button onClick={() => setTab("calendar")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+        <button onClick={() => setTab("calendar")} className="press text-right rounded-2xl p-4" style={glass(c)}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.primarySoft }}><CalendarDays size={18} color={c.primary} /></div>
           <p style={{ fontSize: 13, fontWeight: 700 }}>تقویم بازدید</p>
           <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>قرارهای امروز و آینده</p>
         </button>
-        <button onClick={() => setSheet("messages")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+        <button onClick={() => setSheet("messages")} className="press text-right rounded-2xl p-4" style={glass(c)}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><MessageSquare size={18} color={c.purple} /></div>
           <p style={{ fontSize: 13, fontWeight: 700 }}>پیام‌های آماده</p>
           <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>متن‌های جذب مشتری</p>
         </button>
         {simpleMode && (
-          <button onClick={() => setTab("finance")} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+          <button onClick={() => setTab("finance")} className="press text-right rounded-2xl p-4" style={glass(c)}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.successSoft }}><Wallet size={18} color={c.success} /></div>
             <p style={{ fontSize: 13, fontWeight: 700 }}>مالی و کمیسیون</p>
             <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>معاملات و پرداخت‌ها</p>
           </button>
         )}
-        <button onClick={() => setDetail({ type: "investment-center" })} className="press text-right rounded-2xl p-4" style={glass(c, 22)}>
+        <button onClick={() => setDetail({ type: "investment-center" })} className="press text-right rounded-2xl p-4" style={glass(c)}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><TrendingUp size={18} color={c.purple} /></div>
           <p style={{ fontSize: 13, fontWeight: 700 }}>سرمایه‌گذاری</p>
           <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>پورتفولیو و سود شرکا</p>
@@ -3703,7 +3728,7 @@ function MoreTab({ ctx }) {
       </div>
 
       {/* Calls live in their own full screen (top-bar badge) — just a quick link here, not a second copy of the list */}
-      <button onClick={() => setDetail({ type: "calls" })} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
+      <button onClick={() => setDetail({ type: "calls" })} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
         <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><PhoneCall size={20} color={c.attn} /></div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>پیگیری تماس‌ها</p>
@@ -3712,7 +3737,7 @@ function MoreTab({ ctx }) {
         <ChevronLeft size={17} color={c.muted} />
       </button>
 
-      <button onClick={() => ctx.setNotificationsOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
+      <button onClick={() => ctx.setNotificationsOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
         <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Bell size={20} color={c.primary} /></div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>اعلان‌ها</p>
@@ -3721,7 +3746,7 @@ function MoreTab({ ctx }) {
         <ChevronLeft size={17} color={c.muted} />
       </button>
 
-      <button onClick={() => ctx.setDivarSearchOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 22)}>
+      <button onClick={() => ctx.setDivarSearchOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
         <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.purpleSoft }}><Sparkles size={20} color={c.purple} /></div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>چرا آگهی‌ام زنگ نمی‌خوره؟</p>
@@ -3890,7 +3915,7 @@ function AccountBackupCard({ ctx }) {
         )}
       </div>
 
-      <button onClick={doBackupNow} disabled={busy} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-3" style={{ background: c.primary, opacity: busy ? 0.6 : 1 }}>
+      <button onClick={doBackupNow} disabled={busy} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-3" style={{ background: c.primary, opacity: busy ? 0.5 : 1 }}>
         <RefreshCw size={14} color="#fff" /><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{busy ? "در حال ذخیره..." : "ساخت بکاپ ابری الان"}</span>
       </button>
 
@@ -4105,7 +4130,7 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
     return (
       <div className="pt-2">
         <BackHeader c={c} title={draft.title} onBack={() => setDraft(null)} />
-        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
           <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>فایل و مشتری را انتخاب کن تا اطلاعات خودکار در قرارداد بنشیند.</p>
           <Field c={c} label="فایل ملک"><Select c={c} value={draft.propertyId} onChange={(e) => setDraft({ ...draft, propertyId: e.target.value })} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
           <Field c={c} label="مشتری"><Select c={c} value={draft.customerId} onChange={(e) => setDraft({ ...draft, customerId: e.target.value })} placeholder="انتخاب مشتری" options={customers.map((x) => ({ value: x.id, label: x.name }))} /></Field>
@@ -4117,7 +4142,7 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
         {/* Scans of the signed contract. Kept separate from the AI draft on
             purpose: the photo is the legally meaningful artefact, the text is
             only a working draft. */}
-        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
           <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>عکس قرارداد</p>
           <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>از نسخه‌ی امضاشده عکس بگیر — همراه متن چاپ و ذخیره می‌شود.</p>
           <MediaGallery c={c} media={draft.shots || []} uploading={false}
@@ -4128,7 +4153,7 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
 
         {draft.text && (
           <div className="flora-rise">
-            <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+            <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
               <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>متن قرارداد — قبل از چاپ می‌توانی ویرایش کنی</p>
               <textarea value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} rows={16}
                 style={{ ...inputStyle(c), resize: "vertical", lineHeight: 2, fontSize: FS.caption + 1 }} />
@@ -4170,7 +4195,7 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
             const open = openCat === g.id;
             const tone = c[g.tone] || c.muted;
             return (
-              <div key={g.id} style={{ borderRadius: RAD.lg, overflow: "hidden", ...glass(c, 24) }}>
+              <div key={g.id} style={{ borderRadius: RAD.lg, overflow: "hidden", ...glass(c) }}>
                 <button onClick={() => setOpenCat(open ? null : g.id)} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.lg }}>
                   <div className="flex items-center justify-center shrink-0" style={{ width: 38, height: 38, borderRadius: RAD.md, background: tone + "1f" }}><g.icon size={18} color={tone} /></div>
                   <div className="flex-1 min-w-0">
@@ -4217,19 +4242,19 @@ function InvestmentCenterView({ ctx, onBack }) {
 
       {investments.length > 0 && (
         <div className="grid grid-cols-2" style={{ gap: SP.md, marginBottom: SP.lg }}>
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
             <p style={{ fontSize: FS.caption, color: c.muted }}>ارزش کل دارایی‌ها</p>
             <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}>{fmtBudgetShort(totalValue)}</p>
           </div>
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
             <p style={{ fontSize: FS.caption, color: c.muted }}>سود کل</p>
             <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4, color: totalProfit >= 0 ? c.success : c.danger }}>{totalProfit >= 0 ? "+" : ""}{fmtBudgetShort(totalProfit)}</p>
           </div>
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
             <p style={{ fontSize: FS.caption, color: c.muted }}>سرمایه درگیر</p>
             <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}>{fmtBudgetShort(totalCapital)}</p>
           </div>
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 22) }}>
+          <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
             <p style={{ fontSize: FS.caption, color: c.muted }}>پروژه‌های سودده / زیان‌ده</p>
             <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginTop: 4 }}><span style={{ color: c.success }}>{faDigits(profitableCount)}</span> / <span style={{ color: c.danger }}>{faDigits(losingCount)}</span></p>
           </div>
@@ -4463,7 +4488,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
     <div className="pt-2">
       <BackHeader c={c} title="جزئیات پروژه" onBack={onBack} onEdit={() => setShowEdit(true)} onDelete={() => { setInvestments((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("پروژه حذف شد"); }} />
 
-      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             <h3 style={{ fontSize: FS.title, fontWeight: FW.heavy }}>{inv.title}</h3>
@@ -4490,7 +4515,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
       </div>
 
       {/* Auto profit calculation — the core promise of this module */}
-      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
         <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.md }}>محاسبه‌ی سود</p>
         <Row c={c} label="قیمت خرید" value={fmtToman(inv.purchasePrice)} />
         <Row c={c} label="جمع هزینه‌ها" value={fmtToman(stats.totalExpenses)} color={c.attn} />
@@ -4513,22 +4538,22 @@ function InvestmentDetail({ id, ctx, onBack }) {
 
       {/* Cash flow — money in vs out, and what's pending */}
       <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
-        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
+        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c) }}>
           <p style={{ fontSize: 10, color: c.muted }}>ورود پول</p>
           <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, color: c.success, marginTop: 3 }}>{fmtBudgetShort(stats.cashIn)}</p>
         </div>
-        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
+        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c) }}>
           <p style={{ fontSize: 10, color: c.muted }}>خروج پول</p>
           <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, color: c.danger, marginTop: 3 }}>{fmtBudgetShort(stats.cashOut)}</p>
         </div>
-        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c, 20) }}>
+        <div style={{ padding: SP.md, borderRadius: RAD.md, ...glass(c) }}>
           <p style={{ fontSize: 10, color: c.muted }}>مانده</p>
           <p style={{ fontSize: FS.caption + 1, fontWeight: FW.heavy, marginTop: 3 }}>{fmtBudgetShort(stats.cashBalance)}</p>
         </div>
       </div>
 
       {/* Partners */}
-      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
         <div className="flex items-center justify-between" style={{ marginBottom: SP.md }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>شرکا</p>
           <button onClick={() => { setEditPartner(null); setShowPartner(true); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}><Plus size={13} color={c.primary} />افزودن</button>
@@ -4554,7 +4579,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
       </div>
 
       {/* Expenses */}
-      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
         <div className="flex items-center justify-between" style={{ marginBottom: SP.md }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>هزینه‌ها</p>
           <button onClick={() => setShowExpense(true)} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}><Plus size={13} color={c.primary} />ثبت هزینه</button>
@@ -4575,7 +4600,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
       </div>
 
       {/* Payments & checks — merged ledger */}
-      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
         <div className="flex items-center justify-between" style={{ marginBottom: SP.md }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>پرداخت‌ها و چک‌ها</p>
           <button onClick={() => { setEditPayment(null); setShowPayment(true); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}><Plus size={13} color={c.primary} />ثبت پرداخت</button>
@@ -4604,7 +4629,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
       </div>
 
       {/* Documents — reuses the same media pipeline properties use */}
-      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
         <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.md }}>اسناد و مدارک</p>
         <MediaGallery c={c} media={inv.documents || []} uploading={uploadingDoc} onAdd={addDocs} onRemove={removeDoc} onView={ctx.setLightbox} accept="image/*,video/*,application/pdf,.doc,.docx" />
       </div>
@@ -4621,11 +4646,11 @@ function InvestmentDetail({ id, ctx, onBack }) {
 function BackHeader({ c, title, onBack, onEdit, onDelete }) {
   return (
     <div className="flex items-center justify-between pt-2 pb-4">
-      <button onClick={onBack} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><ArrowRight size={16} color={c.ink} /></button>
+      <button onClick={onBack} className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><ArrowRight size={16} color={c.ink} /></button>
       <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.bold }}>{title}</h2>
       <div className="flex items-center gap-2">
-        {onEdit && <button onClick={onEdit} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Edit3 size={15} color={c.primary} /></button>}
-        {onDelete && <button onClick={onDelete} className="press w-9 h-9 rounded-full flex items-center justify-center" style={glass(c, 20)}><Trash2 size={15} color={c.danger} /></button>}
+        {onEdit && <button onClick={onEdit} className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><Edit3 size={15} color={c.primary} /></button>}
+        {onDelete && <button onClick={onDelete} className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><Trash2 size={15} color={c.danger} /></button>}
         {!onEdit && !onDelete && <div style={{ width: 36 }} />}
       </div>
     </div>
@@ -4665,7 +4690,7 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading, accept = "
   const inputRef = useRef(null);
   return (
     <div className="flex gap-2.5 overflow-x-auto pb-1">
-      <button onClick={() => inputRef.current?.click()} className="press shrink-0 rounded-lg flex flex-col items-center justify-center gap-1" style={{ width: 84, height: 84, ...glass(c, 20) }}>
+      <button onClick={() => inputRef.current?.click()} className="press shrink-0 rounded-lg flex flex-col items-center justify-center gap-1" style={{ width: 84, height: 84, ...glass(c) }}>
         {uploading ? <Loader2 size={18} color={c.primary} className="animate-spin" /> : <ImagePlus size={18} color={c.primary} />}
         <span style={{ fontSize: 10, color: c.primary, fontWeight: 700 }}>افزودن</span>
       </button>
@@ -4770,7 +4795,7 @@ function PropertyMiniMap({ c, lat, lng, title }) {
     return () => { cancelled = true; if (objRef.current) { objRef.current.remove(); objRef.current = null; } };
   }, [lat, lng]);
   return (
-    <div className="rounded-2xl overflow-hidden mb-3" style={glass(c, 22)}>
+    <div className="rounded-2xl overflow-hidden mb-3" style={glass(c)}>
       <div ref={ref} style={{ width: "100%", height: 160, background: c.surface2 }} />
       <a href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`} target="_blank" rel="noreferrer"
         className="press flex items-center justify-center gap-1.5 py-3" style={{ background: c.primarySoft, color: c.primary, fontSize: 11, fontWeight: 700 }}>
@@ -4853,7 +4878,9 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
 ]}
 گزینه‌ی اول با فرمول PAS روی شرایط پرداخت و اقساط تمرکز کند، گزینه‌ی دوم با فرمول AIDA روی پرستیژ و کیفیت زندگی، گزینه‌ی سوم کوتاه و پرقدرت برای خوانش سریع در دیوار یا استوری باشد. body هر کدام حداکثر ۶۰۰ کاراکتر و شامل پاراگراف‌بندی طبیعی با \\n باشد.`;
       const raw = await callAI(prompt);
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      const jsonMatch2 = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch2) throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن");
+      const parsed = JSON.parse(jsonMatch2[0]);
       setVariants(parsed.variants || []);
       setActive(0);
     } catch (e) {
@@ -4889,7 +4916,7 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
       )}
 
       {loading && (
-        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl, borderRadius: RAD.lg, ...glass(c, 24) }}>
+        <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl, borderRadius: RAD.lg, ...glass(c) }}>
           <Loader2 size={26} className="animate-spin" color={c.primary} />
           <p style={{ fontSize: FS.caption, color: c.muted, marginTop: SP.md }}>در حال نوشتن ۳ مدل آگهی حرفه‌ای...</p>
         </div>
@@ -4900,7 +4927,7 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
           {/* swipeable cover carousel — each card is a ready-to-paste Divar cover */}
           <div ref={scrollRef} onScroll={onScroll} className="flex" style={{ gap: SP.md, overflowX: "auto", scrollSnapType: "x mandatory", paddingBottom: SP.sm, marginInline: -SP.xl, paddingInline: SP.xl }}>
             {variants.map((v, i) => (
-              <div key={i} style={{ minWidth: "88%", scrollSnapAlign: "center", borderRadius: RAD.lg, padding: SP.lg, ...glass(c, 24), position: "relative", overflow: "hidden" }}>
+              <div key={i} style={{ minWidth: "88%", scrollSnapAlign: "center", borderRadius: RAD.lg, padding: SP.lg, ...glass(c), position: "relative", overflow: "hidden" }}>
                 <span style={{ position: "absolute", top: "-40%", left: "-20%", width: 180, height: 180, borderRadius: "50%", background: `radial-gradient(circle, ${c.primary}22, transparent 70%)`, pointerEvents: "none" }} />
                 <span className="rounded-full" style={{ fontSize: 10, fontWeight: FW.bold, color: c.primary, background: c.primarySoft, padding: "3px 10px", position: "relative" }}>{v.label}</span>
                 <p style={{ fontSize: FS.title, fontWeight: FW.heavy, marginTop: SP.md, lineHeight: 1.4, position: "relative" }}>{v.headline}</p>
@@ -5036,7 +5063,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
     <BodyPortal>
     <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={onClose} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>استیجینگ مجازی</h2>
         <div style={{ width: 36 }} />
       </div>
@@ -5094,7 +5121,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
                 const stepIdx = STEP_ORDER.indexOf(step.key);
                 const state = stepIdx < curIdx ? "done" : stepIdx === curIdx ? "active" : "pending";
                 return (
-                  <div key={step.key} className="flex items-center" style={{ gap: SP.md, marginBottom: SP.md, opacity: state === "pending" ? 0.4 : 1 }}>
+                  <div key={step.key} className="flex items-center" style={{ gap: SP.md, marginBottom: SP.md, opacity: state === "pending" ? 0.5 : 1 }}>
                     <div className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: "50%", background: state === "done" ? c.successSoft : state === "active" ? c.primarySoft : c.surface2 }}>
                       {state === "done" ? <CheckCircle2 size={14} color={c.success} /> : state === "active" ? <Loader2 size={13} className="animate-spin" color={c.primary} /> : <span style={{ width: 6, height: 6, borderRadius: 999, background: c.muted }} />}
                     </div>
@@ -5115,7 +5142,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
             )}
             <div className="flex flex-col" style={{ gap: SP.lg }}>
               {results.map((r, i) => (
-                <div key={i} style={{ borderRadius: RAD.lg, padding: SP.md, ...glass(c, 24) }}>
+                <div key={i} style={{ borderRadius: RAD.lg, padding: SP.md, ...glass(c) }}>
                   <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>{r.room}</p>
                   {r.staged ? (
                     <>
@@ -5244,7 +5271,7 @@ function AboutPropertyCard({ c, desc }) {
   const [open, setOpen] = useState(false);
   const long = desc.length > 140;
   return (
-    <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+    <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c) }}>
       <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.sm }}>درباره‌ی ملک</p>
       <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, display: !open && long ? "-webkit-box" : "block", WebkitLineClamp: !open && long ? 3 : "unset", WebkitBoxOrient: "vertical", overflow: !open && long ? "hidden" : "visible" }}>{desc}</p>
       {long && (
@@ -5279,7 +5306,7 @@ function ScheduleVisitCard({ ctx, property }) {
   };
 
   return (
-    <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+    <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c) }}>
       <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>تعیین وقت بازدید</p>
 
       <div className="flex" style={{ gap: SP.sm, overflowX: "auto", paddingBottom: SP.xs, marginBottom: SP.md }}>
@@ -5322,7 +5349,7 @@ function PropertyDetail({ id, ctx, onBack }) {
         <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("فایل حذف شد"); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.danger }}><Trash2 size={12} color={c.danger} />حذف فایل</button>
       </div>
 
-      <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c, 24) }}>
+      <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c) }}>
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             <h3 style={{ fontSize: FS.title, fontWeight: FW.heavy, letterSpacing: "-0.01em", textDecoration: p.stage === "فروخته شد" ? "line-through" : "none" }}>{p.title}</h3>
@@ -5371,7 +5398,7 @@ function PropertyDetail({ id, ctx, onBack }) {
       <ScheduleVisitCard ctx={ctx} property={p} />
 
       {p.deal === "پیش‌فروش" && (p.preDown || p.preDelivery || p.preDeed || p.preMonths) && (
-        <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
+        <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><Hammer size={14} color={c.purple} /><p style={{ fontSize: 13, fontWeight: 700 }}>شرایط پیش‌فروش</p></div>
             {p.buildStage && <span style={{ fontSize: 10, fontWeight: 700, color: c.purple, background: c.purpleSoft, padding: "3px 9px", borderRadius: 999 }}>{p.buildStage}</span>}
@@ -5402,7 +5429,7 @@ function CustomerNoteBox({ c, note, onSave }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(note || "");
   return (
-    <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c, 24), border: `1px solid ${c.attn}33` }}>
+    <div className="rounded-2xl p-4 mb-3" style={{ ...glass(c), border: `1px solid ${c.attn}33` }}>
       <div className="flex items-center justify-between" style={{ marginBottom: SP.sm }}>
         <div className="flex items-center" style={{ gap: SP.xs }}><StickyNote size={14} color={c.attn} /><p style={{ fontSize: FS.caption, fontWeight: FW.bold, color: c.attn }}>یادداشت آخرین تماس</p></div>
         {!editing && <button onClick={() => { setVal(note || ""); setEditing(true); }} style={{ fontSize: FS.caption, color: c.muted }}>ویرایش</button>}
@@ -5445,16 +5472,16 @@ function CustomerDetail({ id, ctx, onBack }) {
       <BackHeader c={c} title="جزئیات مشتری" onBack={onBack} onDelete={() => { ctx.setCustomers((prev) => prev.filter((x) => x.id !== id)); onBack(); ctx.notify("مشتری حذف شد"); }} />
 
       {!editing ? (
-        <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c, 24)}>
+        <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
           <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
           <div className="flex-1"><p style={{ fontSize: 15, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 13, color: c.muted }} dir="ltr">{cu.phone || "بدون شماره"}</p></div>
-          <button onClick={startEdit} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={14} color={c.muted} /></button>
+          <button onClick={startEdit} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={14} color={c.muted} /></button>
           {cu.phone && (
             <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO(), lastContactTs: Date.now() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
           )}
         </div>
       ) : (
-        <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
+        <div className="rounded-2xl p-4 mb-3" style={glass(c)}>
           <Field c={c} label="نام"><input style={inputStyle(c)} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
           <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
           <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={(e) => setF({ ...f, need: e.target.value })} /></Field>
@@ -5480,7 +5507,7 @@ function CustomerDetail({ id, ctx, onBack }) {
       </button>
       <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => { ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO(), lastContactTs: Date.now() } : x)); celebrate({ kind: "followup", label: "پیگیری ثبت شد" }); }} />
       {!editing && (
-        <div className="rounded-2xl p-4 mb-3" style={glass(c, 24)}>
+        <div className="rounded-2xl p-4 mb-3" style={glass(c)}>
           <div className="flex items-center justify-between">
             <div><p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13 }}>{cu.need || "—"}</p></div>
             <button onClick={startEdit} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={11} color={c.muted} /></button>
@@ -5646,7 +5673,7 @@ function MissionOfTheDay({ ctx }) {
   const setTarget = (id, t) => persist({ ...mission, items: mission.items.map((m) => m.id === id ? { ...m, target: Math.max(1, Number(toEnDigits(String(t))) || 1) } : m) });
 
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 24), position: "relative", overflow: "hidden" }}>
+    <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c), position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: -16, left: -12, opacity: 0.08, pointerEvents: "none" }}><FloraMark size={110} color={c.ink} /></div>
       <div className="flex items-center justify-between mb-3" style={{ position: "relative" }}>
         <div className="flex items-center gap-2">
@@ -5873,7 +5900,7 @@ ${perfLine}
       <MissionOfTheDay ctx={ctx} />
 
       {/* One consolidated coach card — replaces the old sprawl of separate sections */}
-      <div style={{ marginTop: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c, 24) }}>
+      <div style={{ marginTop: SP.lg, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
         {!plan && !loading && (
           <div className="flex items-center" style={{ gap: SP.md }}>
             <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: c.purpleSoft }}><Bot size={21} color={c.purple} /></div>
@@ -5973,7 +6000,7 @@ ${transcript}
       <BackHeader c={c} title="چت با دستیار املاک" onBack={onBack} onDelete={messages.length > 0 ? () => { setMessages([]); dbSet(CHAT_KEY, { messages: [] }).catch(() => {}); notify("تاریخچه‌ی گفتگو پاک شد"); } : undefined} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto flex flex-col gap-2.5 pb-3">
         {messages.length === 0 && (
-          <div className="rounded-xl p-4" style={glass(c, 22)}>
+          <div className="rounded-xl p-4" style={glass(c)}>
             <p style={{ fontSize: 13, color: c.muted, lineHeight: 1.9 }}>هر سوالی درباره‌ی قیمت‌گذاری، مذاکره، بازاریابی فایل، یا هر موضوع دیگری در حوزه‌ی املاک بپرس.</p>
           </div>
         )}
@@ -5982,7 +6009,7 @@ ${transcript}
             <p style={{ fontSize: 13, lineHeight: 1.9, color: m.role === "user" ? "#fff" : c.ink, whiteSpace: "pre-wrap" }}>{m.text}</p>
           </div>
         ))}
-        {sending && <div className="self-start rounded-xl p-3" style={glass(c, 20)}><Loader2 size={14} className="animate-spin" color={c.primary} /></div>}
+        {sending && <div className="self-start rounded-xl p-3" style={glass(c)}><Loader2 size={14} className="animate-spin" color={c.primary} /></div>}
       </div>
       <div className="flex items-center gap-2 pt-2 shrink-0">
         <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="سوالت را بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
@@ -6188,7 +6215,10 @@ function ChecksVoiceCapture({ ctx, onExtracted, onClose }) {
 متن: «${text}»
 این JSON خام را برگردان: {"recipient":"اسم گیرنده چک یا خالی","amount":0,"dueDateJalali":"تاریخ شمسی سررسید مثل ۲۵ مرداد ۱۴۰۵، اگر نسبی گفته (مثل دو هفته دیگه) خودت حساب کن، وگرنه خالی","notes":"هر توضیح اضافه یا خالی"}`;
       const raw = await callAI(prompt);
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن");
+      let parsed;
+      try { parsed = JSON.parse(jsonMatch[0]); } catch { throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن"); }
       onExtracted(parsed);
     } catch (e) { setError(e.message || "خطا در پردازش"); setPhase("error"); }
   };
@@ -6257,13 +6287,13 @@ function ChecksPanel({ ctx }) {
           <p style={{ fontSize: 18, fontWeight: 800, color: c.attn }}>{fmtToman(unpaidTotal)}</p>
         </div>
         <div className="flex" style={{ gap: 6 }}>
-          <button onClick={() => setShowVoice(true)} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Mic size={15} color={c.primary} /></button>
+          <button onClick={() => setShowVoice(true)} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Mic size={15} color={c.primary} /></button>
           <button onClick={() => setShowForm(true)} className="press flex items-center gap-1 rounded-lg px-3 py-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11 }}><Plus size={12} /> چک جدید</button>
         </div>
       </div>
 
       {showForm && (
-        <div className="rounded-xl p-3.5 mb-3" style={glass(c, 20)}>
+        <div className="rounded-xl p-3.5 mb-3" style={glass(c)}>
           <Field c={c} label="گیرنده چک"><input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={inputStyle(c)} placeholder="مثلاً آقای احمدی" /></Field>
           <Field c={c} label="مبلغ (تومان)"><input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} style={inputStyle(c)} inputMode="numeric" placeholder="۱۰۰,۰۰۰,۰۰۰" dir="ltr" /></Field>
           {amount && <p style={{ fontSize: 11, color: c.muted, marginTop: -8, marginBottom: 10 }}>{formatAmountInput(amount)} تومان</p>}
@@ -6278,8 +6308,8 @@ function ChecksPanel({ ctx }) {
 
       <div className="flex flex-col gap-2 flora-stagger">
         {sorted.map((ch) => (
-          <div key={ch.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={{ ...glass(c, 20), opacity: ch.paid ? 0.55 : 1 }}>
-            <button onClick={() => togglePaid(ch.id)} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: ch.paid ? c.successSoft : c.attnSoft }}>
+          <div key={ch.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={{ ...glass(c), opacity: ch.paid ? 0.5 : 1 }}>
+            <button onClick={() => togglePaid(ch.id)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: ch.paid ? c.successSoft : c.attnSoft }}>
               {ch.paid ? <CheckCircle2 size={16} color={c.success} /> : <Clock size={16} color={c.attn} />}
             </button>
             <div className="flex-1 min-w-0">
@@ -6345,7 +6375,7 @@ function HomeInsightSlider({ ctx }) {
   const current = slides[face % slides.length];
 
   return (
-    <button onClick={() => setTab("finance")} className="press w-full text-right rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c, 22), marginBottom: SP.xl }}>
+    <button onClick={() => setTab("finance")} className="press w-full text-right rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c), marginBottom: SP.xl }}>
       {current === "checks" && (
         <>
           <div className="flex items-center justify-between">
@@ -6468,7 +6498,7 @@ function FinanceCenterView({ ctx, onBack }) {
       {onBack && <BackHeader c={c} title="مرکز مالی" onBack={onBack} />}
       <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
         {visibleTabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
+          <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c)}>
             <span style={{ fontSize: 11, fontWeight: 700, color: tab === t.id ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
           </button>
         ))}
@@ -6540,7 +6570,7 @@ function FinanceCenterView({ ctx, onBack }) {
           <SearchBox c={c} value={search} setValue={setSearch} />
           <div className="flex gap-2 overflow-x-auto pb-1 my-3">
             {["همه", "تسویه شده", "در انتظار پرداخت", "در حال مذاکره"].map((s) => (
-              <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c, 18)}>
+              <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c)}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: statusFilter === s ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span>
               </button>
             ))}
@@ -6548,7 +6578,7 @@ function FinanceCenterView({ ctx, onBack }) {
           <button onClick={() => setSheet("deal")} className="press w-full rounded-xl py-3 mb-3 flex items-center justify-center gap-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 13 }}><Plus size={14} /> ثبت قرارداد جدید</button>
           <div className="flex flex-col gap-3 flora-stagger">
             {filteredDeals.map((d) => (
-              <button key={d.id} onClick={() => setSheet({ kind: "deal-detail", dealId: d.id })} className="press w-full text-right rounded-2xl p-4" style={glass(c, 22)}>
+              <button key={d.id} onClick={() => setSheet({ kind: "deal-detail", dealId: d.id })} className="press w-full text-right rounded-2xl p-4" style={glass(c)}>
                 <div className="flex justify-between items-start mb-2.5">
                   <div><p style={{ fontSize: 15, fontWeight: 700 }}>{d.propertyTitle}</p></div>
                   <DealStatusBadge c={c} status={d.status} />
@@ -6583,7 +6613,7 @@ function FinanceCenterView({ ctx, onBack }) {
               const method = PAYMENT_METHODS.find((m) => m.id === p.method) || PAYMENT_METHODS[0];
               const payerName = deal ? (p.payerType === "seller" ? deal.sellerName : deal.buyerName) : "—";
               return (
-                <div key={p.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c, 20)}>
+                <div key={p.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={glass(c)}>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><method.icon size={17} color={c.primary} /></div>
                   <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{payerName}</p><p style={{ fontSize: 11, color: c.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{method.label} · {deal?.propertyTitle}</p></div>
                   <div className="text-left shrink-0"><p style={{ fontSize: 13, fontWeight: 800, color: c.success }}>+{fmtToman(p.amount)}</p><p style={{ fontSize: 10, color: c.muted }}>{fmtJalali(p.date)}</p></div>
@@ -6605,7 +6635,7 @@ function FinanceCenterView({ ctx, onBack }) {
             <FinStat c={c} icon={TrendingUp} color={c.success} value={fmtToman(totalOfficeIncome)} label="کل درآمد دفتر" />
             <FinStat c={c} icon={TrendingDown} color={c.danger} value={fmtToman(totalExpenses)} label="کل هزینه‌های دفتر" />
           </div>
-          <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${netProfit >= 0 ? c.successSoft : c.dangerSoft}, ${c.surface} 65%)`, position: "relative", overflow: "hidden" }}>
+          <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c), background: `linear-gradient(160deg, ${netProfit >= 0 ? c.successSoft : c.dangerSoft}, ${c.surface} 65%)`, position: "relative", overflow: "hidden" }}>
             <span style={{ position: "absolute", inset: 6, borderRadius: 14, border: `1px dashed ${(netProfit >= 0 ? c.success : c.danger)}33`, pointerEvents: "none" }} />
             <div className="flex items-center justify-between" style={{ position: "relative" }}>
               <div className="flex items-center gap-2">
@@ -6629,7 +6659,7 @@ function FinanceCenterView({ ctx, onBack }) {
           <SectionHeader c={c} title="گردش مالی دفتر" />
           <div className="flex flex-col gap-2 flora-stagger">
             {officeTxns.map((t) => (
-              <div key={t.kind + t.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 20)}>
+              <div key={t.kind + t.id} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c)}>
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: t.kind === "in" ? c.successSoft : c.dangerSoft }}>
                   {t.kind === "in" ? <TrendingUp size={16} color={c.success} /> : <TrendingDown size={16} color={c.danger} />}
                 </div>
@@ -6678,18 +6708,18 @@ function FinanceCenterView({ ctx, onBack }) {
       {tab === "reports" && (
         <div>
           <div className="grid grid-cols-2 gap-2.5 mb-4">
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{faDigits(deals.length)}</p><p style={{ fontSize: 11, color: c.muted }}>تعداد قرارداد</p></div>
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(totalValue)}</p><p style={{ fontSize: 11, color: c.muted }}>مجموع ارزش معاملات</p></div>
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(totalCommission)}</p><p style={{ fontSize: 11, color: c.muted }}>مجموع کمیسیون</p></div>
-            <div className="rounded-xl p-3.5 text-center" style={glass(c, 20)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(avgDeal)}</p><p style={{ fontSize: 11, color: c.muted }}>میانگین معامله</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c)}><p style={{ fontSize: 15, fontWeight: 800 }}>{faDigits(deals.length)}</p><p style={{ fontSize: 11, color: c.muted }}>تعداد قرارداد</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(totalValue)}</p><p style={{ fontSize: 11, color: c.muted }}>مجموع ارزش معاملات</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(totalCommission)}</p><p style={{ fontSize: 11, color: c.muted }}>مجموع کمیسیون</p></div>
+            <div className="rounded-xl p-3.5 text-center" style={glass(c)}><p style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(avgDeal)}</p><p style={{ fontSize: 11, color: c.muted }}>میانگین معامله</p></div>
           </div>
-          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+          <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
             <p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>کل دریافت‌شده</p><p style={{ fontSize: 13, fontWeight: 700, color: c.success, marginBottom: 10 }}>{fmtToman(totalPaidAll)}</p>
             <p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>مانده کل</p><p style={{ fontSize: 13, fontWeight: 700, color: c.attn, marginBottom: 10 }}>{fmtToman(totalRemainingAll)}</p>
             <p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>درصد وصول</p><p style={{ fontSize: 13, fontWeight: 700, color: c.success }}>{faDigits(totalCommission ? Math.round((totalPaidAll / totalCommission) * 100) : 0)}٪</p>
           </div>
 
-          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+          <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
             <div className="flex items-center justify-between mb-3">
               <p style={{ fontSize: 13, fontWeight: 700 }}>درآمد و هزینه ۶ ماه اخیر</p>
               <div className="flex items-center gap-3">
@@ -6710,7 +6740,7 @@ function FinanceCenterView({ ctx, onBack }) {
             </div>
           </div>
 
-          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+          <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
             <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>سود و زیان دفتر</p>
             <Row c={c} label="درآمد دفتر" value={fmtToman(totalOfficeIncome)} color={c.success} />
             <Row c={c} label="هزینه‌های دفتر" value={fmtToman(totalExpenses)} color={c.danger} />
@@ -6718,7 +6748,7 @@ function FinanceCenterView({ ctx, onBack }) {
             <Row c={c} label="حاشیه سود" value={`${faDigits(margin)}٪`} color={margin >= 0 ? c.success : c.danger} />
           </div>
 
-          <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+          <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
             <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>هزینه‌ها به تفکیک دسته</p>
             {expenseByCategory.length === 0 ? <EmptyLine c={c} text="هزینه‌ای ثبت نشده" /> : (
               <div className="flex flex-col gap-2.5">
@@ -6747,7 +6777,7 @@ function FinanceCenterView({ ctx, onBack }) {
           <SectionHeader c={c} title="رتبه‌بندی مشاوران" />
           <div className="flex flex-col gap-2.5">
             {advisors.map((a, i) => (
-              <div key={a.name} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c, 20)}>
+              <div key={a.name} className="rounded-xl p-3.5 flex items-center gap-3" style={glass(c)}>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: i === 0 ? "linear-gradient(135deg,#fbbf24,#f59e0b)" : i === 1 ? "linear-gradient(135deg,#cbd5e1,#94a3b8)" : i === 2 ? "linear-gradient(135deg,#d97706,#92400e)" : c.surface2, color: i < 3 ? "#1a1a2e" : c.muted, fontWeight: 800, fontSize: 13 }}>{faDigits(i + 1)}</div>
                 <div className="flex-1 min-w-0">
                   <p style={{ fontSize: 13, fontWeight: 700 }}>{a.name}</p>
@@ -6838,7 +6868,7 @@ function MonthlyDealsChart({ c, data, max }) {
   useEffect(() => { const t = setTimeout(() => setShow(true), 80); return () => clearTimeout(t); }, []);
   const best = data.reduce((m, x) => (x.value > m ? x.value : m), 0);
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.primarySoft}, ${c.surface} 60%)` }}>
+    <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c), background: `linear-gradient(160deg, ${c.primarySoft}, ${c.surface} 60%)` }}>
       <div className="flex items-center justify-between mb-4">
         <p style={{ fontSize: 13, fontWeight: 700 }}>تعداد معاملات ۶ ماه اخیر</p>
         <span style={{ fontSize: 10, color: c.muted, background: c.surface2, padding: "3px 8px", borderRadius: 999 }}>مجموع {faDigits(data.reduce((a, b) => a + b.value, 0))}</span>
@@ -6902,7 +6932,7 @@ function SplitTab({ ctx, deals, payments }) {
       </div>
 
       {/* The ratio itself */}
-      <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+      <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
         <div className="flex items-center justify-between mb-3">
           <p style={{ fontSize: 13, fontWeight: 700 }}>نسبت تقسیم</p>
           {!editing ? (
@@ -6953,7 +6983,7 @@ function SplitTab({ ctx, deals, payments }) {
       <SectionHeader c={c} title="سهم هر طرف از دریافتی‌ها" />
       <div className="flex flex-col gap-2.5 mb-4 flora-stagger">
         {SPLIT_PARTIES.map((p, i) => (
-          <div key={p.id} className="rounded-2xl p-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${p.color}12, ${c.surface} 62%)`, position: "relative", overflow: "hidden" }}>
+          <div key={p.id} className="rounded-2xl p-4" style={{ ...glass(c), background: `linear-gradient(160deg, ${p.color}12, ${c.surface} 62%)`, position: "relative", overflow: "hidden" }}>
             <span style={{ position: "absolute", inset: 6, borderRadius: 14, border: `1px dashed ${p.color}2e`, pointerEvents: "none" }} />
             <div className="flex items-center justify-between" style={{ position: "relative" }}>
               <div className="flex items-center gap-2.5">
@@ -6970,7 +7000,7 @@ function SplitTab({ ctx, deals, payments }) {
       </div>
 
       {/* Reconciliation — proves the three parts add back up */}
-      <div className="rounded-2xl p-4 mb-4" style={glass(c, 22)}>
+      <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
         <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>کنترل حساب</p>
         {SPLIT_PARTIES.map((p, i) => <Row key={p.id} c={c} label={p.label} value={fmtToman(parts[i])} color={p.color} />)}
         <div className="flex justify-between items-center" style={{ paddingTop: 10 }}>
@@ -6986,7 +7016,7 @@ function SplitTab({ ctx, deals, payments }) {
       {pendingTotal > 0 && (
         <>
           <SectionHeader c={c} title="هنوز وصول نشده (سهم آینده)" />
-          <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c, 22), border: `1px solid ${c.attnSoft}` }}>
+          <div className="rounded-2xl p-4 mb-4" style={{ ...glass(c), border: `1px solid ${c.attnSoft}` }}>
             <p style={{ fontSize: 11, color: c.muted, marginBottom: 8, lineHeight: 1.8 }}>این مبالغ هنوز به دست‌مان نرسیده؛ فقط برای برنامه‌ریزی است و در حساب بالا لحاظ نشده.</p>
             {SPLIT_PARTIES.map((p, i) => <Row key={p.id} c={c} label={p.label} value={fmtToman(futureParts[i])} color={c.muted} />)}
             <div className="flex justify-between items-center" style={{ paddingTop: 10 }}>
@@ -7003,7 +7033,7 @@ function SplitTab({ ctx, deals, payments }) {
         {perDeal.map(({ deal, paid }) => {
           const dp = splitAmounts(paid, splitShares);
           return (
-            <div key={deal.id} className="rounded-xl p-3.5" style={glass(c, 20)}>
+            <div key={deal.id} className="rounded-xl p-3.5" style={glass(c)}>
               <div className="flex items-center justify-between mb-2.5">
                 <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{deal.propertyTitle}</p>
                 <span style={{ fontSize: 11, fontWeight: 800, color: c.success, direction: "ltr", flexShrink: 0, marginRight: 8 }}>{fmtToman(paid)}</span>
@@ -7027,7 +7057,7 @@ function SplitTab({ ctx, deals, payments }) {
 
 function FinStat({ c, icon: Icon, color, value, label }) {
   return (
-    <div className="rounded-xl p-3.5" style={{ ...glass(c, 20), background: `linear-gradient(160deg, ${color}14, ${c.surface} 60%)`, position: "relative", overflow: "hidden" }}>
+    <div className="rounded-xl p-3.5" style={{ ...glass(c), background: `linear-gradient(160deg, ${color}14, ${c.surface} 60%)`, position: "relative", overflow: "hidden" }}>
       {/* faint coin edge in the corner */}
       <span style={{ position: "absolute", top: -14, left: -14, width: 46, height: 46, borderRadius: "50%", border: `1.5px dashed ${color}33`, pointerEvents: "none" }} />
       <div className="w-8 h-8 rounded-full flex items-center justify-center mb-2.5" style={{ background: color + "22", boxShadow: `inset 0 0 0 1.5px ${color}33` }}><Icon size={15} color={color} /></div>
@@ -7069,7 +7099,7 @@ function MoneyIdeasCard({ ctx, received }) {
   };
 
   return (
-    <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.lg, ...glass(c, 24) }}>
+    <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.lg, ...glass(c) }}>
       <div className="flex items-center justify-between" style={{ marginBottom: ideas ? SP.md : 0 }}>
         <div className="flex items-center" style={{ gap: SP.sm }}>
           <div className="flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: RAD.md, background: c.successSoft }}><Landmark size={18} color={c.success} /></div>
@@ -7132,7 +7162,7 @@ function QuickAddSheet({ ctx, onClose }) {
     <SheetShell c={c} title="افزودن سریع" onClose={onClose}>
       <div className="flex flex-col gap-2">
         {options.map((o) => (
-          <button key={o.id} onClick={() => setSheet(o.id)} className="press w-full flex items-center gap-3 rounded-xl p-3.5" style={glass(c, 20)}>
+          <button key={o.id} onClick={() => setSheet(o.id)} className="press w-full flex items-center gap-3 rounded-xl p-3.5" style={glass(c)}>
             <div className="rounded-2xl flex items-center justify-center" style={{ width: 38, height: 38, background: c.primarySoft }}><o.icon size={17} color={c.primary} /></div>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{o.label}</span>
           </button>
@@ -7158,7 +7188,7 @@ function JalaliDatePicker({ c, value, onChange }) {
     <div>
       <button type="button" onClick={() => setOpen((o) => !o)} className="press w-full flex items-center gap-2" style={{ ...inputStyle(c), justifyContent: "flex-start" }}><CalendarDays size={15} color={c.primary} /><span>{fmtJalali(value)}</span></button>
       {open && (
-        <div className="mt-2 rounded-xl p-3 flora-up" style={glass(c, 24)}>
+        <div className="mt-2 rounded-xl p-3 flora-up" style={glass(c)}>
           <div className="flex items-center justify-between mb-2">
             <button onClick={() => nav(-1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronRight size={14} color={c.ink} /></button>
             <span style={{ fontSize: 13, fontWeight: 700 }}>{MONTHS_FA[viewM - 1]} {faDigits(viewY)}</span>
@@ -7256,7 +7286,7 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
   }, []);
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center flora-pop" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ ...glass(c, RAD.lg), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, overflow: "hidden", maxWidth: 390 }}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ ...glass(c), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, overflow: "hidden", maxWidth: 390 }}>
         <div className="flex items-center justify-between" style={{ paddingInline: SP.xl, paddingBlock: SP.md, borderBottom: `1px solid ${c.border}` }}>
           <h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>انتخاب آدرس از نقشه سرعین</h3>
           <button onClick={onClose} className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button>
@@ -7439,7 +7469,7 @@ function MessageTemplatesSheet({ ctx, onClose, customerId }) {
         {MESSAGE_TEMPLATES.map((t) => {
           const isActive = activeId === t.id;
           return (
-            <button key={t.id} onClick={() => setActiveId(t.id)} className="press shrink-0 flex flex-col items-center gap-1.5 rounded-xl px-3 py-2.5" style={isActive ? { background: c.primary } : glass(c, 20)}>
+            <button key={t.id} onClick={() => setActiveId(t.id)} className="press shrink-0 flex flex-col items-center gap-1.5 rounded-xl px-3 py-2.5" style={isActive ? { background: c.primary } : glass(c)}>
               <t.icon size={16} color={isActive ? "#fff" : c.muted} />
               <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
             </button>
@@ -7477,7 +7507,7 @@ function PreSaleFields({ c, f, setF, total }) {
   const diff = total - sum;
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
   return (
-    <div className="rounded-2xl p-3.5 mb-4" style={{ ...glass(c, 22), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
+    <div className="rounded-2xl p-3.5 mb-4" style={{ ...glass(c), background: `linear-gradient(160deg, ${c.purpleSoft}, ${c.surface} 60%)` }}>
       <div className="flex items-center gap-2 mb-3">
         <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: c.purpleSoft }}><Hammer size={13} color={c.purple} /></div>
         <p style={{ fontSize: 13, fontWeight: 700 }}>شرایط پیش‌فروش</p>
@@ -7759,7 +7789,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
         </button>
       )}
       {showDivar && (
-        <div className="rounded-xl p-3.5 mb-4" style={glass(c, 22)}>
+        <div className="rounded-xl p-3.5 mb-4" style={glass(c)}>
           {importState === "idle" && (
             <>
               <Field c={c} label="لینک آگهی دیوار"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
@@ -7795,7 +7825,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
                 const cur = order.indexOf(importState), idx = order.indexOf(step.key);
                 const st = idx < cur ? "done" : idx === cur ? "active" : "pending";
                 return (
-                  <div key={step.key} className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.sm, opacity: st === "pending" ? 0.4 : 1 }}>
+                  <div key={step.key} className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.sm, opacity: st === "pending" ? 0.5 : 1 }}>
                     <div className="flex items-center justify-center shrink-0" style={{ width: 22, height: 22, borderRadius: "50%", background: st === "done" ? c.successSoft : st === "active" ? c.primarySoft : c.surface2 }}>
                       {st === "done" ? <CheckCircle2 size={12} color={c.success} /> : st === "active" ? <Loader2 size={11} className="animate-spin" color={c.primary} /> : <span style={{ width: 5, height: 5, borderRadius: 99, background: c.muted }} />}
                     </div>
@@ -7810,7 +7840,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
             <div className="flora-rise">
               <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.dangerSoft, marginBottom: SP.md }}>
                 <AlertTriangle size={16} color={c.danger} style={{ flexShrink: 0, marginTop: 2 }} />
-                <p style={{ fontSize: 12.5, color: c.danger, lineHeight: 1.8 }}>{importError?.message}</p>
+                <p style={{ fontSize: 13, color: c.danger, lineHeight: 1.8 }}>{importError?.message}</p>
               </div>
               <button type="button" onClick={() => setImportState("idle")} className="press w-full rounded-xl py-3" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>بازگشت</button>
             </div>
@@ -7822,7 +7852,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
                 <div className="flex items-start" style={{ gap: SP.sm, padding: SP.md, borderRadius: RAD.md, background: c.attnSoft, marginBottom: SP.md }}>
                   <AlertTriangle size={16} color={c.attn} style={{ flexShrink: 0, marginTop: 2 }} />
                   <div className="flex-1">
-                    <p style={{ fontSize: 12.5, color: c.attn, fontWeight: 700, lineHeight: 1.8 }}>این فایل احتمالاً قبلاً ثبت شده است.</p>
+                    <p style={{ fontSize: 13, color: c.attn, fontWeight: 700, lineHeight: 1.8 }}>این فایل احتمالاً قبلاً ثبت شده است.</p>
                     <button type="button" onClick={() => { setDetail({ type: "property", id: dupMatch.id }); onClose(); }} style={{ fontSize: 12, color: c.primary, fontWeight: 700, marginTop: 4 }}>مشاهده فایل قبلی ›</button>
                   </div>
                 </div>
@@ -7838,7 +7868,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
                 </div>
               )}
               {importData.skippedImageCount > 0 && (
-                <p style={{ fontSize: 10.5, color: c.muted, marginBottom: SP.md }}>
+                <p style={{ fontSize: 11, color: c.muted, marginBottom: SP.md }}>
                   {faDigits(importData.skippedImageCount)} تصویر از این آگهی قابل دریافت نبود
                 </p>
               )}
@@ -7846,8 +7876,8 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
               <div className="flex flex-col" style={{ gap: 6, marginBottom: SP.md }}>
                 {[["عنوان", importData.title], ["قیمت", importData.price ? fmtToman(importData.price) : null], ["آدرس", importData.address]].map(([label, val]) => (
                   <div key={label} className="flex items-center justify-between" style={{ paddingBlock: 4, borderBottom: `1px solid ${c.border}` }}>
-                    <span style={{ fontSize: 11.5, color: c.muted }}>{label}</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: val ? c.ink : c.muted }}>{val || "نامشخص"}</span>
+                    <span style={{ fontSize: 12, color: c.muted }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: val ? c.ink : c.muted }}>{val || "نامشخص"}</span>
                   </div>
                 ))}
               </div>
@@ -7863,16 +7893,16 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
                 ].map((f) => (
                   <div key={f.key}>
                     <div className="flex items-center" style={{ gap: 3, marginBottom: 3 }}>
-                      <span style={{ fontSize: 10.5, color: c.muted }}>{f.label}</span>
+                      <span style={{ fontSize: 11, color: c.muted }}>{f.label}</span>
                       {f.conf === "low" && <AlertTriangle size={10} color={c.attn} />}
                     </div>
                     <input
                       value={importData[f.key]} onChange={setImportField(f.key)} inputMode="numeric"
                       placeholder={f.conf === "low" ? "نیاز به بررسی" : "—"}
-                      style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 12.5, textAlign: "center", border: f.conf === "low" ? `1.5px solid ${c.attn}` : "1.5px solid transparent" }}
+                      style={{ ...inputStyle(c), padding: "8px 10px", fontSize: 13, textAlign: "center", border: f.conf === "low" ? `1.5px solid ${c.attn}` : "1.5px solid transparent" }}
                     />
                     {f.key === "yearBuiltInput" && importData.yearBuiltLabel && !importData.yearBuiltInput && (
-                      <p style={{ fontSize: 9.5, color: c.attn, marginTop: 2, textAlign: "center" }}>{importData.yearBuiltLabel}</p>
+                      <p style={{ fontSize: 10, color: c.attn, marginTop: 2, textAlign: "center" }}>{importData.yearBuiltLabel}</p>
                     )}
                   </div>
                 ))}
@@ -7880,7 +7910,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
               {["areaConfidence", "roomsConfidence", "yearBuiltConfidence"].some((k) => importData[k] === "low") && (
                 <div className="flex items-start" style={{ gap: SP.sm, padding: SP.sm, borderRadius: RAD.sm, background: c.attnSoft, marginBottom: SP.md }}>
                   <AlertTriangle size={12} color={c.attn} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <p style={{ fontSize: 10.5, color: c.attn, lineHeight: 1.7 }}>یکی یا چند مورد از متراژ/خواب/سال ساخت به‌طور مطمئن تشخیص داده نشد — قبل از ذخیره خودت وارد کن یا تأیید کن.</p>
+                  <p style={{ fontSize: 11, color: c.attn, lineHeight: 1.7 }}>یکی یا چند مورد از متراژ/خواب/سال ساخت به‌طور مطمئن تشخیص داده نشد — قبل از ذخیره خودت وارد کن یا تأیید کن.</p>
                 </div>
               )}
 
@@ -8402,8 +8432,8 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
       <div className="flex items-start justify-between mb-1">
         <div><p style={{ fontSize: 15, fontWeight: 800 }}>{deal.propertyTitle}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 3 }}>{fmtToman(deal.price)} · {deal.advisor}</p></div>
         <div className="flex gap-2 shrink-0">
-          <button onClick={() => setSheet({ kind: "deal", editId: dealId })} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Edit3 size={14} color={c.primary} /></button>
-          <button onClick={() => { setDeals((prev) => prev.filter((d) => d.id !== dealId)); onClose(); notify("قرارداد حذف شد"); }} className="press w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
+          <button onClick={() => setSheet({ kind: "deal", editId: dealId })} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Edit3 size={14} color={c.primary} /></button>
+          <button onClick={() => { setDeals((prev) => prev.filter((d) => d.id !== dealId)); onClose(); notify("قرارداد حذف شد"); }} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
         </div>
       </div>
       <div style={{ height: 10 }} />
