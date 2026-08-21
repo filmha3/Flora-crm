@@ -16,6 +16,16 @@ function isQuietHoursNow(prefs: { quiet_hours_enabled?: boolean; quiet_hours_sta
   return current >= start || current < end;
 }
 
+function composeDigest(summary: { pending_calls?: number; todays_appointments?: number; hot_customer_name?: string | null } | null): string {
+  if (!summary) return "وقتشه امروز رو مرور کنی — تماس‌ها، بازدیدها و کارهای معلق رو چک و ردیف کن.";
+  const parts: string[] = [];
+  if (summary.todays_appointments) parts.push(`امروز ${summary.todays_appointments} قرار بازدید داری`);
+  if (summary.pending_calls) parts.push(`${summary.pending_calls} تماس پیگیری‌نشده مونده`);
+  if (summary.hot_customer_name) parts.push(`مهم‌ترین مورد احتمالاً ${summary.hot_customer_name} است`);
+  if (parts.length === 0) return "امروز کار معلقی نداری — وقت خوبیه برای پیدا کردن فایل یا مشتری جدید.";
+  return parts.join("، ") + ".";
+}
+
 Deno.serve(async (req: Request) => {
   const secret = req.headers.get("x-cron-secret");
   if (!CRON_SECRET || secret !== CRON_SECRET) {
@@ -46,12 +56,14 @@ Deno.serve(async (req: Request) => {
   }
 
   const title = "Flora";
-  const body = "وقتشه امروز رو مرور کنی — تماس‌ها، بازدیدها و کارهای معلق رو چک و ردیف کن.";
 
   let sent = 0;
   for (const [userId, userSubs] of byUser) {
     const { data: prefs } = await admin.from("notification_preferences").select("*").eq("user_id", userId).single();
     if (isQuietHoursNow(prefs)) continue; // a daily check-in isn't critical enough to override quiet hours
+
+    const { data: summary } = await admin.from("digest_summary").select("*").eq("user_id", userId).single();
+    const body = composeDigest(summary);
 
     await admin.from("notifications").insert({ user_id: userId, category: "general", title, body, url: "/" });
 
