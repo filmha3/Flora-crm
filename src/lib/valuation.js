@@ -165,6 +165,27 @@ export function computeQuickValuationFromMap(lat, lng, area, type, allProperties
 }
 
 /**
+ * One plain-language sentence explaining what fed into the number — never
+ * invents a fact that wasn't actually entered for this property. Floor,
+ * view/facing, year built, and furnished status are the ones people
+ * actually ask "why" about; parking/elevator are already folded into the
+ * price itself (see the `adjustments` list) so they're mentioned here too
+ * when present, for the same reason.
+ */
+export function buildExplanation(subject) {
+  const parts = [];
+  if (subject.floor != null && subject.floor !== "") parts.push(`طبقه ${subject.floor}`);
+  if (subject.view === "نمای اصلی") parts.push("رو به نمای اصلی");
+  else if (subject.view === "حیاط") parts.push("رو به حیاط");
+  if (subject.yearBuilt) parts.push(`سال ساخت ${subject.yearBuilt}`);
+  if (subject.furnished === "با لوازم") parts.push("فول‌فرنیش");
+  if (subject.parking === true) parts.push("پارکینگ");
+  if (subject.elevator === true) parts.push("آسانسور");
+  if (parts.length === 0) return null;
+  return `بر اساس ${parts.join("، ")}.`;
+}
+
+/**
  * The whole pipeline, per spec section headers 4–10.
  * @param subject - the property being valued (needs area, type; street/lat/lng/floor/yearBuilt improve accuracy)
  * @param allProperties - every other property in the local dataset
@@ -223,6 +244,7 @@ export function computeValuation(subject, allProperties, manualStreetPrices = []
   if (subject.parking === true) { adjustments.push({ label: "پارکینگ", pct: 3 }); multiplier += 0.03; }
   if (subject.elevator === true) { adjustments.push({ label: "آسانسور", pct: 2 }); multiplier += 0.02; }
   if (subject.furnished === "با لوازم") { adjustments.push({ label: "فول‌فرنیش", pct: 4 }); multiplier += 0.04; }
+  if (subject.view === "نمای اصلی") { adjustments.push({ label: "نمای اصلی", pct: 2 }); multiplier += 0.02; }
 
   const adjustedPricePerMeter = Math.round(basePricePerMeter * multiplier);
   const fairValue = Math.round(adjustedPricePerMeter * subject.area);
