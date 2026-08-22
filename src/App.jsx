@@ -26,7 +26,7 @@ import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourSt
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
-import { computeValuation } from "./lib/valuation.js";
+import { computeValuation, computeQuickValuationFromMap } from "./lib/valuation.js";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -197,6 +197,10 @@ export default function FloraCRM() {
   const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
   const [divarSearchOpen, setDivarSearchOpen] = useState(false);
   const [legalOpen, setLegalOpen] = useState(false);
+  const [quickValuationOpen, setQuickValuationOpen] = useState(false);
+  // One-shot hand-off from Quick Valuation to the real property form, so
+  // "ذخیره به‌عنوان فایل" never re-asks for location/area it already has.
+  const [prefillNew, setPrefillNew] = useState(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   // Hoisted (not local to the Files tab) so the same mode carries through
   // into PropertyDetail when the agent taps into a file to actually show it
@@ -719,7 +723,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice,
+    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -901,6 +905,7 @@ export default function FloraCRM() {
             into the rail's own box instead of covering the screen. */}
         {divarSearchOpen && <DivarSearchSheet ctx={ctx} onClose={() => setDivarSearchOpen(false)} />}
         {legalOpen && <LegalHome ctx={ctx} />}
+        {quickValuationOpen && <QuickValuationSheet ctx={ctx} onClose={() => setQuickValuationOpen(false)} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
         {homeStagingOpen && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setHomeStagingOpen(false)} />}
         {/* City is no longer a blocking gate before the app loads — this is
@@ -3802,6 +3807,15 @@ function MoreTab({ ctx }) {
         <ChevronLeft size={17} color={c.muted} />
       </button>
 
+      <button onClick={() => ctx.setQuickValuationOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><TrendingUp size={20} color={c.primary} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>Flora Valuation — قیمت‌گذاری سریع</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>موقعیت رو روی نقشه بزن، فوری قیمت بگیر</p>
+        </div>
+        <ChevronLeft size={17} color={c.muted} />
+      </button>
+
       {/* Collapsible: owners */}
       <CollapsibleCard c={c} icon={UserCircle2} tint={c.primary} title="مالکین" subtitle="لیست مالکین و تماس سریع" count={owners.length}>
         <div className="flex flex-col gap-2">
@@ -5374,6 +5388,147 @@ function ScheduleVisitCard({ ctx, property }) {
       <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="نام مشتری برای بازدید" style={inputStyle(c)} />
       <button onClick={confirm} className="press w-full" style={{ marginTop: SP.md, paddingBlock: SP.md, borderRadius: RAD.md, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>ثبت بازدید</button>
     </div>
+  );
+}
+
+// Quick Valuation — the phone-call-speed entry point. Same brand ("Flora
+// Valuation"), same underlying number-honesty rules, but a different,
+// much shorter path: no saved property needed yet, just a map pin + area,
+// answered from the 4 nearest real listings instead of the full weighted
+// engine across everything. Saving afterward hands off to the same
+// PropertyForm + full ValuationSheet already built — one system, two speeds.
+function QuickValuationSheet({ ctx, onClose }) {
+  const { c, properties, setMapPicker, notify, setSheet, setPrefillNew } = ctx;
+  const [location, setLocation] = useState(null); // { lat, lng, address }
+  const [area, setArea] = useState("");
+  const [type, setType] = useState("آپارتمان");
+  const [yearBuilt, setYearBuilt] = useState("");
+  const [result, setResult] = useState(null);
+
+  const pickLocation = () => {
+    setMapPicker({
+      initial: location,
+      onPick: ({ address, lat, lng }) => { setLocation({ address, lat, lng }); setMapPicker(null); },
+    });
+  };
+
+  const calculate = () => {
+    if (!location) { notify("اول موقعیت رو روی نقشه انتخاب کن"); return; }
+    if (!toNum(area)) { notify("متراژ رو وارد کن"); return; }
+    const r = computeQuickValuationFromMap(location.lat, location.lng, toNum(area), type, properties, 4);
+    setResult(r);
+  };
+
+  const saveAsFile = () => {
+    setPrefillNew({
+      area: toNum(area), type, address: location.address, lat: location.lat, lng: location.lng,
+      pricePerMeter: result?.ok ? result.pricePerMeter : "", yearBuilt: yearBuilt ? toNum(yearBuilt) : undefined,
+    });
+    onClose();
+    setSheet("property");
+  };
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
+        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
+          <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+          <div>
+            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>Flora Valuation</p>
+            <p style={{ fontSize: FS.caption, color: c.muted }}>قیمت‌گذاری سریع — برای وقتی مالک پای تلفنه</p>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-8">
+          {!result && (
+            <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+              <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>موقعیت</p>
+              <button onClick={pickLocation} className="press w-full flex items-center justify-between rounded-xl px-4" style={{ paddingBlock: 13, background: c.surface2, marginBottom: SP.md }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: location ? c.ink : c.muted }}>{location?.address || "روی نقشه انتخاب کن"}</span>
+                <MapPin size={16} color={location ? c.success : c.primary} />
+              </button>
+
+              <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>متراژ</p>
+              <input value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), marginBottom: SP.md, fontSize: 18, fontWeight: 700 }} placeholder="مثلاً 120" dir="ltr" />
+
+              <div className="flex gap-2 mb-4">
+                {TYPE_FILTERS.filter((t) => t !== "همه").map((t) => (
+                  <button key={t} onClick={() => setType(t)} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === t ? c.primary : c.surface2, color: type === t ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{t}</button>
+                ))}
+              </div>
+
+              <button onClick={calculate} className="press w-full rounded-xl" style={{ paddingBlock: 14, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 800, fontSize: 14 }}>محاسبه</button>
+            </div>
+          )}
+
+          {result && !result.ok && (
+            <>
+              <EmptyLine c={c} text={result.reason} />
+              <button onClick={() => setResult(null)} className="press w-full rounded-xl mt-4" style={{ paddingBlock: 12, background: c.surface2, fontWeight: 700, fontSize: 13 }}>تغییر ورودی</button>
+            </>
+          )}
+
+          {result?.ok && (
+            <>
+              <div className="rounded-2xl p-5 mb-4 text-center" style={glass(c)}>
+                <p style={{ fontSize: 12, color: c.muted, marginBottom: 4 }}>ارزش تقریبی</p>
+                <p style={{ fontSize: 26, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairValue)}</p>
+                <p style={{ fontSize: 13, color: c.muted, marginTop: 4 }}>{fmtToman(result.pricePerMeter)} / متر</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="rounded-xl p-3 text-center" style={glassLite(c)}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>خوش‌قیمت</p><p style={{ fontSize: 13, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.goodDeal)}</p></div>
+                <div className="rounded-xl p-3 text-center" style={{ ...glassLite(c), border: `1.5px solid ${c.primary}55` }}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>منصفانه</p><p style={{ fontSize: 13, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairValue)}</p></div>
+                <div className="rounded-xl p-3 text-center" style={glassLite(c)}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>پیشنهاد فروش</p><p style={{ fontSize: 13, fontWeight: 800, color: c.attn }}>{fmtBudgetShort(result.askingPrice)}</p></div>
+              </div>
+
+              <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+                <div className="flex items-center justify-between mb-1">
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>اطمینان</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: c.primary }}>{result.confidence.label} — {faDigits(result.confidence.pct)}٪</span>
+                </div>
+                <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.8 }}>بر اساس {faDigits(result.comparableCount)} فایل نزدیک‌ترین روی نقشه{result.excludedOutliers > 0 ? ` (${faDigits(result.excludedOutliers)} مورد غیرعادی کنار گذاشته شد)` : ""}.</p>
+              </div>
+
+              {result.comparables.length > 0 && (
+                <>
+                  <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: SP.sm }}>فایل‌های نزدیک استفاده‌شده</p>
+                  <div className="flex flex-col gap-2 mb-4">
+                    {result.comparables.map((comp) => (
+                      <button key={comp.property.id} onClick={() => { onClose(); ctx.setDetail({ type: "property", id: comp.property.id }); }} className="press w-full text-right flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 10, ...glassLite(c) }}>
+                        <div>
+                          <p style={{ fontSize: 12, fontWeight: 700 }}>{comp.property.title}</p>
+                          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{comp.km < 1 ? `${faDigits(Math.round(comp.km * 1000))} متر فاصله` : `${faDigits(comp.km.toFixed(1))} کیلومتر فاصله`}</p>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{fmtToman(comp.pricePerMeter)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Optional, offered only after a result already exists — per
+                  spec, never blocks getting a number. */}
+              <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+                <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>دقت بیشتر؟ (اختیاری)</p>
+                <input value={yearBuilt} onChange={(e) => setYearBuilt(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={inputStyle(c)} placeholder="سال ساخت، اگه می‌دونی" dir="ltr" />
+                <p style={{ fontSize: 10, color: c.muted, marginTop: 6, lineHeight: 1.7 }}>بعد از ذخیره به‌عنوان فایل، از Flora Valuation کامل (روی خود فایل) برآورد دقیق‌تر با همین اطلاعات بگیر.</p>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => setResult(null)} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>محاسبه‌ی دیگر</button>
+                <button onClick={saveAsFile} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره به‌عنوان فایل</button>
+              </div>
+
+              <div className="flex items-start gap-2" style={{ padding: SP.sm, marginTop: SP.md }}>
+                <ShieldAlert size={12} color={c.muted} style={{ flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 10, color: c.muted, lineHeight: 1.7 }}>برآورد سریع بر اساس نزدیک‌ترین فایل‌ها روی نقشه — نه قیمت قطعی معامله.</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </BodyPortal>
   );
 }
 
@@ -7791,7 +7946,7 @@ function PreSaleFields({ c, f, setF, total }) {
 }
 
 function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
-  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate, setDetail } = ctx;
+  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate, setDetail, prefillNew, setPrefillNew } = ctx;
   const editing = editId ? properties.find((x) => x.id === editId) : null;
   const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
   const [f, setF] = useState(editing ? {
@@ -7799,7 +7954,10 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
     rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address, street: editing.street || "",
     ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "", lat: editing.lat, lng: editing.lng,
     preDown: String(editing.preDown || ""), preMonths: String(editing.preMonths || ""), preDelivery: String(editing.preDelivery || ""), preDeed: String(editing.preDeed || ""), buildStage: editing.buildStage || BUILD_STAGES[0], desc: editing.desc || "",
-  } : { title: "", type: "آپارتمان", deal: "فروش", pricePerMeter: "", area: "", rooms: "", floor: "1", furnished: "بدون لوازم", address: "", street: "", ownerName: "", ownerPhone: "", builderId: "", lat: null, lng: null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0], desc: "" });
+  } : { title: "", type: prefillNew?.type || "آپارتمان", deal: "فروش", pricePerMeter: prefillNew?.pricePerMeter ? String(prefillNew.pricePerMeter) : "", area: prefillNew?.area ? String(prefillNew.area) : "", rooms: "", floor: "1", furnished: "بدون لوازم", address: prefillNew?.address || "", street: "", ownerName: "", ownerPhone: "", builderId: "", lat: prefillNew?.lat ?? null, lng: prefillNew?.lng ?? null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0], desc: "" });
+  // One-shot: once its values have seeded the form above, the hand-off data
+  // is cleared so it can't leak into some unrelated later "new property".
+  useEffect(() => { if (prefillNew) setPrefillNew(null); }, []); // eslint-disable-line
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
   const [showMore, setShowMore] = useState(false);
