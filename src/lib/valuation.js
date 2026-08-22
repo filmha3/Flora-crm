@@ -108,6 +108,63 @@ export function splitOutliers(items) {
 }
 
 /**
+ * Quick, map-first valuation for a phone-call moment — no saved property
+ * needed yet. Uses exactly the N nearest real properties by geographic
+ * distance (default 4, per the requested "4 nearest from the map"), not the
+ * full weighted engine across the whole dataset. Distance is still the
+ * weighting factor among those N, so the closest of the four still counts
+ * for more than the farthest.
+ */
+export function computeQuickValuationFromMap(lat, lng, area, type, allProperties, nearestCount = 4) {
+  if (lat == null || lng == null) return { ok: false, reason: "موقعیتی روی نقشه انتخاب نشده." };
+  if (!area || area <= 0) return { ok: false, reason: "متراژ را وارد کن." };
+
+  const withDistance = allProperties
+    .filter((p) => p.lat != null && p.lng != null && p.pricePerMeter > 0 && (!type || p.type === type))
+    .map((p) => ({ property: p, km: haversineKm(lat, lng, p.lat, p.lng) }))
+    .filter((c) => c.km != null)
+    .sort((a, b) => a.km - b.km)
+    .slice(0, nearestCount);
+
+  if (withDistance.length === 0) {
+    return { ok: false, reason: "هیچ فایلی با موقعیت ثبت‌شده روی نقشه نزدیک این نقطه نداریم." };
+  }
+
+  const items = withDistance.map((c) => ({
+    value: c.property.pricePerMeter,
+    weight: Math.max(0.1, 1 - c.km / 3), // same falloff curve as the full engine
+    property: c.property,
+    km: c.km,
+  }));
+
+  const { kept, excluded } = splitOutliers(items);
+  const basePricePerMeter = weightedMedian(kept);
+  if (!basePricePerMeter) return { ok: false, reason: "داده‌ی کافی برای محاسبه نبود." };
+
+  const pricePerMeter = Math.round(basePricePerMeter);
+  const fairValue = Math.round(pricePerMeter * area);
+
+  // Fewer inputs than the full engine (no street/year/floor match), so
+  // confidence is capped more conservatively even with a decent count —
+  // this is a fast estimate for a phone call, not the detailed report.
+  const conf = kept.length >= nearestCount && excluded.length === 0
+    ? { level: "Medium", label: "متوسط", pct: 55 }
+    : { level: "Low", label: "پایین", pct: 35 };
+
+  return {
+    ok: true,
+    pricePerMeter,
+    fairValue,
+    goodDeal: Math.round(fairValue * 0.96),
+    askingPrice: Math.round(fairValue * 1.03),
+    confidence: conf,
+    comparableCount: kept.length,
+    excludedOutliers: excluded.length,
+    comparables: kept.map((i) => ({ property: i.property, pricePerMeter: i.value, km: i.km })),
+  };
+}
+
+/**
  * The whole pipeline, per spec section headers 4–10.
  * @param subject - the property being valued (needs area, type; street/lat/lng/floor/yearBuilt improve accuracy)
  * @param allProperties - every other property in the local dataset

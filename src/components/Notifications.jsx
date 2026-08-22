@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Bell, BellOff, Share2, Plus, Smartphone, Check, X, ChevronLeft, AlertTriangle, Loader2 } from "lucide-react";
+import { Bell, BellOff, Share2, Plus, Smartphone, Check, X, ChevronLeft, AlertTriangle, Loader2, Send } from "lucide-react";
 import { supabase } from "../lib/supabaseClient.js";
 import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
 import { EmptyLine, BodyPortal } from "../lib/ui.jsx";
 import { fmtJalali } from "../lib/format.js";
 import { isPushSupported, isIos, isInStandaloneMode, enablePush, disablePush, getPushPermissionState } from "../lib/push.js";
+
+// TODO: replace with your real bot's username once created via @BotFather
+// (no @, e.g. "FloraCrmBot"). Nothing else needs to change — the deep link
+// below carries the Flora user id, and telegram-webhook reads it from there.
+const TELEGRAM_BOT_USERNAME = "FloraCrmBot";
 
 const CATEGORIES = [
   { key: "visits", label: "بازدیدها" },
@@ -116,6 +121,8 @@ function NotificationsSettings({ ctx }) {
   const [permState, setPermState] = useState("default");
   const [busy, setBusy] = useState(false);
   const [showIosOnboarding, setShowIosOnboarding] = useState(false);
+  const [telegramChatId, setTelegramChatId] = useState(undefined); // undefined = loading, null = not linked, number = linked
+  const [userId, setUserId] = useState(null);
 
   const supported = isPushSupported();
   const ios = isIos();
@@ -125,13 +132,20 @@ function NotificationsSettings({ ctx }) {
   // for the explicit guidance message, not the enable button's own gating.
   const needsIosInstall = ios && !standalone;
 
+  const loadTelegramStatus = async (uid) => {
+    const { data } = await supabase.from("telegram_links").select("chat_id").eq("user_id", uid).single().catch(() => ({ data: null }));
+    setTelegramChatId(data?.chat_id ?? null);
+  };
+
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setUserId(user.id);
       const { data } = await supabase.from("notification_preferences").select("*").eq("user_id", user.id).single();
       setPrefs(data || { ...DEFAULT_PREFS, user_id: user.id });
       setPermState(await getPushPermissionState());
+      loadTelegramStatus(user.id);
     })();
   }, []);
 
@@ -166,6 +180,20 @@ function NotificationsSettings({ ctx }) {
     setBusy(false);
   };
 
+  const connectTelegram = () => {
+    if (!userId) return;
+    window.open(`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${userId}`, "_blank");
+  };
+
+  // Linking happens inside Telegram itself (the person taps /start there,
+  // never comes back through any code Flora controls) — re-checking when
+  // they return to this tab is the only way to notice it actually worked.
+  useEffect(() => {
+    const onFocus = () => { if (userId) loadTelegramStatus(userId); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [userId]);
+
   if (!prefs) return null;
 
   return (
@@ -196,6 +224,28 @@ function NotificationsSettings({ ctx }) {
           {busy ? <Loader2 size={14} className="animate-spin" /> : permState === "granted" ? <BellOff size={14} /> : <Bell size={14} />}
           {permState === "granted" ? "غیرفعال کردن اعلان‌ها" : needsIosInstall ? "راهنمای نصب روی آیفون" : "اعلان‌های Flora را فعال کن"}
         </button>
+      </div>
+
+      {/* Telegram — a second, independent delivery path. Doesn't need iOS
+          Home Screen install, doesn't depend on Apple's push gateway at
+          all; just a chat message the moment the person taps /start once. */}
+      <div className="rounded-2xl p-4 mb-5" style={glass(c)}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: telegramChatId ? c.successSoft : c.primarySoft }}>
+            <Send size={19} color={telegramChatId ? c.success : c.primary} />
+          </div>
+          <div className="flex-1">
+            <p style={{ fontSize: 14, fontWeight: 700 }}>{telegramChatId ? "تلگرام وصل است" : "اعلان از طریق تلگرام"}</p>
+            <p style={{ fontSize: 12, color: c.muted, marginTop: 2 }}>
+              {telegramChatId ? "اعلان‌ها اینجا هم می‌رسند — مستقل از این دستگاه" : "مطمئن‌تر از اعلان روی آیفون — یک بار /start بزن"}
+            </p>
+          </div>
+        </div>
+        {!telegramChatId && (
+          <button onClick={connectTelegram} className="press w-full flex items-center justify-center rounded-xl mt-3.5" style={{ gap: 6, paddingBlock: 11, background: "linear-gradient(135deg,#2AABEE,#229ED9)", color: "#fff", fontSize: 13, fontWeight: 700 }}>
+            <Send size={14} /> اتصال به تلگرام
+          </button>
+        )}
       </div>
 
       {/* Categories */}
