@@ -26,7 +26,7 @@ import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourSt
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
-import { computeValuation, computeQuickValuationFromMap, buildExplanation } from "./lib/valuation.js";
+import { computeFormulaValuation, computeQuickValuationFromMap, buildFormulaExplanation } from "./lib/valuation.js";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -854,9 +854,13 @@ export default function FloraCRM() {
         select { -webkit-appearance: none; appearance: none; }
       `}</style>
 
-      <span className="flora-orb" style={{ width: 300, height: 300, background: c.orb1, top: -90, right: -70 }} />
-      <span className="flora-orb" style={{ width: 260, height: 260, background: c.orb2, bottom: -50, left: -50, animationDelay: "-4s" }} />
-      <span className="flora-orb" style={{ width: 220, height: 220, background: c.orb3, top: "42%", left: "48%", animationDelay: "-8s", opacity: .25 }} />
+      {c.isDark && (
+        <>
+          <span className="flora-orb" style={{ width: 300, height: 300, background: c.orb1, top: -90, right: -70 }} />
+          <span className="flora-orb" style={{ width: 260, height: 260, background: c.orb2, bottom: -50, left: -50, animationDelay: "-4s" }} />
+          <span className="flora-orb" style={{ width: 220, height: 220, background: c.orb3, top: "42%", left: "48%", animationDelay: "-8s", opacity: .25 }} />
+        </>
+      )}
 
       {/* Faint Flora emblem watermark, drifting gently behind the whole app */}
       <div className="flora-float" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none", zIndex: 0, opacity: dark ? 0.04 : 0.05 }}>
@@ -890,7 +894,7 @@ export default function FloraCRM() {
 
         {!detail && !focusQueue && !tourBuilder && !openTourId && (
           <button onClick={() => setSheet("add")} className="press fixed flex items-center justify-center"
-            style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 14, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
+            style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 25, width: 54, height: 54, borderRadius: 14, background: c.gradientPrimary, boxShadow: "0 12px 28px rgba(47,124,246,0.5)", position: "fixed" }}>
             <span style={{ position: "absolute", inset: -8, borderRadius: 22, border: "2px solid rgba(47,124,246,0.35)", animation: "floraRipple 2.2s infinite" }} />
             <Plus color="#fff" size={24} strokeWidth={2.5} />
           </button>
@@ -1405,12 +1409,12 @@ function FocusMode({ ctx }) {
             {step === "act" && (
               <div style={{ marginTop: SP.xxl }}>
                 {a.action.type === "call" && (
-                  <button onClick={doCall} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
+                  <button onClick={doCall} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: c.gradientPrimary, boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
                     <PhoneCall size={18} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>تماس بگیر</span>
                   </button>
                 )}
                 {a.action.type === "wa" && (
-                  <button onClick={doWa} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
+                  <button onClick={doWa} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: c.gradientPrimary, boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5), inset 0 1px 0 rgba(255,255,255,0.22)", marginBottom: SP.md }}>
                     <MessageCircle size={18} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>ارسال واتساپ</span>
                   </button>
                 )}
@@ -1444,7 +1448,7 @@ function FocusMode({ ctx }) {
                 </div>
                 <p style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold, textAlign: "center", marginBottom: SP.sm, letterSpacing: "0.02em" }}>مرحله‌ی بعدی</p>
                 <p style={{ fontSize: FS.subtitle, color: c.ink, textAlign: "center", lineHeight: 1.8, fontWeight: FW.medium }}>{nextTip}</p>
-                <button onClick={advance} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xxl, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
+                <button onClick={advance} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xxl, paddingBlock: SP.md, borderRadius: RAD.lg, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
                   {index + 1 < actions.length ? "بعدی" : "تمام برای امروز"}{index + 1 < actions.length && <ChevronLeft size={16} color="#fff" />}
                 </button>
               </>
@@ -2172,7 +2176,7 @@ ${activeListings}
       )}
       {phase === "idle" && error && (
         <div className="flex flex-col items-center" style={{ paddingBlock: SP.xl }}>
-          <button onClick={startRecording} className="press relative flex items-center justify-center" style={{ width: 88, height: 88, borderRadius: "50%", background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5)" }}>
+          <button onClick={startRecording} className="press relative flex items-center justify-center" style={{ width: 88, height: 88, borderRadius: "50%", background: c.gradientPrimary, boxShadow: "0 16px 34px -10px rgba(47,124,246,0.5)" }}>
             <Mic size={34} color="#fff" />
           </button>
           <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.lg, textAlign: "center" }}>بزن تا دوباره امتحان کنیم</p>
@@ -2289,7 +2293,7 @@ ${activeListings}
             ))}
             {savedItems.length === 0 && <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center" }}>یادداشت ثبت شد</p>}
           </div>
-          <button onClick={() => { setShowFullEdit(false); setClarifyAnswer(""); startRecording(); }} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, marginBottom: SP.sm }}>
+          <button onClick={() => { setShowFullEdit(false); setClarifyAnswer(""); startRecording(); }} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, marginBottom: SP.sm }}>
             <Mic size={16} color="#fff" />ویس بعدی
           </button>
           <button onClick={onClose} className="press w-full" style={{ paddingBlock: SP.md, borderRadius: RAD.lg, background: c.surface2, color: c.ink, fontWeight: FW.bold, fontSize: FS.body + 1 }}>تمام، برگرد به خانه</button>
@@ -2754,7 +2758,7 @@ function HomeTab({ ctx }) {
 
       {/* Primary action — the ONLY place the accent gradient appears */}
       {simpleMode && (
-        <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, marginTop: SP.xl, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
+        <button onClick={() => setSheet("property")} className="press w-full flex items-center relative overflow-hidden" style={{ gap: SP.lg, padding: SP.xl, borderRadius: RAD.lg, marginTop: SP.xl, background: c.gradientPrimary, boxShadow: "0 16px 40px -8px rgba(47,124,246,0.45), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
           <span style={{ position: "absolute", top: "-60%", left: "-10%", width: 200, height: 200, background: "radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%)", pointerEvents: "none" }} />
           <div className="flex items-center justify-center shrink-0" style={{ width: 54, height: 54, borderRadius: RAD.md, background: "rgba(255,255,255,0.22)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)" }}><Plus size={28} color="#fff" strokeWidth={2.5} /></div>
           <div className="text-right flex-1" style={{ position: "relative" }}>
@@ -3564,7 +3568,7 @@ function CalendarTab({ ctx }) {
             const isSel = iso === selected;
             const hasVisit = visitDays[d];
             return (
-              <button key={i} onClick={() => setSelected(iso)} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: isSel ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : isToday ? c.primarySoft : "transparent", position: "relative" }}>
+              <button key={i} onClick={() => setSelected(iso)} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: isSel ? c.gradientPrimary : isToday ? c.primarySoft : "transparent", position: "relative" }}>
                 <span style={{ fontSize: FS.body, fontWeight: isSel || isToday ? FW.heavy : FW.medium, color: isSel ? "#fff" : isToday ? c.primary : c.ink }}>{faDigits(d)}</span>
                 {hasVisit && <span style={{ position: "absolute", bottom: 5, width: 5, height: 5, borderRadius: RAD.pill, background: isSel ? "#fff" : c.success }} />}
               </button>
@@ -3693,7 +3697,7 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
     notify("مشخصات دفتر ذخیره شد");
   };
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
+    <div className="rounded-2xl p-4 mb-4" style={{ background: c.gradientPrimary, boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
       <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
       <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
       {!editing ? (
@@ -4200,7 +4204,7 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
           <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>فایل و مشتری را انتخاب کن تا اطلاعات خودکار در قرارداد بنشیند.</p>
           <Field c={c} label="فایل ملک"><Select c={c} value={draft.propertyId} onChange={(e) => setDraft({ ...draft, propertyId: e.target.value })} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
           <Field c={c} label="مشتری"><Select c={c} value={draft.customerId} onChange={(e) => setDraft({ ...draft, customerId: e.target.value })} placeholder="انتخاب مشتری" options={customers.map((x) => ({ value: x.id, label: x.name }))} /></Field>
-          <button onClick={generate} disabled={draft.loading} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
+          <button onClick={generate} disabled={draft.loading} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
             {draft.loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{draft.loading ? "در حال نوشتن..." : draft.text ? "نوشتن دوباره" : "تنظیم قرارداد با AI"}
           </button>
         </div>
@@ -4327,7 +4331,7 @@ function InvestmentCenterView({ ctx, onBack }) {
         </div>
       )}
 
-      <button onClick={() => setShowForm(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body, marginBottom: SP.lg }}>
+      <button onClick={() => setShowForm(true)} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body, marginBottom: SP.lg }}>
         <Plus size={17} color="#fff" />ثبت پروژه‌ی جدید
       </button>
 
@@ -4976,7 +4980,7 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
       </div>
 
       {!variants && !loading && (
-        <button onClick={generate} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 14px 30px -10px rgba(47,124,246,0.45)" }}>
+        <button onClick={generate} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: c.gradientPrimary, boxShadow: "0 14px 30px -10px rgba(47,124,246,0.45)" }}>
           <Sparkles size={17} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>ساخت آگهی حرفه‌ای با هوش مصنوعی</span>
         </button>
       )}
@@ -5169,7 +5173,7 @@ function VirtualStagingSheet({ ctx, p, onClose }) {
               ); })}
             </div>
             <input value={customStyle} onChange={(e) => setCustomStyle(e.target.value)} placeholder="یا خودت بنویس، مثلاً «کلاسیک گرم»" style={inputStyle(c)} />
-            <button onClick={run} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>شروع استیجینگ</button>
+            <button onClick={run} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>شروع استیجینگ</button>
           </div>
         )}
 
@@ -5403,38 +5407,80 @@ function ScheduleVisitCard({ ctx, property }) {
 // engine across everything. Saving afterward hands off to the same
 // PropertyForm + full ValuationSheet already built — one system, two speeds.
 function QuickValuationSheet({ ctx, onClose }) {
-  const { c, properties, setMapPicker, notify, setSheet, setPrefillNew } = ctx;
+  const { c, properties, notify, setSheet, setPrefillNew } = ctx;
+  const mapRef = useRef(null); const mapObjRef = useRef(null); const markerRef = useRef(null);
   const [location, setLocation] = useState(null); // { lat, lng, address }
+  const [loadingAddr, setLoadingAddr] = useState(false);
   const [area, setArea] = useState("");
   const [type, setType] = useState("آپارتمان");
   const [yearBuilt, setYearBuilt] = useState("");
-  const [floor, setFloor] = useState("");
-  const [view, setView] = useState("");
-  const [result, setResult] = useState(null);
+  const [locationQuality, setLocationQuality] = useState("");
+  const [viewCategory, setViewCategory] = useState("");
+  const [floorCategory, setFloorCategory] = useState("");
+  const [buildingQuality, setBuildingQuality] = useState("");
+  const [furnishLevel, setFurnishLevel] = useState("");
+  const [hasCalculated, setHasCalculated] = useState(false);
 
-  const pickLocation = () => {
-    setMapPicker({
-      initial: location,
-      onPick: ({ address, lat, lng }) => { setLocation({ address, lat, lng }); setMapPicker(null); },
-    });
+  const resolveAddress = async (lat, lng) => {
+    setLoadingAddr(true);
+    const address = await reverseGeocodeAddress(lat, lng);
+    setLocation({ lat, lng, address });
+    setLoadingAddr(false);
   };
+
+  // The map lives directly on this screen now instead of behind a second
+  // tap into a separate overlay — one less step, and it sidesteps the class
+  // of bug where a map initializes while its own container is still
+  // mid-slide-in (this screen itself has no transform animation, so
+  // Leaflet measures its real, final position from the start).
+  useEffect(() => {
+    let cancelled = false;
+    loadLeaflet().then((L) => {
+      if (cancelled || !mapRef.current || mapObjRef.current) return;
+      const start = SAREIN_CENTER;
+      const map = L.map(mapRef.current, { attributionControl: false }).setView(start, 14);
+      L.tileLayer(LIGHT_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
+      const marker = L.marker(start, { draggable: true }).addTo(map);
+      markerRef.current = marker;
+      marker.on("dragend", () => { const p = marker.getLatLng(); resolveAddress(p.lat, p.lng); });
+      map.on("click", (e) => { marker.setLatLng(e.latlng); resolveAddress(e.latlng.lat, e.latlng.lng); });
+      mapObjRef.current = map;
+      resolveAddress(start[0], start[1]);
+    });
+    return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
+  }, []);
+
+  const extras = { yearBuilt: yearBuilt ? toNum(yearBuilt) : null, locationQuality, viewCategory, floorCategory, buildingQuality, furnishLevel };
+
+  const result = useMemo(() => {
+    if (!hasCalculated || !location || !toNum(area)) return null;
+    return computeQuickValuationFromMap(location.lat, location.lng, toNum(area), type, properties, 4, extras);
+  }, [hasCalculated, location, area, type, yearBuilt, locationQuality, viewCategory, floorCategory, buildingQuality, furnishLevel, properties]);
 
   const calculate = () => {
     if (!location) { notify("اول موقعیت رو روی نقشه انتخاب کن"); return; }
     if (!toNum(area)) { notify("متراژ رو وارد کن"); return; }
-    const r = computeQuickValuationFromMap(location.lat, location.lng, toNum(area), type, properties, 4);
-    setResult(r);
+    setHasCalculated(true);
   };
 
   const saveAsFile = () => {
     setPrefillNew({
       area: toNum(area), type, address: location.address, lat: location.lat, lng: location.lng,
       pricePerMeter: result?.ok ? result.pricePerMeter : "", yearBuilt: yearBuilt ? toNum(yearBuilt) : undefined,
-      floor: floor ? toNum(floor) : undefined, view: view || undefined,
+      locationQuality: locationQuality || undefined, viewCategory: viewCategory || undefined,
+      floorCategory: floorCategory || undefined, buildingQuality: buildingQuality || undefined, furnishLevel: furnishLevel || undefined,
     });
     onClose();
     setSheet("property");
   };
+
+  const REFINE_FIELDS = [
+    { key: "locationQuality", value: locationQuality, set: setLocationQuality, label: "موقعیت", options: ["ضعیف", "معمولی", "خوب", "ممتاز"] },
+    { key: "viewCategory", value: viewCategory, set: setViewCategory, label: "ویو / جهت", options: ["بدون ویو", "حیاط معمولی", "کوچه معمولی", "خیابان خوب", "ویوی باز", "ویوی ممتاز"] },
+    { key: "floorCategory", value: floorCategory, set: setFloorCategory, label: "طبقه", options: ["همکف نامطلوب", "طبقه میانی", "طبقه بالا با ویو", "طبقه آخر"] },
+    { key: "buildingQuality", value: buildingQuality, set: setBuildingQuality, label: "کیفیت ساختمان", options: ["ضعیف", "معمولی", "خوب", "خیلی خوب", "لوکس"] },
+    { key: "furnishLevel", value: furnishLevel, set: setFurnishLevel, label: "فرنیش", options: ["خالی", "نیمه‌فرنیش", "فول‌فرنیش معمولی", "فول‌فرنیش خوب", "فول‌فرنیش لوکس"] },
+  ];
 
   return (
     <BodyPortal>
@@ -5449,63 +5495,71 @@ function QuickValuationSheet({ ctx, onClose }) {
 
         <div className="flex-1 overflow-y-auto px-4 pb-8">
           {!result && (
-            <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
-              <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>موقعیت</p>
-              <button onClick={pickLocation} className="press w-full flex items-center justify-between rounded-xl px-4" style={{ paddingBlock: 13, background: c.surface2, marginBottom: SP.md }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: location ? c.ink : c.muted }}>{location?.address || "روی نقشه انتخاب کن"}</span>
-                <MapPin size={16} color={location ? c.success : c.primary} />
-              </button>
+            <div className="rounded-2xl mb-4 overflow-hidden" style={glass(c)}>
+              <div ref={mapRef} style={{ width: "100%", height: 240, background: c.surface2 }} />
+              <div style={{ padding: SP.lg }}>
+                <div className="flex items-center gap-1.5 mb-4">
+                  <MapPin size={13} color={c.primary} />
+                  <p style={{ fontSize: 12.5, fontWeight: 700 }}>{loadingAddr ? "در حال یافتن آدرس…" : (location?.address || "روی نقشه لمس کن یا نشانگر را جابه‌جا کن")}</p>
+                </div>
 
-              <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>متراژ</p>
-              <input value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), marginBottom: SP.md, fontSize: 18, fontWeight: 700 }} placeholder="مثلاً 120" dir="ltr" />
+                <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>متراژ</p>
+                <input value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), marginBottom: SP.md, fontSize: 18, fontWeight: 700 }} placeholder="مثلاً 120" dir="ltr" />
 
-              <div className="flex gap-2 mb-4">
-                {TYPE_FILTERS.filter((t) => t !== "همه").map((t) => (
-                  <button key={t} onClick={() => setType(t)} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === t ? c.primary : c.surface2, color: type === t ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{t}</button>
-                ))}
+                <div className="flex gap-2 mb-4">
+                  {TYPE_FILTERS.filter((t) => t !== "همه").map((t) => (
+                    <button key={t} onClick={() => setType(t)} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === t ? c.primary : c.surface2, color: type === t ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{t}</button>
+                  ))}
+                </div>
+
+                <button onClick={calculate} className="press w-full rounded-xl" style={{ paddingBlock: 14, background: c.gradientPrimary, color: "#fff", fontWeight: 800, fontSize: 14 }}>محاسبه</button>
               </div>
-
-              <button onClick={calculate} className="press w-full rounded-xl" style={{ paddingBlock: 14, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 800, fontSize: 14 }}>محاسبه</button>
             </div>
           )}
 
           {result && !result.ok && (
             <>
               <EmptyLine c={c} text={result.reason} />
-              <button onClick={() => setResult(null)} className="press w-full rounded-xl mt-4" style={{ paddingBlock: 12, background: c.surface2, fontWeight: 700, fontSize: 13 }}>تغییر ورودی</button>
+              <button onClick={() => setHasCalculated(false)} className="press w-full rounded-xl mt-4" style={{ paddingBlock: 12, background: c.surface2, fontWeight: 700, fontSize: 13 }}>تغییر ورودی</button>
             </>
           )}
 
           {result?.ok && (
             <>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="rounded-xl p-3 text-center" style={glassLite(c)}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>خوش‌قیمت</p><p style={{ fontSize: 14, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.goodDeal)}</p></div>
-                <div className="rounded-xl p-3 text-center" style={{ ...glassLite(c), border: `1.5px solid ${c.primary}55` }}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>منصفانه</p><p style={{ fontSize: 14, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairValue)}</p></div>
+                <div className="rounded-xl p-3 text-center" style={glassLite(c)}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>فروش سریع</p><p style={{ fontSize: 14, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.quickSale)}</p></div>
+                <div className="rounded-xl p-3 text-center" style={{ ...glassLite(c), border: `1.5px solid ${c.primary}55` }}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>منصفانه</p><p style={{ fontSize: 14, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairPrice)}</p></div>
                 <div className="rounded-xl p-3 text-center" style={glassLite(c)}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>پیشنهاد فروش</p><p style={{ fontSize: 14, fontWeight: 800, color: c.attn }}>{fmtBudgetShort(result.askingPrice)}</p></div>
               </div>
+              <p style={{ fontSize: 12, color: c.muted, textAlign: "center", marginBottom: SP.sm }}>{fmtToman(result.pricePerMeter)} / متر</p>
               {(() => {
-                const explanation = buildExplanation({ floor: floor || null, view: view || null, yearBuilt: yearBuilt ? toNum(yearBuilt) : null });
+                const explanation = buildFormulaExplanation(result);
                 return explanation ? <p style={{ fontSize: 11.5, color: c.muted, textAlign: "center", marginBottom: SP.lg, lineHeight: 1.8 }}>{explanation}</p> : null;
               })()}
 
               {/* Optional, offered only after a result already exists — per
-                  spec, never blocks getting a number. Feeds the one-line
-                  explanation above; nothing here is required. */}
+                  spec, never blocks getting a number. Any change here
+                  recomputes live (see the useMemo above), so filling these
+                  in actually moves the number instead of just describing it. */}
               <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
                 <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>دقت بیشتر؟ (اختیاری)</p>
-                <div className="flex gap-2 mb-2">
-                  <input value={floor} onChange={(e) => setFloor(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), flex: 1 }} placeholder="طبقه" dir="ltr" />
-                  <input value={yearBuilt} onChange={(e) => setYearBuilt(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), flex: 1 }} placeholder="سال ساخت" dir="ltr" />
-                </div>
-                <div className="flex gap-2">
-                  {["نمای اصلی", "حیاط"].map((v) => (
-                    <button key={v} onClick={() => setView(view === v ? "" : v)} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: view === v ? c.primary : c.surface2, color: view === v ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{v}</button>
+                <input value={yearBuilt} onChange={(e) => setYearBuilt(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), marginBottom: SP.md }} placeholder="سال ساخت (شمسی)" dir="ltr" />
+                <div className="flex flex-col gap-3">
+                  {REFINE_FIELDS.map(({ key, value, set, label, options }) => (
+                    <div key={key}>
+                      <p style={{ fontSize: 10.5, color: c.muted, marginBottom: 5 }}>{label}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {options.map((v) => (
+                          <button key={v} onClick={() => set(value === v ? "" : v)} className="press rounded-lg" style={{ paddingInline: 9, paddingBlock: 7, background: value === v ? c.primary : c.surface2, color: value === v ? "#fff" : c.muted, fontSize: 10.5, fontWeight: 700 }}>{v}</button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
 
               <div className="flex gap-2">
-                <button onClick={() => setResult(null)} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>محاسبه‌ی دیگر</button>
+                <button onClick={() => setHasCalculated(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>محاسبه‌ی دیگر</button>
                 <button onClick={saveAsFile} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره به‌عنوان فایل</button>
               </div>
 
@@ -5535,7 +5589,7 @@ function ValuationSheet({ ctx, propertyId, onClose }) {
 
   if (!property) return null;
 
-  const result = computeValuation(property, properties, streetPrices);
+  const result = computeFormulaValuation(property, properties, streetPrices);
   const streetManualPrices = property.street ? streetPrices.filter((s) => s.street === property.street) : [];
 
   const saveStreet = () => {
@@ -5588,7 +5642,7 @@ function ValuationSheet({ ctx, propertyId, onClose }) {
             <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
               <div className="flex items-start gap-2 mb-3">
                 <AlertTriangle size={14} color={c.attn} style={{ flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 12.5, lineHeight: 1.9 }}>{result.ok ? `فقط ${result.sameStreetCount} فایل مشابه توی «${property.street}» داریم — برای دقت بیشتر، قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن.` : `برای «${property.street}» فایل مشابهی نداریم. قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن تا برآورد بدیم.`}</p>
+                <p style={{ fontSize: 12.5, lineHeight: 1.9 }}>{result.count > 0 ? `فقط ${result.count} فایل مشابه توی «${property.street}» داریم — حداقل ۳ تا لازمه. برای دقت بیشتر، قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن.` : `برای «${property.street}» فایل مشابهی نداریم. قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن تا برآورد بدیم.`}</p>
               </div>
               {streetManualPrices.length > 0 && (
                 <div className="flex flex-col gap-1.5 mb-3">
@@ -5617,20 +5671,21 @@ function ValuationSheet({ ctx, propertyId, onClose }) {
             <>
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <div className="rounded-xl p-3 text-center" style={glassLite(c)}>
-                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>خوش‌قیمت</p>
-                  <p style={{ fontSize: 14, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.goodDeal)}</p>
+                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>فروش سریع</p>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.quickSale)}</p>
                 </div>
                 <div className="rounded-xl p-3 text-center" style={{ ...glassLite(c), border: `1.5px solid ${c.primary}55` }}>
                   <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>منصفانه</p>
-                  <p style={{ fontSize: 14, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairValue)}</p>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairPrice)}</p>
                 </div>
                 <div className="rounded-xl p-3 text-center" style={glassLite(c)}>
                   <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>پیشنهاد فروش</p>
                   <p style={{ fontSize: 14, fontWeight: 800, color: c.attn }}>{fmtBudgetShort(result.askingPrice)}</p>
                 </div>
               </div>
+              <p style={{ fontSize: 12, color: c.muted, textAlign: "center", marginBottom: SP.sm }}>{fmtToman(result.pricePerMeter)} / متر</p>
               {(() => {
-                const explanation = buildExplanation(property);
+                const explanation = buildFormulaExplanation(result);
                 return explanation ? <p style={{ fontSize: 11.5, color: c.muted, textAlign: "center", lineHeight: 1.8 }}>{explanation}</p> : null;
               })()}
             </>
@@ -6011,7 +6066,7 @@ function MissionOfTheDay({ ctx }) {
       {/* progress bar */}
       <div className="flex items-center gap-2 mb-3">
         <div style={{ flex: 1, height: 8, borderRadius: 8, background: c.surface2, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: pct >= 100 ? c.success : "linear-gradient(90deg,#2f7cf6,#7c6ff5)", transition: "width .5s cubic-bezier(.34,1.3,.64,1)" }} />
+          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: pct >= 100 ? c.success : c.gradientPrimary, transition: "width .5s cubic-bezier(.34,1.3,.64,1)" }} />
         </div>
         <span style={{ fontSize: 13, fontWeight: 800, color: pct >= 100 ? c.success : c.primary }}>{faDigits(pct)}%</span>
       </div>
@@ -6019,7 +6074,7 @@ function MissionOfTheDay({ ctx }) {
 
       {/* AI coach message */}
       {mission.coach && (
-        <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}>
+        <div className="rounded-xl p-3 mb-3 flex items-start gap-2.5" style={{ background: c.gradientPrimary }}>
           <Bot size={16} color="#fff" className="shrink-0" style={{ marginTop: 1 }} />
           <p style={{ fontSize: 11, color: "#fff", lineHeight: 1.85, fontWeight: 500 }}>{mission.coach}</p>
         </div>
@@ -6129,7 +6184,7 @@ function CallsView({ ctx, onBack }) {
   return (
     <div className="pt-3 pb-6">
       <BackHeader c={c} title="پیگیری تماس‌ها" onBack={onBack} />
-      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" }}>
+      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: c.gradientPrimary }}>
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}><PhoneCall size={20} color="#fff" /></div>
         <div>
           <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار پیگیری` : "همه پیگیری شده"}</p>
@@ -6816,7 +6871,7 @@ function FinanceCenterView({ ctx, onBack }) {
       {onBack && <BackHeader c={c} title="مرکز مالی" onBack={onBack} />}
       <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
         {visibleTabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c)}>
+          <button key={t.id} onClick={() => setTab(t.id)} className="press shrink-0 rounded-xl px-3.5 py-2" style={tab === t.id ? { background: c.gradientPrimary } : glass(c)}>
             <span style={{ fontSize: 11, fontWeight: 700, color: tab === t.id ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{t.label}</span>
           </button>
         ))}
@@ -6843,7 +6898,7 @@ function FinanceCenterView({ ctx, onBack }) {
           </div>
 
           {simpleMode && (
-            <button onClick={() => setSheet("deal")} className="press w-full rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", boxShadow: "0 12px 30px rgba(47,124,246,0.32)" }}>
+            <button onClick={() => setSheet("deal")} className="press w-full rounded-2xl p-4 mb-4 flex items-center gap-3" style={{ background: c.gradientPrimary, boxShadow: "0 12px 30px rgba(47,124,246,0.32)" }}>
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.2)" }}><FileText size={24} color="#fff" /></div>
               <div className="text-right">
                 <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>ثبت قرارداد جدید</p>
@@ -6888,7 +6943,7 @@ function FinanceCenterView({ ctx, onBack }) {
           <SearchBox c={c} value={search} setValue={setSearch} />
           <div className="flex gap-2 overflow-x-auto pb-1 my-3">
             {["همه", "تسویه شده", "در انتظار پرداخت", "در حال مذاکره"].map((s) => (
-              <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)" } : glass(c)}>
+              <button key={s} onClick={() => setStatusFilter(s)} className="press shrink-0 rounded-full px-3 py-1.5" style={statusFilter === s ? { background: c.gradientPrimary } : glass(c)}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: statusFilter === s ? "#fff" : c.muted, whiteSpace: "nowrap" }}>{s}</span>
               </button>
             ))}
@@ -7239,7 +7294,7 @@ function SplitTab({ ctx, deals, payments }) {
 
   return (
     <div>
-      <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: c.gradientPrimary, position: "relative", overflow: "hidden", border: "1px solid rgba(251,191,36,.25)" }}>
         <span style={{ position: "absolute", top: "-45%", left: "-20%", width: 190, height: 190, background: "radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: -18, right: -12, opacity: 0.1, pointerEvents: "none" }}><FloraMark size={120} color="#fbbf24" stroke={1.1} /></div>
         <p style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".04em" }}>کمیسیون دریافت‌شده (قابل تقسیم)</p>
@@ -7490,7 +7545,7 @@ function QuickAddSheet({ ctx, onClose }) {
   );
 }
 function Select({ c, value, onChange, options, placeholder }) { return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>; }
-function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full" style={{ borderRadius: RAD.md, paddingBlock: SP.md + 2, marginTop: SP.sm, background: disabled ? c.surface2 : "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: disabled ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>{label}</button>; }
+function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full" style={{ borderRadius: RAD.md, paddingBlock: SP.md + 2, marginTop: SP.sm, background: disabled ? c.surface2 : c.gradientPrimary, color: disabled ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>{label}</button>; }
 
 function JalaliDatePicker({ c, value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -7568,6 +7623,23 @@ function loadLeaflet() {
     const script = document.createElement("script"); script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"; script.onload = () => resolve(window.L); document.body.appendChild(script);
   });
 }
+// Shared by every "pick a point, tell me the street" map — used to be
+// duplicated inline inside MapPickerModal; QuickValuationSheet's own inline
+// map needs the exact same resolution logic, so it's a real function now
+// instead of a second copy.
+async function reverseGeocodeAddress(lat, lng) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fa`);
+    const data = await res.json();
+    const a = data.address || {};
+    const parts = [
+      a.road || a.pedestrian || a.footway,
+      a.neighbourhood || a.suburb || a.quarter,
+      a.city || a.town || a.village || "سرعین",
+    ].filter(Boolean);
+    return parts.length ? parts.join("، ") : (data.display_name || "سرعین، آدرس دقیق یافت نشد");
+  } catch { return "سرعین، آدرس دقیق یافت نشد"; }
+}
 function MapPickerModal({ c, onPick, onClose, initial }) {
   const mapRef = useRef(null); const mapObjRef = useRef(null);
   const [address, setAddress] = useState(""); const [loadingAddr, setLoadingAddr] = useState(false);
@@ -7575,17 +7647,7 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
   const reverseGeocode = async (lat, lng) => {
     setCoords([lat, lng]);
     setLoadingAddr(true);
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fa`);
-      const data = await res.json();
-      const a = data.address || {};
-      const parts = [
-        a.road || a.pedestrian || a.footway,
-        a.neighbourhood || a.suburb || a.quarter,
-        a.city || a.town || a.village || "سرعین",
-      ].filter(Boolean);
-      setAddress(parts.length ? parts.join("، ") : (data.display_name || "سرعین، آدرس دقیق یافت نشد"));
-    } catch { setAddress("سرعین، آدرس دقیق یافت نشد"); }
+    setAddress(await reverseGeocodeAddress(lat, lng));
     setLoadingAddr(false);
   };
   useEffect(() => {
@@ -7599,6 +7661,15 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
       marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
       map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
       mapObjRef.current = map; reverseGeocode(start[0], start[1]);
+      // The sheet this map sits in slides up via a CSS transform
+      // (.flora-sheet, 320ms). Leaflet measures its container's real
+      // screen position the instant it initializes — if that happens
+      // while the parent is still mid-slide, every click coordinate it
+      // computes afterward is permanently offset from where the map
+      // visually ends up, even though the map LOOKS fine once settled.
+      // invalidateSize() forces a fresh measurement after the animation
+      // is done, which is the standard fix for this exact Leaflet issue.
+      setTimeout(() => { if (!cancelled && mapObjRef.current) mapObjRef.current.invalidateSize(); }, 380);
     });
     return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
   }, []);
@@ -7894,10 +7965,13 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
   const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
   const [f, setF] = useState(editing ? {
     title: editing.title, type: editing.type, deal: editing.deal, pricePerMeter: String(editing.pricePerMeter), area: String(editing.area),
-    rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address, street: editing.street || "", view: editing.view || "",
+    rooms: String(editing.rooms), floor: String(editing.floor || 1), furnished: editing.furnished || "بدون لوازم", address: editing.address, street: editing.street || "",
+    locationQuality: editing.locationQuality || "", viewCategory: editing.viewCategory || editing.view || "", floorCategory: editing.floorCategory || "", buildingQuality: editing.buildingQuality || "", furnishLevel: editing.furnishLevel || "",
     ownerName: editOwner?.name || "", ownerPhone: editOwner?.phone || "", builderId: editing.builderId || "", lat: editing.lat, lng: editing.lng,
     preDown: String(editing.preDown || ""), preMonths: String(editing.preMonths || ""), preDelivery: String(editing.preDelivery || ""), preDeed: String(editing.preDeed || ""), buildStage: editing.buildStage || BUILD_STAGES[0], desc: editing.desc || "",
-  } : { title: "", type: prefillNew?.type || "آپارتمان", deal: "فروش", pricePerMeter: prefillNew?.pricePerMeter ? String(prefillNew.pricePerMeter) : "", area: prefillNew?.area ? String(prefillNew.area) : "", rooms: "", floor: prefillNew?.floor ? String(prefillNew.floor) : "1", furnished: "بدون لوازم", address: prefillNew?.address || "", street: "", view: prefillNew?.view || "", ownerName: "", ownerPhone: "", builderId: "", lat: prefillNew?.lat ?? null, lng: prefillNew?.lng ?? null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0], desc: "" });
+  } : { title: "", type: prefillNew?.type || "آپارتمان", deal: "فروش", pricePerMeter: prefillNew?.pricePerMeter ? String(prefillNew.pricePerMeter) : "", area: prefillNew?.area ? String(prefillNew.area) : "", rooms: "", floor: prefillNew?.floor ? String(prefillNew.floor) : "1", furnished: "بدون لوازم", address: prefillNew?.address || "", street: "",
+    locationQuality: "", viewCategory: prefillNew?.viewCategory || "", floorCategory: prefillNew?.floorCategory || "", buildingQuality: "", furnishLevel: "",
+    ownerName: "", ownerPhone: "", builderId: "", lat: prefillNew?.lat ?? null, lng: prefillNew?.lng ?? null, preDown: "", preMonths: "", preDelivery: "", preDeed: "", buildStage: BUILD_STAGES[0], desc: "" });
   // One-shot: once its values have seeded the form above, the hand-off data
   // is cleared so it can't leak into some unrelated later "new property".
   useEffect(() => { if (prefillNew) setPrefillNew(null); }, []); // eslint-disable-line
@@ -8089,7 +8163,8 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       else { const newOwner = { id: uid(), name: nm, phone: ph }; setOwners((prev) => [newOwner, ...prev]); ownerId = newOwner.id; }
     } else ownerId = "";
     const payload = {
-      title: f.title, type: f.type, deal: f.deal, address: f.address, street: f.street.trim() || null, view: f.view || null, builderId: f.builderId, furnished: f.furnished, desc: f.desc.trim(),
+      title: f.title, type: f.type, deal: f.deal, address: f.address, street: f.street.trim() || null, builderId: f.builderId, furnished: f.furnished, desc: f.desc.trim(),
+      locationQuality: f.locationQuality || null, viewCategory: f.viewCategory || null, floorCategory: f.floorCategory || null, buildingQuality: f.buildingQuality || null, furnishLevel: f.furnishLevel || null,
       pricePerMeter: toNum(f.pricePerMeter), area: toNum(f.area), rooms: toNum(f.rooms), floor: toNum(f.floor), price: total, ownerId, media, lat: f.lat ?? null, lng: f.lng ?? null,
       preDown: toNum(f.preDown), preMonths: toNum(f.preMonths), preDelivery: toNum(f.preDelivery), preDeed: toNum(f.preDeed), buildStage: f.buildStage,
     };
@@ -8116,7 +8191,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           {importState === "idle" && (
             <>
               <Field c={c} label="لینک آگهی دیوار"><input style={inputStyle(c)} dir="ltr" value={divarLink} onChange={(e) => setDivarLink(e.target.value)} placeholder="https://divar.ir/v/..." /></Field>
-              <button type="button" onClick={() => extractFromDivarAI()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
+              <button type="button" onClick={() => extractFromDivarAI()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-3.5" style={{ background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
                 <Link2 size={15} /> دریافت اطلاعات آگهی
               </button>
               <p style={{ fontSize: 11, color: c.muted, lineHeight: 1.9, marginBottom: 10 }}>
@@ -8245,7 +8320,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
               {importData.description && <p style={{ fontSize: 12, color: c.muted, lineHeight: 1.8, marginBottom: SP.lg }}>{importData.description}</p>}
               <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
                 <button type="button" onClick={editImportedProperty} className="press rounded-xl py-3" style={{ background: c.surface2, color: c.ink, fontWeight: 700, fontSize: 13 }}>ویرایش اطلاعات</button>
-                <button type="button" onClick={saveImportedProperty} className="press rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره در CRM</button>
+                <button type="button" onClick={saveImportedProperty} className="press rounded-xl py-3" style={{ background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره در CRM</button>
               </div>
             </div>
           )}
@@ -8278,13 +8353,26 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
         )}
       </Field>
       <Field c={c} label="خیابان (برای برآورد قیمت دقیق‌تر)"><input style={inputStyle(c)} value={f.street} onChange={set("street")} placeholder="مثلاً خیابان امام" /></Field>
-      <Field c={c} label="نما (اختیاری)">
-        <div className="flex gap-2">
-          {["نامشخص", "نمای اصلی", "حیاط"].map((v) => (
-            <button key={v} type="button" onClick={() => setF((p) => ({ ...p, view: v === "نامشخص" ? "" : v }))} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: (f.view || "نامشخص") === v ? c.primary : c.surface2, color: (f.view || "نامشخص") === v ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{v}</button>
-          ))}
-        </div>
-      </Field>
+
+      {/* Every field below feeds Flora Valuation's formula directly — each
+          is optional (a skipped one just defaults to its "معمولی"/neutral
+          coefficient, never blocks a price), but filling them in is what
+          makes the number real instead of a generic area average. */}
+      {[
+        { key: "locationQuality", label: "موقعیت", options: ["ضعیف", "معمولی", "خوب", "ممتاز"] },
+        { key: "viewCategory", label: "ویو / جهت", options: ["بدون ویو", "حیاط معمولی", "کوچه معمولی", "خیابان خوب", "ویوی باز", "ویوی ممتاز"] },
+        { key: "floorCategory", label: "طبقه (کیفیت)", options: ["همکف نامطلوب", "طبقه میانی", "طبقه بالا با ویو", "طبقه آخر"] },
+        { key: "buildingQuality", label: "کیفیت ساختمان", options: ["ضعیف", "معمولی", "خوب", "خیلی خوب", "لوکس"] },
+        { key: "furnishLevel", label: "سطح فرنیش", options: ["خالی", "نیمه‌فرنیش", "فول‌فرنیش معمولی", "فول‌فرنیش خوب", "فول‌فرنیش لوکس"] },
+      ].map(({ key, label, options }) => (
+        <Field key={key} c={c} label={label}>
+          <div className="flex flex-wrap gap-2">
+            {options.map((v) => (
+              <button key={v} type="button" onClick={() => setF((p) => ({ ...p, [key]: p[key] === v ? "" : v }))} className="press rounded-lg" style={{ paddingInline: 10, paddingBlock: 8, background: f[key] === v ? c.primary : c.surface2, color: f[key] === v ? "#fff" : c.muted, fontSize: 11, fontWeight: 700 }}>{v}</button>
+            ))}
+          </div>
+        </Field>
+      ))}
       <button type="button" onClick={() => setShowMore((s) => !s)} className="press w-full flex items-center justify-between rounded-xl px-4 py-3 mb-3" style={{ background: c.surface2 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: c.ink }}>جزئیات بیشتر (اختیاری)</span>
         <ChevronDown size={16} color={c.muted} style={{ transform: showMore ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
@@ -8774,7 +8862,7 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
         {deal.status !== "تسویه شده" && (
           <button onClick={() => { setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, status: "تسویه شده" } : d)); notify("وضعیت به‌روزرسانی شد"); }} className="press flex-1 rounded-xl py-3" style={{ background: c.successSoft, color: c.success, fontWeight: 700, fontSize: 13 }}>علامت به‌عنوان تسویه‌شده</button>
         )}
-        <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: 700, fontSize: 13 }}>ثبت پرداخت</button>
+        <button onClick={() => setSheet({ kind: "payment", prefillDealId: dealId })} className="press flex-1 rounded-xl py-3" style={{ background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ثبت پرداخت</button>
       </div>
     </SheetShell>
   );

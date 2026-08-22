@@ -2,26 +2,37 @@
 // font sizes/weights) every component pulls from instead of magic numbers.
 const T = {
   dark: {
+    isDark: true,
     bg: "#0A0E1A", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
     surface: "rgba(255,255,255,0.04)", surface2: "rgba(255,255,255,0.06)",
     border: "rgba(255,255,255,0.08)", ink: "#F0F2F8", muted: "#8B92A8",
     primary: "#5B9DFF", primarySoft: "rgba(47,124,246,0.15)",
+    info: "#5B9DFF", infoSoft: "rgba(47,124,246,0.15)",
     attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.15)",
     danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.14)",
     success: "#22C55E", successSoft: "rgba(34,197,94,0.15)",
     purple: "#A78BFA", purpleSoft: "rgba(124,111,245,0.15)",
     shadow: "0 8px 32px rgba(0,0,0,0.3)",
+    gradientPrimary: "linear-gradient(135deg,#2f7cf6,#7c6ff5)",
   },
+  // Flat black/white/gray — no glass blur, no blue-as-primary. Black is
+  // the primary action color here (buttons, active nav, hero cards);
+  // "info" is its own separate light-blue token for status badges like
+  // "In Transit," since that meaning is distinct from "this is the main
+  // action" once black takes over that role.
   light: {
-    bg: "#F3F5FA", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
-    surface: "rgba(255,255,255,0.6)", surface2: "rgba(255,255,255,0.45)",
-    border: "rgba(255,255,255,0.7)", ink: "#1B2436", muted: "#6B7386",
-    primary: "#2F7CF6", primarySoft: "rgba(47,124,246,0.12)",
-    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.13)",
-    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.12)",
-    success: "#22C55E", successSoft: "rgba(34,197,94,0.12)",
-    purple: "#7C6FF5", purpleSoft: "rgba(124,111,245,0.12)",
-    shadow: "0 8px 28px rgba(47,124,246,0.1)",
+    isDark: false,
+    bg: "#FFFFFF", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
+    surface: "#FFFFFF", surface2: "#F4F4F5",
+    border: "#ECECEE", ink: "#0A0A0A", muted: "#8E8E93",
+    primary: "#0A0A0A", primarySoft: "#F0F0F0",
+    info: "#2F7CF6", infoSoft: "rgba(47,124,246,0.10)",
+    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.12)",
+    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.10)",
+    success: "#22C55E", successSoft: "rgba(34,197,94,0.10)",
+    purple: "#0A0A0A", purpleSoft: "#F0F0F0",
+    shadow: "0 6px 20px rgba(10,10,10,0.06)",
+    gradientPrimary: "#0A0A0A",
   },
 };
 
@@ -41,14 +52,19 @@ const RAD = { sm: 8, md: 14, lg: 22, pill: 999 };
 // customization but silently did nothing (this function never accepted a
 // second argument); every one of those cards was already rendering at 22.
 // That's now made explicit instead of implied by a no-op argument.
-const glass = (c) => ({
+const glass = (c) => c.isDark ? {
   background: c.surface,
   backdropFilter: "blur(20px) saturate(180%)",
   WebkitBackdropFilter: "blur(20px) saturate(180%)",
   border: `1px solid ${c.border}`,
   boxShadow: c.shadow,
   borderRadius: 22,
-});
+} : {
+  background: c.surface,
+  border: `1px solid ${c.border}`,
+  boxShadow: c.shadow,
+  borderRadius: 22,
+};
 // Same look, no backdrop-filter. Blur is one of the most expensive CSS effects
 // on iOS Safari — fine for a hero card or a sheet, but ruinous once it's applied
 // to every row in a long scrolling list (each blurred layer repaints on scroll).

@@ -225,7 +225,7 @@ function TourStepProperties({ ctx, b, patch }) {
           </div>
         )}
       </div>
-      <button onClick={proceed} disabled={selected.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xl, paddingBlock: SP.md, borderRadius: RAD.lg, background: selected.length ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : c.surface2, color: selected.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1 }}>
+      <button onClick={proceed} disabled={selected.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.xl, paddingBlock: SP.md, borderRadius: RAD.lg, background: selected.length ? c.gradientPrimary : c.surface2, color: selected.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1 }}>
         ادامه <ChevronLeft size={16} color={selected.length ? "#fff" : c.muted} />
       </button>
     </div>
@@ -300,7 +300,7 @@ function TourStepReview({ ctx, b, patch, onStart }) {
         </div>
       )}
 
-      <button onClick={onStart} disabled={items.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, background: items.length ? "linear-gradient(135deg,#2f7cf6,#7c6ff5)" : c.surface2, color: items.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: items.length ? "0 12px 28px -10px rgba(47,124,246,0.5)" : "none" }}>
+      <button onClick={onStart} disabled={items.length === 0} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.lg, background: items.length ? c.gradientPrimary : c.surface2, color: items.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: items.length ? "0 12px 28px -10px rgba(47,124,246,0.5)" : "none" }}>
         <Car size={17} color={items.length ? "#fff" : c.muted} /> شروع تور
       </button>
     </div>
@@ -422,7 +422,7 @@ function TourFocusMode({ ctx, tour }) {
 
         <div className="flex shrink-0" style={{ gap: SP.sm, padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))` }}>
           {i > 0 && <button onClick={goPrev} className="press flex items-center justify-center shrink-0" style={{ width: 48, borderRadius: RAD.lg, background: c.surface2 }}><ChevronRight size={18} color={c.ink} /></button>}
-          <button onClick={goNext} className="press flex-1 flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
+          <button onClick={goNext} className="press flex-1 flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
             {i + 1 < tour.items.length ? "ملک بعدی" : "پایان تور"}<ChevronLeft size={16} color="#fff" />
           </button>
         </div>
@@ -505,7 +505,7 @@ function TourCompleteScreen({ ctx, tour }) {
         </div>
 
         <div className="shrink-0" style={{ padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))` }}>
-          <button onClick={finish} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
+          <button onClick={finish} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.lg, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}>
             <Check size={17} color="#fff" /> پایان و ثبت در پرونده‌ها
           </button>
         </div>

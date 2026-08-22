@@ -219,7 +219,7 @@ function NotificationsSettings({ ctx }) {
           onClick={permState === "granted" ? handleDisable : handleEnable}
           disabled={busy || (!supported && !needsIosInstall)}
           className="press w-full flex items-center justify-center rounded-xl mt-3.5"
-          style={{ gap: 6, paddingBlock: 11, background: permState === "granted" ? c.surface2 : "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: permState === "granted" ? c.ink : "#fff", fontSize: 13, fontWeight: 700, opacity: (!supported && !needsIosInstall) ? 0.5 : 1 }}
+          style={{ gap: 6, paddingBlock: 11, background: permState === "granted" ? c.surface2 : c.gradientPrimary, color: permState === "granted" ? c.ink : "#fff", fontSize: 13, fontWeight: 700, opacity: (!supported && !needsIosInstall) ? 0.5 : 1 }}
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : permState === "granted" ? <BellOff size={14} /> : <Bell size={14} />}
           {permState === "granted" ? "غیرفعال کردن اعلان‌ها" : needsIosInstall ? "راهنمای نصب روی آیفون" : "اعلان‌های Flora را فعال کن"}
@@ -401,7 +401,7 @@ function NotificationTestPanel({ ctx }) {
           <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>متن پیام</p>
           <input value={message} onChange={(e) => setMessage(e.target.value)} style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.sm, padding: "10px 12px", fontSize: 13, color: c.ink }} />
         </div>
-        <button onClick={scheduleTest} disabled={busy} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, background: "linear-gradient(135deg,#2f7cf6,#7c6ff5)", color: "#fff", fontSize: 13, fontWeight: 700, opacity: busy ? 0.5 : 1 }}>
+        <button onClick={scheduleTest} disabled={busy} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, background: c.gradientPrimary, color: "#fff", fontSize: 13, fontWeight: 700, opacity: busy ? 0.5 : 1 }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />} ارسال تست
         </button>
       </div>

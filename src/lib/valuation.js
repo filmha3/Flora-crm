@@ -3,7 +3,163 @@
 // computes an estimate. That keeps it testable in isolation and keeps the
 // "never guess, never fabricate a number" rule enforceable in one place.
 
+import { gregorianToJalali } from "./format.js";
+
 const EARTH_RADIUS_KM = 6371;
+
+// ---------- Full multiplicative formula ----------
+// قیمت نهایی هر متر = قیمت پایه منطقه × ضریب سن × ضریب موقعیت × ضریب ویو ×
+// ضریب طبقه × ضریب کیفیت ساختمان × ضریب فرنیش
+// Every table below is copied exactly from the spec — nothing rounded or
+// re-derived. A factor that wasn't specified for a property defaults to its
+// "معمولی" (neutral, ×1.00) tier rather than blocking the calculation —
+// that's a real, standard appraisal convention ("assume average" when
+// something genuinely isn't known), not a guessed number. Which factors
+// were defaulted vs. actually provided is tracked and surfaced, never
+// silently hidden.
+
+const AGE_TIERS = [
+  { maxYears: 2, coef: 1.00, label: "0 تا 2 سال" },
+  { maxYears: 5, coef: 0.96, label: "3 تا 5 سال" },
+  { maxYears: 8, coef: 0.92, label: "6 تا 8 سال" },
+  { maxYears: 12, coef: 0.87, label: "9 تا 12 سال" },
+  { maxYears: 17, coef: 0.82, label: "13 تا 17 سال" },
+  { maxYears: 25, coef: 0.75, label: "18 تا 25 سال" },
+  { maxYears: Infinity, coef: 0.68, label: "بیش از 25 سال" },
+];
+
+export const LOCATION_QUALITY_COEF = { "ضعیف": 0.90, "معمولی": 1.00, "خوب": 1.07, "ممتاز": 1.15 };
+export const VIEW_CATEGORY_COEF = {
+  "بدون ویو": 0.90, "حیاط معمولی": 0.97, "کوچه معمولی": 1.00,
+  "خیابان خوب": 1.05, "ویوی باز": 1.08, "ویوی ممتاز": 1.15,
+};
+export const FLOOR_CATEGORY_COEF = { "همکف نامطلوب": 0.93, "طبقه میانی": 1.00, "طبقه بالا با ویو": 1.05, "طبقه آخر": 1.00 };
+export const BUILDING_QUALITY_COEF = { "ضعیف": 0.92, "معمولی": 1.00, "خوب": 1.05, "خیلی خوب": 1.10, "لوکس": 1.15 };
+export const FURNISH_LEVEL_COEF = { "خالی": 1.00, "نیمه‌فرنیش": 1.03, "فول‌فرنیش معمولی": 1.07, "فول‌فرنیش خوب": 1.12, "فول‌فرنیش لوکس": 1.18 };
+
+export function currentJalaliYear() {
+  const now = new Date();
+  return gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate())[0];
+}
+
+function ageCoefficientFromYearBuilt(yearBuiltJalali) {
+  if (!yearBuiltJalali) return null;
+  const age = currentJalaliYear() - yearBuiltJalali;
+  if (age < 0) return null; // a future build year isn't real data — treat as unknown, don't guess
+  for (const tier of AGE_TIERS) if (age <= tier.maxYears) return { coef: tier.coef, label: tier.label, age };
+  return null;
+}
+
+/**
+ * Base area price: the mean price/meter of at least 3 real comparable
+ * properties — an explicit, hard minimum per spec (not just a confidence
+ * signal). Reuses the same comparable-finding logic as the rest of the
+ * engine (same street prioritized, geography as fallback, outliers
+ * removed) but averages rather than weight-medians, since the formula
+ * calls for a straightforward mean of similar units.
+ */
+export function computeBaseAreaPrice(subject, allProperties, manualStreetPrices = []) {
+  const dbComparables = findComparables(subject, allProperties);
+  const relevantManual = subject.street ? manualStreetPrices.filter((m) => m.street === subject.street) : [];
+  const manualAsComparables = relevantManual.map((m) => ({ property: { id: `manual-${m.id}`, pricePerMeter: m.pricePerMeter }, weight: 1, source: "advisor" }));
+  const all = [...dbComparables, ...manualAsComparables];
+
+  const priceItems = all.map((c) => ({ value: c.property.pricePerMeter, weight: c.weight, source: c.source, property: c.property }));
+  const { kept, excluded } = splitOutliers(priceItems);
+
+  if (kept.length < 3) {
+    return {
+      ok: false,
+      count: kept.length,
+      reason: subject.street
+        ? `برای «${subject.street}» فقط ${kept.length} فایل مشابه داریم — حداقل ۳ فایل لازم است. قیمت واحدهای بیشتری از این خیابان وارد کن.`
+        : "حداقل ۳ فایل مشابه لازم است — خیابان را مشخص کن یا قیمت واحدهای بیشتری وارد کن.",
+      needsStreet: !subject.street,
+      needsManualPrice: true,
+    };
+  }
+
+  const mean = kept.reduce((s, i) => s + i.value, 0) / kept.length;
+  return {
+    ok: true,
+    basePricePerMeter: Math.round(mean),
+    count: kept.length,
+    excludedOutliers: excluded.length,
+    usedManualStreetPrices: kept.some((i) => i.source === "advisor"),
+    comparables: kept.filter((i) => i.source === "database").map((i) => ({ property: i.property, pricePerMeter: i.value })),
+  };
+}
+
+/**
+ * The full spec'd formula. Every coefficient applied is returned in
+/**
+ * Applies all 6 formula factors to a base price/meter — shared by the
+ * street-based full engine and the map-based quick engine, so both compute
+ * identically once they have a base price, whatever method got them there.
+ */
+export function applyFormulaFactors(basePricePerMeter, subject) {
+  const factors = [];
+  let multiplier = 1;
+
+  const ageResult = ageCoefficientFromYearBuilt(subject.yearBuilt);
+  if (ageResult) { factors.push({ name: "سن بنا", label: ageResult.label, coef: ageResult.coef, provided: true }); multiplier *= ageResult.coef; }
+  else factors.push({ name: "سن بنا", label: "نامشخص (فرض متوسط)", coef: 1, provided: false });
+
+  const pushCoef = (name, table, value, neutralLabel) => {
+    if (value && table[value] != null) { factors.push({ name, label: value, coef: table[value], provided: true }); multiplier *= table[value]; }
+    else factors.push({ name, label: `نامشخص (فرض ${neutralLabel})`, coef: 1, provided: false });
+  };
+  pushCoef("موقعیت", LOCATION_QUALITY_COEF, subject.locationQuality, "معمولی");
+  pushCoef("ویو/جهت", VIEW_CATEGORY_COEF, subject.viewCategory, "کوچه معمولی");
+  pushCoef("طبقه", FLOOR_CATEGORY_COEF, subject.floorCategory, "طبقه میانی");
+  pushCoef("کیفیت ساختمان", BUILDING_QUALITY_COEF, subject.buildingQuality, "معمولی");
+  pushCoef("فرنیش", FURNISH_LEVEL_COEF, subject.furnishLevel, "خالی");
+
+  return { pricePerMeter: Math.round(basePricePerMeter * multiplier), multiplier, factors };
+}
+
+/**
+ * `factors` with whether it was provided or defaulted, so the caller can
+ * be honest about what actually went into the number.
+ */
+export function computeFormulaValuation(subject, allProperties, manualStreetPrices = []) {
+  if (!subject.area || subject.area <= 0) return { ok: false, reason: "متراژ این فایل مشخص نیست." };
+
+  const base = computeBaseAreaPrice(subject, allProperties, manualStreetPrices);
+  if (!base.ok) return base;
+
+  const { pricePerMeter, multiplier, factors } = applyFormulaFactors(base.basePricePerMeter, subject);
+  const fairValue = Math.round(pricePerMeter * subject.area);
+
+  return {
+    ok: true,
+    basePricePerMeter: base.basePricePerMeter,
+    pricePerMeter,
+    multiplier,
+    factors,
+    fairValue,
+    quickSale: Math.round(fairValue * 0.95),      // قیمت فروش سریع
+    fairPrice: fairValue,                          // قیمت منصفانه
+    askingPrice: Math.round(fairValue * 1.075),    // وسط بازه‌ی ۱.۰۵ تا ۱.۱۰
+    comparableCount: base.count,
+    excludedOutliers: base.excludedOutliers,
+    usedManualStreetPrices: base.usedManualStreetPrices,
+    comparables: base.comparables,
+    needsStreet: !subject.street,
+  };
+}
+
+/**
+ * One sentence built from the formula's own factor list — only the ones
+ * actually provided (not defaulted to neutral), so it never claims a
+ * property is "طبقه بالا با ویو" or any other category nobody confirmed.
+ */
+export function buildFormulaExplanation(result) {
+  if (!result?.ok || !result.factors) return null;
+  const parts = result.factors.filter((f) => f.provided).map((f) => f.name === "سن بنا" ? `سن بنا ${f.label}` : f.label);
+  if (parts.length === 0) return null;
+  return `بر اساس ${parts.join("، ")}.`;
+}
 
 export function haversineKm(lat1, lng1, lat2, lng2) {
   if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return null;
@@ -115,7 +271,14 @@ export function splitOutliers(items) {
  * weighting factor among those N, so the closest of the four still counts
  * for more than the farthest.
  */
-export function computeQuickValuationFromMap(lat, lng, area, type, allProperties, nearestCount = 4) {
+/**
+ * Quick, map-first valuation for a phone-call moment — no saved property
+ * needed yet. Uses exactly the N nearest real properties by geographic
+ * distance (default 4, per "4 nearest from the map"). Same hard minimum of
+ * 3 comparables and the same mean-based base price as the full engine —
+ * one formula, two ways of finding the comparable set.
+ */
+export function computeQuickValuationFromMap(lat, lng, area, type, allProperties, nearestCount = 4, extras = {}) {
   if (lat == null || lng == null) return { ok: false, reason: "موقعیتی روی نقشه انتخاب نشده." };
   if (!area || area <= 0) return { ok: false, reason: "متراژ را وارد کن." };
 
@@ -126,151 +289,30 @@ export function computeQuickValuationFromMap(lat, lng, area, type, allProperties
     .sort((a, b) => a.km - b.km)
     .slice(0, nearestCount);
 
-  if (withDistance.length === 0) {
-    return { ok: false, reason: "هیچ فایلی با موقعیت ثبت‌شده روی نقشه نزدیک این نقطه نداریم." };
+  const items = withDistance.map((c) => ({ value: c.property.pricePerMeter, property: c.property, km: c.km }));
+  const { kept, excluded } = splitOutliers(items);
+
+  if (kept.length < 3) {
+    return { ok: false, reason: `فقط ${kept.length} فایل نزدیک این نقطه پیدا شد — حداقل ۳ فایل لازم است.`, count: kept.length };
   }
 
-  const items = withDistance.map((c) => ({
-    value: c.property.pricePerMeter,
-    weight: Math.max(0.1, 1 - c.km / 3), // same falloff curve as the full engine
-    property: c.property,
-    km: c.km,
-  }));
-
-  const { kept, excluded } = splitOutliers(items);
-  const basePricePerMeter = weightedMedian(kept);
-  if (!basePricePerMeter) return { ok: false, reason: "داده‌ی کافی برای محاسبه نبود." };
-
-  const pricePerMeter = Math.round(basePricePerMeter);
+  const basePricePerMeter = kept.reduce((s, i) => s + i.value, 0) / kept.length;
+  const { pricePerMeter, multiplier, factors } = applyFormulaFactors(basePricePerMeter, extras);
   const fairValue = Math.round(pricePerMeter * area);
-
-  // Fewer inputs than the full engine (no street/year/floor match), so
-  // confidence is capped more conservatively even with a decent count —
-  // this is a fast estimate for a phone call, not the detailed report.
-  const conf = kept.length >= nearestCount && excluded.length === 0
-    ? { level: "Medium", label: "متوسط", pct: 55 }
-    : { level: "Low", label: "پایین", pct: 35 };
 
   return {
     ok: true,
     pricePerMeter,
+    basePricePerMeter: Math.round(basePricePerMeter),
+    multiplier,
+    factors,
     fairValue,
-    goodDeal: Math.round(fairValue * 0.96),
-    askingPrice: Math.round(fairValue * 1.03),
-    confidence: conf,
+    quickSale: Math.round(fairValue * 0.95),
+    fairPrice: fairValue,
+    askingPrice: Math.round(fairValue * 1.075),
     comparableCount: kept.length,
     excludedOutliers: excluded.length,
     comparables: kept.map((i) => ({ property: i.property, pricePerMeter: i.value, km: i.km })),
   };
 }
 
-/**
- * One plain-language sentence explaining what fed into the number — never
- * invents a fact that wasn't actually entered for this property. Floor,
- * view/facing, year built, and furnished status are the ones people
- * actually ask "why" about; parking/elevator are already folded into the
- * price itself (see the `adjustments` list) so they're mentioned here too
- * when present, for the same reason.
- */
-export function buildExplanation(subject) {
-  const parts = [];
-  if (subject.floor != null && subject.floor !== "") parts.push(`طبقه ${subject.floor}`);
-  if (subject.view === "نمای اصلی") parts.push("رو به نمای اصلی");
-  else if (subject.view === "حیاط") parts.push("رو به حیاط");
-  if (subject.yearBuilt) parts.push(`سال ساخت ${subject.yearBuilt}`);
-  if (subject.furnished === "با لوازم") parts.push("فول‌فرنیش");
-  if (subject.parking === true) parts.push("پارکینگ");
-  if (subject.elevator === true) parts.push("آسانسور");
-  if (parts.length === 0) return null;
-  return `بر اساس ${parts.join("، ")}.`;
-}
-
-/**
- * The whole pipeline, per spec section headers 4–10.
- * @param subject - the property being valued (needs area, type; street/lat/lng/floor/yearBuilt improve accuracy)
- * @param allProperties - every other property in the local dataset
- * @param manualStreetPrices - advisor-entered reference prices for this exact street, used ONLY when database comparables are too thin (see spec: ask the advisor, don't guess)
- */
-export function computeValuation(subject, allProperties, manualStreetPrices = []) {
-  if (!subject.area || subject.area <= 0) {
-    return { ok: false, reason: "متراژ این فایل مشخص نیست — بدون متراژ نمی‌شود برآورد داد." };
-  }
-
-  const dbComparables = findComparables(subject, allProperties);
-
-  const sameStreetCount = subject.street
-    ? dbComparables.filter((c) => c.property.street === subject.street).length
-    : 0;
-
-  const relevantManual = subject.street
-    ? manualStreetPrices.filter((m) => m.street === subject.street)
-    : [];
-
-  // Manual entries only ever supplement thin database data — they never
-  // override real comparables that already exist, and they're always
-  // labeled as advisor-provided in the result, never presented as if Flora
-  // itself found them.
-  const manualAsComparables = relevantManual.map((m) => ({
-    property: { id: `manual-${m.id}`, pricePerMeter: m.pricePerMeter, area: subject.area, street: subject.street },
-    weight: 0.6, // real but self-reported, so weighted below a confirmed database match
-    source: "advisor",
-  }));
-
-  const allComparables = [...dbComparables, ...manualAsComparables];
-
-  if (allComparables.length === 0) {
-    return {
-      ok: false,
-      reason: subject.street
-        ? `برای خیابان «${subject.street}» هیچ فایل مشابهی در دیتابیس یا قیمت دستی ثبت‌شده نداریم.`
-        : "خیابان این فایل مشخص نیست و فایل مشابهی هم پیدا نشد.",
-      needsStreet: !subject.street,
-      needsManualPrice: !!subject.street,
-    };
-  }
-
-  const priceItems = allComparables.map((c) => ({ value: c.property.pricePerMeter, weight: c.weight, source: c.source, property: c.property }));
-  const { kept, excluded } = splitOutliers(priceItems);
-
-  const basePricePerMeter = weightedMedian(kept);
-  if (!basePricePerMeter) {
-    return { ok: false, reason: "داده‌ی کافی برای محاسبه‌ی قیمت پایه نبود." };
-  }
-
-  // Simple, transparent adjustments — only applied where the subject
-  // property actually has the field populated, never inferred.
-  const adjustments = [];
-  let multiplier = 1;
-  if (subject.parking === true) { adjustments.push({ label: "پارکینگ", pct: 3 }); multiplier += 0.03; }
-  if (subject.elevator === true) { adjustments.push({ label: "آسانسور", pct: 2 }); multiplier += 0.02; }
-  if (subject.furnished === "با لوازم") { adjustments.push({ label: "فول‌فرنیش", pct: 4 }); multiplier += 0.04; }
-  if (subject.view === "نمای اصلی") { adjustments.push({ label: "نمای اصلی", pct: 2 }); multiplier += 0.02; }
-
-  const adjustedPricePerMeter = Math.round(basePricePerMeter * multiplier);
-  const fairValue = Math.round(adjustedPricePerMeter * subject.area);
-  const goodDeal = Math.round(fairValue * 0.96);
-  const askingPrice = Math.round(fairValue * 1.03);
-
-  const usedManualCount = kept.filter((i) => i.source === "advisor").length;
-  const conf = confidenceTier(kept.length);
-
-  return {
-    ok: true,
-    pricePerMeter: adjustedPricePerMeter,
-    basePricePerMeter: Math.round(basePricePerMeter),
-    fairValue, goodDeal, askingPrice,
-    confidence: conf,
-    comparableCount: kept.length,
-    usedManualStreetPrices: usedManualCount > 0,
-    manualStreetPriceCount: usedManualCount,
-    databaseComparableCount: kept.length - usedManualCount,
-    sameStreetCount,
-    adjustments,
-    comparables: kept.filter((i) => i.source === "database").slice(0, 10).map((i) => ({ property: i.property, pricePerMeter: i.value })),
-    excludedOutliers: excluded.length,
-    needsStreet: !subject.street,
-    // Even a "successful" result should nudge toward more street comparables
-    // when the ones behind it are thin — matches "ask, don't guess."
-    needsManualPrice: subject.street != null && sameStreetCount < 3 && usedManualCount === 0,
-  };
-}
