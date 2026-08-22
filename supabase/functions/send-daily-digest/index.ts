@@ -6,6 +6,16 @@ import webpush from "npm:web-push@3.6.7";
 // either, it's a daily tick, not a response to anything the user did.
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
 
+const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
+async function sendTelegram(chatId: number, title: string, body: string) {
+  if (!TELEGRAM_BOT_TOKEN) return;
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text: `${title}\n${body}` }),
+  }).catch(() => {});
+}
+
 function isQuietHoursNow(prefs: { quiet_hours_enabled?: boolean; quiet_hours_start?: string; quiet_hours_end?: string } | null | undefined): boolean {
   if (!prefs?.quiet_hours_enabled) return false;
   const now = new Date();
@@ -37,28 +47,32 @@ Deno.serve(async (req: Request) => {
   const vapidPublic = Deno.env.get("VAPID_PUBLIC_KEY");
   const vapidPrivate = Deno.env.get("VAPID_PRIVATE_KEY");
   const vapidSubject = Deno.env.get("VAPID_SUBJECT") || "mailto:support@flora-crm.app";
-  if (!vapidPublic || !vapidPrivate) {
-    return new Response(JSON.stringify({ ok: true, sent: 0, reason: "push not configured" }), { status: 200 });
-  }
-  webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
+  const pushConfigured = !!(vapidPublic && vapidPrivate);
+  if (pushConfigured) webpush.setVapidDetails(vapidSubject, vapidPublic!, vapidPrivate!);
 
-  // One notification per user who has at least one active device — not per
-  // device row directly, since a user with 2 phones should still only see
-  // this reasoned about once (per user_id), even though it goes out to
-  // every one of their active subscriptions.
+  // One notification per user reachable through EITHER channel — a user
+  // with only Telegram linked (no push device at all) must still get the
+  // digest; keying this off push_subscriptions alone would silently skip
+  // them.
   const { data: subs } = await admin.from("push_subscriptions").select("*").eq("is_active", true);
-  if (!subs?.length) return new Response(JSON.stringify({ ok: true, sent: 0, reason: "no active devices" }), { status: 200 });
+  const { data: tgLinks } = await admin.from("telegram_links").select("user_id, chat_id");
 
   const byUser = new Map<string, typeof subs>();
-  for (const s of subs) {
+  for (const s of subs || []) {
     if (!byUser.has(s.user_id)) byUser.set(s.user_id, []);
     byUser.get(s.user_id)!.push(s);
   }
+  const tgByUser = new Map<string, number>();
+  for (const t of tgLinks || []) tgByUser.set(t.user_id, t.chat_id);
+
+  const allUserIds = new Set([...byUser.keys(), ...tgByUser.keys()]);
+  if (allUserIds.size === 0) return new Response(JSON.stringify({ ok: true, sent: 0, reason: "no reachable users" }), { status: 200 });
 
   const title = "Flora";
 
   let sent = 0;
-  for (const [userId, userSubs] of byUser) {
+  for (const userId of allUserIds) {
+    const userSubs = byUser.get(userId) || [];
     const { data: prefs } = await admin.from("notification_preferences").select("*").eq("user_id", userId).single();
     if (isQuietHoursNow(prefs)) continue; // a daily check-in isn't critical enough to override quiet hours
 
@@ -67,6 +81,10 @@ Deno.serve(async (req: Request) => {
 
     await admin.from("notifications").insert({ user_id: userId, category: "general", title, body, url: "/" });
 
+    const chatId = tgByUser.get(userId);
+    if (chatId) await sendTelegram(chatId, title, body);
+
+    if (!pushConfigured) continue;
     const payload = JSON.stringify({ title, body, url: "/" });
     for (const sub of userSubs) {
       try {
@@ -80,5 +98,5 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return new Response(JSON.stringify({ ok: true, sent, users: byUser.size }), { status: 200 });
+  return new Response(JSON.stringify({ ok: true, sent, users: allUserIds.size }), { status: 200 });
 });

@@ -17,6 +17,16 @@ const cors = {
 
 const CATEGORY_KEYS = ["visits", "followups", "deals", "legal", "finance", "new_properties"];
 
+const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
+async function sendTelegram(chatId: number, title: string, body: string) {
+  if (!TELEGRAM_BOT_TOKEN) return;
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text: `${title}\n${body}` }),
+  }).catch(() => {}); // Telegram being down shouldn't fail the whole notification send
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 }
@@ -105,6 +115,12 @@ Deno.serve(async (req: Request) => {
 
   if (!categoryEnabled) return json({ ok: true, sent: 0, reason: "category disabled" });
   if (inQuietHours && !isCritical) return json({ ok: true, sent: 0, reason: "quiet hours" });
+
+  const { data: tgLink } = await admin.from("telegram_links").select("chat_id").eq("user_id", userId).single();
+  if (tgLink?.chat_id) {
+    const tgBody = applyPreviewLevel({ title: notification.title, body: notification.body }, prefs?.preview_level || "full");
+    await sendTelegram(tgLink.chat_id, tgBody.title, tgBody.body);
+  }
 
   const vapidPublic = Deno.env.get("VAPID_PUBLIC_KEY");
   const vapidPrivate = Deno.env.get("VAPID_PRIVATE_KEY");
