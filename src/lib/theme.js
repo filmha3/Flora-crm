@@ -22,16 +22,16 @@ const T = {
   // action" once black takes over that role.
   light: {
     isDark: false,
-    bg: "#FFFFFF", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
-    surface: "#FFFFFF", surface2: "#F4F4F5",
-    border: "#ECECEE", ink: "#0A0A0A", muted: "#8E8E93",
+    bg: "#F0F0F2", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
+    surface: "#FFFFFF", surface2: "#F5F5F7",
+    border: "rgba(10,10,10,0.05)", ink: "#0A0A0A", muted: "#8E8E93",
     primary: "#0A0A0A", primarySoft: "#F0F0F0",
     info: "#2F7CF6", infoSoft: "rgba(47,124,246,0.10)",
     attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.12)",
     danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.10)",
     success: "#22C55E", successSoft: "rgba(34,197,94,0.10)",
     purple: "#0A0A0A", purpleSoft: "#F0F0F0",
-    shadow: "0 6px 20px rgba(10,10,10,0.06)",
+    shadow: "0 4px 16px rgba(10,10,10,0.08)",
     gradientPrimary: "#0A0A0A",
   },
 };

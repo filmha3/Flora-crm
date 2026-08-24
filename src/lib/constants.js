@@ -18,6 +18,7 @@ const CUSTOMER_STAGES = ["در حال بررسی", "دنبال سرمایه‌گ
 const INVESTMENT_STATUSES = ["در حال بررسی", "خریداری‌شده", "در حال بازسازی", "برای فروش", "فروخته‌شده"];
 const INVESTMENT_TYPES = ["خرید و نگهداری", "بازسازی و فروش", "پیش‌خرید", "مشارکت در ساخت"];
 const INVESTMENT_EXPENSE_CATEGORIES = ["کمیسیون", "مالیات", "دفترخانه", "انتقال سند", "بازسازی", "کابینت", "رنگ", "کناف", "برق", "لوله‌کشی", "آسانسور", "پارکینگ", "بیمه", "وام", "بهره", "تبلیغات", "نظافت", "حمل", "سایر"];
+const CONSTRUCTION_CATEGORIES = ["نقشه", "شهرداری", "مجوز", "عوارض", "نظام مهندسی", "مهندس", "معمار", "پیمانکار", "کارگر", "بتن", "آهن", "میلگرد", "سیمان", "آجر", "بلوک", "گچ", "سنگ", "کاشی", "سرامیک", "تأسیسات", "برق", "لوله‌کشی", "آسانسور", "درب و پنجره", "نما", "کابینت", "کمد", "رنگ", "حمل‌ونقل", "اجاره ماشین‌آلات", "سوخت", "خرید زمین", "وام", "بیمه", "مالیات", "هزینه اداری", "سایر"];
 // Payments and checks are merged into one ledger — a check is just a payment
 // with a due date and a clearing status, not a separate system.
 const INVESTMENT_PAYMENT_METHODS = ["نقد", "کارت", "حواله", "انتقال بانکی", "چک"];
@@ -43,4 +44,4 @@ const DEAL_FILTERS = ["همه", "فروش", "پیش‌فروش"];
 const TYPE_FILTERS = ["همه", "آپارتمان", "ویلا", "زمین", "مغازه", "اداری"];
 const STAGE_FILTERS = ["همه", "فعال", "در حال مذاکره", "فروخته شد"];
 
-export { TYPE_ICON, typeIcon, floraTypeIcon, STAGES, CUSTOMER_STAGES, INVESTMENT_STATUSES, INVESTMENT_TYPES, INVESTMENT_EXPENSE_CATEGORIES, INVESTMENT_PAYMENT_METHODS, CHECK_STATUSES, CUSTOMER_STAGE_COLOR, fmtBudgetShort, BUILD_STAGES, DEAL_FILTERS, TYPE_FILTERS, STAGE_FILTERS };
+export { TYPE_ICON, typeIcon, floraTypeIcon, STAGES, CUSTOMER_STAGES, INVESTMENT_STATUSES, INVESTMENT_TYPES, INVESTMENT_EXPENSE_CATEGORIES, CONSTRUCTION_CATEGORIES, INVESTMENT_PAYMENT_METHODS, CHECK_STATUSES, CUSTOMER_STAGE_COLOR, fmtBudgetShort, BUILD_STAGES, DEAL_FILTERS, TYPE_FILTERS, STAGE_FILTERS };
