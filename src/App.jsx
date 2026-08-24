@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
-  MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, HardHat, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
+  MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, HardHat, ArrowDownLeft, ArrowUpRight, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
   CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
   Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
 } from "lucide-react";
@@ -21,13 +21,14 @@ import { T, FS, FW, SP, RAD, glass, glassLite } from "./lib/theme.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
 import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
 import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.jsx";
-import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
+import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
 import { computeFormulaValuation, computeQuickValuationFromMap, buildFormulaExplanation } from "./lib/valuation.js";
 import { computeProjectStats, computeMonthlyReport } from "./lib/construction.js";
+import { groupChecksByMonth } from "./lib/checks.js";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -136,6 +137,7 @@ export default function FloraCRM() {
   // null = checking/not-yet-known, false = title+city missing (show onboarding),
   // true = profile complete
   const [profileReady, setProfileReady] = useState(null);
+  const [showTour, setShowTour] = useState(false);
   useEffect(() => {
     if (!session) { setProfileReady(null); return; }
     let cancelled = false;
@@ -150,10 +152,13 @@ export default function FloraCRM() {
         // the loading screen with no way forward. Now it always resolves to
         // a real boolean within 8s, worst case sending them to onboarding.
         const { data } = await Promise.race([
-          supabase.from("profiles").select("title, city").eq("id", session.user.id).single(),
+          supabase.from("profiles").select("title, city, tour_seen").eq("id", session.user.id).single(),
           new Promise((_, reject) => setTimeout(() => reject(new Error("profile check timed out")), 8000)),
         ]);
-        if (!cancelled) setProfileReady(!!data?.city);
+        if (!cancelled) {
+          setProfileReady(!!data?.city);
+          if (data?.city && !data?.tour_seen) setShowTour(true);
+        }
       } catch (e) {
         if (!cancelled) setProfileReady(false);
       }
@@ -211,6 +216,7 @@ export default function FloraCRM() {
   const [legalOpen, setLegalOpen] = useState(false);
   const [quickValuationOpen, setQuickValuationOpen] = useState(false);
   const [constructionOpen, setConstructionOpen] = useState(false);
+  const [checksOpen, setChecksOpen] = useState(false);
   // One-shot hand-off from Quick Valuation to the real property form, so
   // "ذخیره به‌عنوان فایل" never re-asks for location/area it already has.
   const [prefillNew, setPrefillNew] = useState(null);
@@ -456,11 +462,10 @@ export default function FloraCRM() {
   // aren't wired for audio, so voice notes need an AvalAI key regardless of which
   // provider is chosen for text (only real Whisper gets Persian numbers/names right).
   const canTranscribe = !!avalaiKey;
-  const transcribeAudio = async (blob) => {
-    if (!avalaiKey) throw new Error("برای یادداشت صوتی، کلید AvalAI را در تنظیمات وارد کن");
+  const transcribeWith = async (blob, model) => {
     const form = new FormData();
     form.append("file", blob, "voice.webm");
-    form.append("model", "whisper-1");
+    form.append("model", model);
     form.append("language", "fa");
     let res;
     try {
@@ -470,6 +475,17 @@ export default function FloraCRM() {
     if (!res.ok) throw new Error(data?.error?.message || `خطای تبدیل صوت (کد ${res.status})`);
     if (!data?.text) throw new Error("چیزی شنیده نشد — دوباره امتحان کن");
     return data.text;
+  };
+  const transcribeAudio = async (blob) => {
+    if (!avalaiKey) throw new Error("برای یادداشت صوتی، کلید AvalAI را در تنظیمات وارد کن");
+    // gpt-4o-transcribe has a meaningfully lower word-error-rate than the
+    // older whisper-1, especially on accents and lower-quality audio — the
+    // whole point here. If it ever fails for an unrelated reason (a
+    // transient gateway hiccup, a model temporarily unavailable on the
+    // account), whisper-1 is a real, working fallback rather than leaving
+    // the person stuck with no transcript at all.
+    try { return await transcribeWith(blob, "gpt-4o-transcribe"); }
+    catch (e) { return await transcribeWith(blob, "whisper-1"); }
   };
   // Virtual staging — analysis step uses AvalAI's vision-capable chat endpoint
   // (same gateway, multi-modal content) to look at all selected photos together
@@ -742,7 +758,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen,
+    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -930,13 +946,20 @@ export default function FloraCRM() {
         {legalOpen && <LegalHome ctx={ctx} />}
         {quickValuationOpen && <QuickValuationSheet ctx={ctx} onClose={() => setQuickValuationOpen(false)} />}
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
+        {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
         {homeStagingOpen && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setHomeStagingOpen(false)} />}
         {/* City is no longer a blocking gate before the app loads — this is
             a light popup that sits on top of the already-usable home
             screen, per explicit request to reach home first and ask city
             "like a popup" instead. */}
-        {profileReady === false && <CityPopup c={c} session={session} onDone={() => setProfileReady(true)} />}
+        {profileReady === false && <CityPopup c={c} session={session} onDone={() => { setProfileReady(true); setShowTour(true); }} />}
+        {profileReady === true && showTour && session?.user && (
+          <OnboardingTour c={c} onDone={() => {
+            setShowTour(false);
+            supabase.from("profiles").upsert({ id: session.user.id, tour_seen: true }).then(() => {});
+          }} />
+        )}
 
         {celebration && <CelebrationOverlay c={c} celebration={celebration} />}
 
@@ -3856,6 +3879,15 @@ function MoreTab({ ctx }) {
         <ChevronLeft size={17} color={c.muted} />
       </button>
 
+      <button onClick={() => ctx.setChecksOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><ArrowUpRight size={20} color={c.danger} /></div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>چک‌ها</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>دریافتی و پرداختی، دسته‌بندی بر اساس ماه</p>
+        </div>
+        <ChevronLeft size={17} color={c.muted} />
+      </button>
+
       {/* Collapsible: owners */}
       <CollapsibleCard c={c} icon={UserCircle2} tint={c.primary} title="مالکین" subtitle="لیست مالکین و تماس سریع" count={owners.length}>
         <div className="flex flex-col gap-2">
@@ -5550,6 +5582,7 @@ function ConstructionAddProject({ ctx, onClose, onCreated }) {
 function ConstructionProjectDetail({ ctx, project, onBack, onClose }) {
   const { c, constructionTransactions } = ctx;
   const [entryMode, setEntryMode] = useState(null); // "voice" | "text" | null
+  const [editTx, setEditTx] = useState(null);
   const stats = computeProjectStats(constructionTransactions, project.id);
   const jNow = isoToJalali(todayISO());
   const monthly = computeMonthlyReport(constructionTransactions, project.id, jNow[0], jNow[1]);
@@ -5613,18 +5646,25 @@ function ConstructionProjectDetail({ ctx, project, onBack, onClose }) {
           ) : (
             <div className="flex flex-col gap-2">
               {recent.map((t) => (
-                <div key={t.id} className="flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 11, ...glassLite(c) }}>
+                <button key={t.id} onClick={() => setEditTx(t)} className="press w-full text-right flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 11, ...glassLite(c) }}>
                   <div className="min-w-0">
                     <p style={{ fontSize: 12.5, fontWeight: 700 }}>{t.category}{t.recipient ? ` — ${t.recipient}` : ""}</p>
                     <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{fmtJalali(t.date)}{t.type !== "payment" ? ` · ${t.type === "payable" ? "بدهی" : "طلب"}` : ""}</p>
                   </div>
                   <span style={{ fontSize: 13, fontWeight: 800, color: t.type === "receivable" ? c.success : c.ink, flexShrink: 0 }}>{fmtBudgetShort(t.amount)}</span>
-                </div>
+                </button>
               ))}
             </div>
           )}
         </div>
       </div>
+      {editTx && (
+        <ConstructionEditTransaction
+          ctx={ctx}
+          transaction={editTx}
+          onClose={() => setEditTx(null)}
+        />
+      )}
       {entryMode && (
         <ConstructionEntrySheet
           ctx={ctx}
@@ -5633,6 +5673,68 @@ function ConstructionProjectDetail({ ctx, project, onBack, onClose }) {
           onClose={() => setEntryMode(null)}
         />
       )}
+    </BodyPortal>
+  );
+}
+
+// Direct answer to "voice sometimes gets it wrong" — every field extracted
+// by voice or text is fully editable here after the fact, and deleting a
+// wrongly-created transaction is just as available as fixing it.
+function ConstructionEditTransaction({ ctx, transaction, onClose }) {
+  const { c, setConstructionTransactions, notify } = ctx;
+  const [amount, setAmount] = useState(String(transaction.amount || ""));
+  const [recipient, setRecipient] = useState(transaction.recipient || "");
+  const [category, setCategory] = useState(transaction.category || "سایر");
+  const [type, setType] = useState(transaction.type || "payment");
+  const [date, setDate] = useState(transaction.date || todayISO());
+  const [description, setDescription] = useState(transaction.description || "");
+
+  const save = () => {
+    if (!toNum(amount)) { notify("مبلغ را وارد کن"); return; }
+    setConstructionTransactions((prev) => prev.map((t) => t.id === transaction.id ? {
+      ...t, amount: toNum(amount), recipient: recipient.trim(), category, type, date, description: description.trim(),
+    } : t));
+    notify("تراکنش به‌روزرسانی شد");
+    onClose();
+  };
+
+  const remove = () => {
+    setConstructionTransactions((prev) => prev.filter((t) => t.id !== transaction.id));
+    notify("تراکنش حذف شد");
+    onClose();
+  };
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[260] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+        <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ background: c.surface, borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "85vh", overflowY: "auto" }}>
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>ویرایش تراکنش</p>
+          <Field c={c} label="مبلغ (تومان)"><input value={amount} onChange={(e) => setAmount(toEnDigits(e.target.value).replace(/[^\d]/g, ""))} inputMode="numeric" style={inputStyle(c)} dir="ltr" /></Field>
+          <Field c={c} label="به / از"><input style={inputStyle(c)} value={recipient} onChange={(e) => setRecipient(e.target.value)} /></Field>
+          <Field c={c} label="نوع">
+            <div className="flex gap-2">
+              {[["payment", "پرداخت"], ["payable", "بدهکاریم"], ["receivable", "طلبکارم"]].map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setType(v)} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === v ? c.gradientPrimary : c.surface2, color: type === v ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{label}</button>
+              ))}
+            </div>
+          </Field>
+          <Field c={c} label="دسته">
+            <div className="flex flex-wrap gap-1.5">
+              {CONSTRUCTION_CATEGORIES.map((cat) => (
+                <button key={cat} type="button" onClick={() => setCategory(cat)} className="press rounded-lg" style={{ paddingInline: 9, paddingBlock: 7, background: category === cat ? c.gradientPrimary : c.surface2, color: category === cat ? "#fff" : c.muted, fontSize: 10.5, fontWeight: 700 }}>{cat}</button>
+              ))}
+            </div>
+          </Field>
+          <Field c={c} label="تاریخ"><JalaliDatePicker c={c} value={date} onChange={setDate} /></Field>
+          <Field c={c} label="توضیح"><input style={inputStyle(c)} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+
+          <div className="flex gap-2 mt-2">
+            <button onClick={remove} className="press rounded-xl" style={{ paddingInline: 16, paddingBlock: 13, background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 13 }}><Trash2 size={15} /></button>
+            <button onClick={onClose} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره</button>
+          </div>
+        </div>
+      </div>
     </BodyPortal>
   );
 }
@@ -6806,7 +6908,6 @@ const FIN_TABS = [
   { id: "overview", label: "نمای کلی" },
   { id: "split", label: "تقسیم کمیسیون" },
   { id: "transactions", label: "معاملات" },
-  { id: "checks", label: "چک‌ها" },
   { id: "office", label: "درآمد و هزینه" },
   { id: "debtors", label: "بدهکاران" },
   { id: "reports", label: "گزارشات" },
@@ -7003,89 +7104,170 @@ function ChecksVoiceCapture({ ctx, onExtracted, onClose }) {
   );
 }
 
-function ChecksPanel({ ctx }) {
+// Checks — its own standalone home-screen section now, deliberately
+// separate from Finance. Grouped into a single-open month accordion once
+// the list gets long (same UX pattern as the size-category accordion on
+// Files), with each month's header showing real received/paid totals, not
+// just a count.
+function ChecksHome({ ctx, onClose }) {
   const { c, checks, setChecks, notify } = ctx;
+  const groups = groupChecksByMonth(checks);
+  const [openMonthKey, setOpenMonthKey] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [showVoice, setShowVoice] = useState(false);
-  const [recipient, setRecipient] = useState("");
-  const [amount, setAmount] = useState("");
-  const [dueDate, setDueDate] = useState(todayISO());
-  const [notes, setNotes] = useState("");
+  const [editCheck, setEditCheck] = useState(null);
 
-  const resetForm = () => { setRecipient(""); setAmount(""); setDueDate(todayISO()); setNotes(""); setShowForm(false); };
+  useEffect(() => {
+    if (groups.length > 0 && openMonthKey === null) {
+      const [ty, tm] = isoToJalali(todayISO());
+      const todayKey = `${ty}-${String(tm).padStart(2, "0")}`;
+      const match = groups.find((g) => g.key === todayKey) || groups[0];
+      setOpenMonthKey(match.key);
+    }
+  }, [groups.length]); // eslint-disable-line
 
-  const save = () => {
-    if (!recipient.trim() || !toNum(amount)) { notify("گیرنده و مبلغ لازم است"); return; }
-    setChecks((prev) => [{ id: uid(), recipient: recipient.trim(), amount: toNum(amount), dueDate, notes: notes.trim(), createdAt: new Date().toISOString(), paid: false }, ...prev]);
-    notify("چک ثبت شد");
-    resetForm();
-  };
-
-  const togglePaid = (id) => setChecks((prev) => prev.map((ch) => ch.id === id ? { ...ch, paid: !ch.paid } : ch));
-  const remove = (id) => setChecks((prev) => prev.filter((ch) => ch.id !== id));
+  const unpaidTotal = checks.filter((ch) => !ch.paid && (ch.type || "پرداختی") === "پرداختی").reduce((s, ch) => s + ch.amount, 0);
 
   const handleVoiceExtracted = (parsed) => {
     setShowVoice(false);
-    if (parsed.recipient) setRecipient(parsed.recipient);
-    if (parsed.amount) setAmount(String(parsed.amount));
-    if (parsed.notes) setNotes(parsed.notes);
-    // dueDateJalali comes back as Persian text (e.g. "۲۵ مرداد ۱۴۰۵") — left
-    // for the agent to confirm/adjust in the date field rather than guessing
-    // a parse of free-form Jalali text into a Gregorian ISO string.
-    if (parsed.dueDateJalali) notify(`تاریخ گفته‌شده: ${parsed.dueDateJalali} — در فرم تنظیم کن`);
-    setShowForm(true);
+    setEditCheck({
+      id: null, recipient: parsed.recipient || "", amount: parsed.amount || "", dueDate: todayISO(),
+      notes: parsed.notes || "", type: "پرداختی", checkNumber: "", paid: false,
+      _dueDateHint: parsed.dueDateJalali || "",
+    });
   };
 
-  const sorted = [...checks].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  const unpaidTotal = checks.filter((ch) => !ch.paid).reduce((s, ch) => s + ch.amount, 0);
-
   return (
-    <div className="mt-4">
-      {showVoice && <ChecksVoiceCapture ctx={ctx} onExtracted={handleVoiceExtracted} onClose={() => setShowVoice(false)} />}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <p style={{ fontSize: 12, color: c.muted }}>مجموع چک‌های پرداخت‌نشده</p>
-          <p style={{ fontSize: 18, fontWeight: 800, color: c.attn }}>{fmtToman(unpaidTotal)}</p>
-        </div>
-        <div className="flex" style={{ gap: 6 }}>
-          <button onClick={() => setShowVoice(true)} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Mic size={15} color={c.primary} /></button>
-          <button onClick={() => setShowForm(true)} className="press flex items-center gap-1 rounded-lg px-3 py-2" style={{ background: c.primarySoft, color: c.primary, fontWeight: 700, fontSize: 11 }}><Plus size={12} /> چک جدید</button>
-        </div>
-      </div>
-
-      {showForm && (
-        <div className="rounded-xl p-3.5 mb-3" style={glass(c)}>
-          <Field c={c} label="گیرنده چک"><input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={inputStyle(c)} placeholder="مثلاً آقای احمدی" /></Field>
-          <Field c={c} label="مبلغ (تومان)"><input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} style={inputStyle(c)} inputMode="numeric" placeholder="۱۰۰,۰۰۰,۰۰۰" dir="ltr" /></Field>
-          {amount && <p style={{ fontSize: 11, color: c.muted, marginTop: -8, marginBottom: 10 }}>{formatAmountInput(amount)} تومان</p>}
-          <Field c={c} label="تاریخ سررسید"><JalaliDatePicker c={c} value={dueDate} onChange={setDueDate} /></Field>
-          <Field c={c} label="توضیحات (اختیاری)"><input value={notes} onChange={(e) => setNotes(e.target.value)} style={inputStyle(c)} /></Field>
-          <div className="flex" style={{ gap: SP.sm }}>
-            <button onClick={resetForm} className="press flex-1 rounded-xl py-2.5" style={{ background: c.surface2, fontSize: 12, fontWeight: 700 }}>لغو</button>
-            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: c.primary, color: "#fff", fontSize: 12, fontWeight: 700 }}>ثبت چک</button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2 flora-stagger">
-        {sorted.map((ch) => (
-          <div key={ch.id} className="rounded-xl p-3.5 flex items-center gap-2.5" style={{ ...glass(c), opacity: ch.paid ? 0.5 : 1 }}>
-            <button onClick={() => togglePaid(ch.id)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: ch.paid ? c.successSoft : c.attnSoft }}>
-              {ch.paid ? <CheckCircle2 size={16} color={c.success} /> : <Clock size={16} color={c.attn} />}
-            </button>
-            <div className="flex-1 min-w-0">
-              <p style={{ fontSize: 13, fontWeight: 700, textDecoration: ch.paid ? "line-through" : "none" }}>{ch.recipient}</p>
-              <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{fmtJalali(ch.dueDate)}{ch.notes ? ` · ${ch.notes}` : ""}</p>
+    <BodyPortal>
+      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
+        <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
+          <div className="flex items-center" style={{ gap: SP.md }}>
+            <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+            <div>
+              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>چک‌ها</p>
+              <p style={{ fontSize: 11, color: c.muted }}>مجموع پرداخت‌نشده: {fmtToman(unpaidTotal)}</p>
             </div>
-            <div className="text-left shrink-0"><p style={{ fontSize: 13, fontWeight: 800 }}>{fmtToman(ch.amount)}</p></div>
-            <button onClick={() => remove(ch.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
           </div>
-        ))}
-        {sorted.length === 0 && <EmptyLine c={c} text="هنوز چکی ثبت نکردی — با دکمه‌ی «چک جدید» یا میکروفون کنارش اضافه کن" />}
+          <div className="flex" style={{ gap: 6 }}>
+            {ctx.canTranscribe && <button onClick={() => setShowVoice(true)} className="press w-10 h-10 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Mic size={15} color={c.primary} /></button>}
+            <button onClick={() => setEditCheck({ id: null, recipient: "", amount: "", dueDate: todayISO(), notes: "", type: "پرداختی", checkNumber: "", paid: false })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={{ background: c.gradientPrimary }}><Plus size={16} color="#fff" /></button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-8">
+          {showVoice && <ChecksVoiceCapture ctx={ctx} onExtracted={handleVoiceExtracted} onClose={() => setShowVoice(false)} />}
+
+          {groups.length === 0 ? (
+            <EmptyLine c={c} text="هنوز چکی ثبت نکردی — با دکمه‌ی + یا میکروفون بالا اضافه کن" />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {groups.map((g) => {
+                const open = openMonthKey === g.key;
+                return (
+                  <div key={g.key} className="rounded-2xl overflow-hidden" style={glass(c)}>
+                    <button onClick={() => setOpenMonthKey(open ? null : g.key)} className="press w-full text-right flex items-center justify-between px-4" style={{ paddingBlock: 13 }}>
+                      <div className="flex items-center gap-2">
+                        <ChevronDown size={15} color={c.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+                        <span style={{ fontSize: 13, fontWeight: 800 }}>{g.label}</span>
+                      </div>
+                      <div className="text-left" style={{ fontSize: 10.5 }}>
+                        {g.totalReceived > 0 && <span style={{ color: c.success, fontWeight: 700 }}>{fmtBudgetShort(g.totalReceived)} دریافتی</span>}
+                        {g.totalReceived > 0 && g.totalPaid > 0 && <span style={{ color: c.muted }}> · </span>}
+                        {g.totalPaid > 0 && <span style={{ color: c.danger, fontWeight: 700 }}>{fmtBudgetShort(g.totalPaid)} پرداختی</span>}
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="flex flex-col gap-2 px-3" style={{ paddingBottom: SP.md }}>
+                        {g.checks.map((ch) => {
+                          const isReceived = (ch.type || "پرداختی") === "دریافتی";
+                          return (
+                            <button key={ch.id} onClick={() => setEditCheck({ ...ch, amount: String(ch.amount) })} className="press w-full text-right rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2, opacity: ch.paid ? 0.55 : 1 }}>
+                              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: isReceived ? c.successSoft : c.dangerSoft }}>
+                                {isReceived ? <ArrowDownLeft size={14} color={c.success} /> : <ArrowUpRight size={14} color={c.danger} />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p style={{ fontSize: 12.5, fontWeight: 700, textDecoration: ch.paid ? "line-through" : "none" }}>{ch.recipient}{ch.checkNumber ? ` · #${faDigits(ch.checkNumber)}` : ""}</p>
+                                <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{fmtJalali(ch.dueDate)}{ch.notes ? ` · ${ch.notes}` : ""}</p>
+                              </div>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: isReceived ? c.success : c.danger, flexShrink: 0 }}>{fmtToman(ch.amount)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+      {editCheck && <ChecksEditSheet ctx={ctx} check={editCheck} onClose={() => setEditCheck(null)} />}
+    </BodyPortal>
   );
 }
+
+function ChecksEditSheet({ ctx, check, onClose }) {
+  const { c, setChecks, notify } = ctx;
+  const isNew = !check.id;
+  const [recipient, setRecipient] = useState(check.recipient || "");
+  const [amount, setAmount] = useState(check.amount || "");
+  const [dueDate, setDueDate] = useState(check.dueDate || todayISO());
+  const [notes, setNotes] = useState(check.notes || "");
+  const [type, setType] = useState(check.type || "پرداختی");
+  const [checkNumber, setCheckNumber] = useState(check.checkNumber || "");
+
+  const save = () => {
+    if (!recipient.trim() || !toNum(amount)) { notify("گیرنده و مبلغ لازم است"); return; }
+    if (isNew) {
+      setChecks((prev) => [{ id: uid(), recipient: recipient.trim(), amount: toNum(amount), dueDate, notes: notes.trim(), type, checkNumber: toEnDigits(checkNumber).trim(), createdAt: new Date().toISOString(), paid: false }, ...prev]);
+      notify("چک ثبت شد");
+    } else {
+      setChecks((prev) => prev.map((ch) => ch.id === check.id ? { ...ch, recipient: recipient.trim(), amount: toNum(amount), dueDate, notes: notes.trim(), type, checkNumber: toEnDigits(checkNumber).trim() } : ch));
+      notify("چک به‌روزرسانی شد");
+    }
+    onClose();
+  };
+
+  const togglePaid = () => { setChecks((prev) => prev.map((ch) => ch.id === check.id ? { ...ch, paid: !ch.paid } : ch)); onClose(); };
+  const remove = () => { setChecks((prev) => prev.filter((ch) => ch.id !== check.id)); notify("چک حذف شد"); onClose(); };
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[260] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+        <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ background: c.surface, borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "85vh", overflowY: "auto" }}>
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>{isNew ? "چک جدید" : "ویرایش چک"}</p>
+          {check._dueDateHint && <p style={{ fontSize: 11, color: c.attn, marginBottom: SP.md }}>تاریخ گفته‌شده: {check._dueDateHint} — پایین تنظیم کن</p>}
+
+          <Field c={c} label="نوع چک">
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setType("پرداختی")} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === "پرداختی" ? c.danger : c.surface2, color: type === "پرداختی" ? "#fff" : c.muted, fontSize: 12, fontWeight: 700 }}>پرداختی</button>
+              <button type="button" onClick={() => setType("دریافتی")} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === "دریافتی" ? c.success : c.surface2, color: type === "دریافتی" ? "#fff" : c.muted, fontSize: 12, fontWeight: 700 }}>دریافتی</button>
+            </div>
+          </Field>
+          <Field c={c} label={type === "دریافتی" ? "پرداخت‌کننده" : "گیرنده چک"}><input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={inputStyle(c)} placeholder="مثلاً آقای احمدی" /></Field>
+          <Field c={c} label="مبلغ (تومان)"><input value={amount} onChange={(e) => setAmount(toEnDigits(e.target.value).replace(/[^\d]/g, ""))} style={inputStyle(c)} inputMode="numeric" placeholder="۱۰۰,۰۰۰,۰۰۰" dir="ltr" /></Field>
+          <Field c={c} label="شماره چک (اختیاری)"><input value={checkNumber} onChange={(e) => setCheckNumber(toEnDigits(e.target.value))} style={inputStyle(c)} placeholder="مثلاً 123456 یا ۱۲۳۴۵۶" dir="ltr" /></Field>
+          <Field c={c} label="تاریخ سررسید"><JalaliDatePicker c={c} value={dueDate} onChange={setDueDate} /></Field>
+          <Field c={c} label="توضیحات (اختیاری)"><input value={notes} onChange={(e) => setNotes(e.target.value)} style={inputStyle(c)} /></Field>
+
+          {!isNew && (
+            <button onClick={togglePaid} className="press w-full flex items-center justify-center rounded-xl mb-3" style={{ gap: 6, paddingBlock: 11, background: check.paid ? c.attnSoft : c.successSoft, color: check.paid ? c.attn : c.success, fontWeight: 700, fontSize: 12.5 }}>
+              {check.paid ? <><Clock size={14} /> علامت‌گذاری به‌عنوان پرداخت‌نشده</> : <><CheckCircle2 size={14} /> علامت‌گذاری به‌عنوان پرداخت‌شده</>}
+            </button>
+          )}
+
+          <div className="flex gap-2">
+            {!isNew && <button onClick={remove} className="press rounded-xl" style={{ paddingInline: 16, paddingBlock: 13, background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 13 }}><Trash2 size={15} /></button>}
+            <button onClick={onClose} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره</button>
+          </div>
+        </div>
+      </div>
+    </BodyPortal>
+  );
+}
+
 
 // Home dashboard — checks-due-this-week and the market insight card,
 // combined into one auto-rotating slider (same 4.5s rotation + dot pattern
@@ -7136,7 +7318,7 @@ function HomeInsightSlider({ ctx }) {
   const current = slides[face % slides.length];
 
   return (
-    <button onClick={() => setTab("finance")} className="press w-full text-right rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c), marginBottom: SP.xl }}>
+    <button onClick={() => current === "checks" ? ctx.setChecksOpen(true) : setTab("finance")} className="press w-full text-right rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c), marginBottom: SP.xl }}>
       {current === "checks" && (
         <>
           <div className="flex items-center justify-between">
@@ -7388,7 +7570,7 @@ function FinanceCenterView({ ctx, onBack }) {
         </div>
       )}
 
-      {tab === "checks" && <ChecksPanel ctx={ctx} />}
+      {/* چک‌ها moved out to its own home-screen section — see setChecksOpen */}
 
       {tab === "office" && (
         <div>
