@@ -27,7 +27,7 @@ const DEFAULT_PREFS = {
 
 function Toggle({ c, on, onChange }) {
   return (
-    <button onClick={onChange} className="press shrink-0" style={{ width: 42, height: 24, borderRadius: 999, background: on ? c.primary : c.surface2, position: "relative", transition: "background .2s" }}>
+    <button onClick={onChange} className="press shrink-0" style={{ width: 42, height: 24, borderRadius: 999, background: on ? c.success : c.surface2, position: "relative", transition: "background .2s" }}>
       <div style={{ position: "absolute", top: 2, [on ? "left" : "right"]: 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "all .2s" }} />
     </button>
   );
