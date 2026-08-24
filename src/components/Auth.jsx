@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { Mic, Home, Layers, Sparkles, CheckCircle2, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient.js";
 import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
 import { Field, inputStyle } from "../lib/ui.jsx";
@@ -174,7 +175,11 @@ function CityPopup({ c, session, onDone }) {
   const saveAndFinish = async () => {
     if (!city.trim()) { setMsg("شهر را وارد کن"); return; }
     setBusy(true);
-    const { error } = await supabase.from("profiles").update({ city: city.trim() }).eq("id", session.user.id);
+    // upsert, not update: a brand-new signup has no profiles row yet at
+    // all, so update() would silently touch zero rows (no error, but
+    // nothing saved) — the popup would then come back every single login
+    // since the city was never actually persisted.
+    const { error } = await supabase.from("profiles").upsert({ id: session.user.id, city: city.trim() });
     setBusy(false);
     if (error) { setMsg("ذخیره نشد، دوباره امتحان کن"); return; }
     onDone();
@@ -193,4 +198,50 @@ function CityPopup({ c, session, onDone }) {
   );
 }
 
-export { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, formatPhoneDisplay, phoneToE164 };
+const TOUR_SLIDES = [
+  { icon: Sparkles, title: "خوش اومدی به Flora", body: "دستیار هوشمند دفتر املاکت — بیشتر کارها رو با صدا انجام می‌دی، نه فرم پرکردن." },
+  { icon: Mic, title: "صدا مهم‌ترین ابزارته", body: "هرجا میکروفون دیدی، بگو چی شده — مشتری جدید، تماس، چک، هزینه‌ی پروژه. Flora خودش ثبتش می‌کنه." },
+  { icon: Home, title: "فایل‌ها و مشتری‌ها", body: "فایل‌ها خودشون بر اساس متراژ دسته‌بندی می‌شن. مشتری‌ها هم مرحله‌به‌مرحله پیگیری می‌شن." },
+  { icon: Layers, title: "ابزارهای تخصصی", body: "Flora Legal، Flora Valuation، ساخت‌وساز و چک‌ها — همه زیر «بیشتر» و صفحه‌ی اصلی در دسترسن." },
+];
+
+// A short, skippable slide-through shown once per account — not a
+// positional spotlight tour (too fragile to keep in sync as the app
+// changes), just a fast, honest introduction to the handful of ideas that
+// actually matter on day one. Skip is always reachable, on every slide.
+function OnboardingTour({ c, onDone }) {
+  const [step, setStep] = useState(0);
+  const last = step === TOUR_SLIDES.length - 1;
+  const slide = TOUR_SLIDES[step];
+  const Icon = slide.icon;
+
+  return (
+    <div className="fixed inset-0 z-[500] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", padding: SP.xl }}>
+      <div className="w-full" style={{ maxWidth: 340, background: c.surface, borderRadius: RAD.lg, padding: SP.xl, position: "relative" }}>
+        <button onClick={onDone} className="press" style={{ position: "absolute", top: SP.lg, left: SP.lg, fontSize: 12, color: c.muted, fontWeight: 700 }}>رد شدن</button>
+
+        <div className="flex items-center justify-center" style={{ width: 64, height: 64, borderRadius: "50%", background: c.primarySoft, margin: "36px auto 20px" }}>
+          <Icon size={28} color={c.primary} />
+        </div>
+        <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.sm }}>{slide.title}</p>
+        <p style={{ fontSize: FS.body, color: c.muted, textAlign: "center", lineHeight: 1.9, marginBottom: SP.xl }}>{slide.body}</p>
+
+        <div className="flex items-center justify-center" style={{ gap: 6, marginBottom: SP.lg }}>
+          {TOUR_SLIDES.map((_, i) => (
+            <div key={i} style={{ width: i === step ? 18 : 6, height: 6, borderRadius: 999, background: i === step ? c.primary : c.border, transition: "all .25s" }} />
+          ))}
+        </div>
+
+        <button
+          onClick={() => last ? onDone() : setStep((s) => s + 1)}
+          className="press w-full"
+          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}
+        >
+          {last ? "بزن بریم 🚀" : "بعدی"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 };
