@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Mic, Home, Layers, Sparkles, CheckCircle2, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient.js";
-import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
+import { SP, RAD, FS, FW, glass, glassLite, glassSurface } from "../lib/theme.js";
 import { Field, inputStyle } from "../lib/ui.jsx";
 import floraBrandIcon from "../assets/flora-icon.webp";
 import floraWordmark from "../assets/flora-wordmark-new.webp";
@@ -187,7 +187,7 @@ function CityPopup({ c, session, onDone }) {
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", padding: SP.xl }}>
-      <div className="w-full" style={{ maxWidth: 320, background: c.surface, borderRadius: RAD.lg, padding: SP.xl }}>
+      <div className="w-full" style={{ maxWidth: 320, ...glassSurface(c), borderRadius: RAD.lg, padding: SP.xl }}>
         <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>خوش اومدی 👋</p>
         <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.lg }}>تو کدوم شهر فعالیت می‌کنی؟</p>
         {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
@@ -217,7 +217,7 @@ function OnboardingTour({ c, onDone }) {
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", padding: SP.xl }}>
-      <div className="w-full" style={{ maxWidth: 340, background: c.surface, borderRadius: RAD.lg, padding: SP.xl, position: "relative" }}>
+      <div className="w-full" style={{ maxWidth: 340, ...glassSurface(c), borderRadius: RAD.lg, padding: SP.xl, position: "relative" }}>
         <button onClick={onDone} className="press" style={{ position: "absolute", top: SP.lg, left: SP.lg, fontSize: 12, color: c.muted, fontWeight: 700 }}>رد شدن</button>
 
         <div className="flex items-center justify-center" style={{ width: 64, height: 64, borderRadius: "50%", background: c.primarySoft, margin: "36px auto 20px" }}>

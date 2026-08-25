@@ -74,7 +74,7 @@ function parseDivarText(raw) {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
-const fmtToman = (n) => (n ? Math.round(n).toLocaleString("en-US") : "0") + " تومان";
+const fmtToman = (n) => (n ? Math.round(n).toLocaleString("de-DE") : "0") + " تومان";
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 export { div, faDigits, MONTHS_FA, WEEK_FA, LEAP_CYCLE, isLeapJalali, gregorianToJalali, jalaliToGregorian, isoToJalali, jalaliToIso, fmtJalali, jalaliMonthLength, jalaliFirstWeekday, toEnDigits, toDecimal, toNum, parseDivarText, uid, fmtToman, todayISO };

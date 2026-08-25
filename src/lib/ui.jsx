@@ -1,5 +1,7 @@
-import React from "react";
-import { SP, RAD, FS } from "./theme.js";
+import React, { useState } from "react";
+import { CalendarDays, ChevronRight, ChevronLeft } from "lucide-react";
+import { SP, RAD, FS, glass } from "./theme.js";
+import { isoToJalali, jalaliMonthLength, jalaliFirstWeekday, jalaliToIso, fmtJalali, faDigits, MONTHS_FA, WEEK_FA } from "./format.js";
 
 const FLORA_GOLD = "#BA9358";
 
@@ -52,4 +54,37 @@ function BodyPortal({ children }) {
 function Field({ c, label, children }) { return <div style={{ marginBottom: SP.md }}><label style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, display: "block" }}>{label}</label>{children}</div>; }
 function inputStyle(c) { return { width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: `${SP.md}px ${SP.md + 2}px`, fontSize: FS.body + 1, color: c.ink, outline: "none", fontFamily: "inherit" }; }
 
-export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle };
+// Used across the property form, checks, and construction transactions —
+// lives here (not in App.jsx) specifically so any component file can import
+// it without creating a circular dependency back into App.jsx itself.
+function JalaliDatePicker({ c, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const selJ = isoToJalali(value);
+  const [viewY, setViewY] = useState(selJ[0]);
+  const [viewM, setViewM] = useState(selJ[1]);
+  const monthLen = jalaliMonthLength(viewY, viewM);
+  const firstDow = jalaliFirstWeekday(viewY, viewM);
+  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: monthLen }, (_, i) => i + 1)];
+  const nav = (dir) => { let m = viewM + dir, y = viewY; if (m > 12) { m = 1; y++; } else if (m < 1) { m = 12; y--; } setViewM(m); setViewY(y); };
+  const pick = (day) => { onChange(jalaliToIso(viewY, viewM, day)); setOpen(false); };
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="press w-full flex items-center gap-2" style={{ ...inputStyle(c), justifyContent: "flex-start" }}><CalendarDays size={15} color={c.primary} /><span>{fmtJalali(value)}</span></button>
+      {open && (
+        <div className="mt-2 rounded-xl p-3 flora-up" style={glass(c)}>
+          <div className="flex items-center justify-between mb-2">
+            <button onClick={() => nav(-1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronRight size={14} color={c.ink} /></button>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{MONTHS_FA[viewM - 1]} {faDigits(viewY)}</span>
+            <button onClick={() => nav(1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronLeft size={14} color={c.ink} /></button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 mb-1">{WEEK_FA.map((w, i) => <div key={i} style={{ fontSize: 11, color: c.muted, textAlign: "center", fontWeight: 700 }}>{w}</div>)}</div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => { const isSel = day && viewY === selJ[0] && viewM === selJ[1] && day === selJ[2]; return day ? <button key={i} onClick={() => pick(day)} className="press rounded-xl flex items-center justify-center" style={{ height: 30, fontSize: 13, fontWeight: isSel ? 800 : 500, color: isSel ? "#fff" : c.ink, background: isSel ? c.primary : "transparent" }}>{faDigits(day)}</button> : <div key={i} />; })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker };

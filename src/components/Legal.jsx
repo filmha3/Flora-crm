@@ -3,7 +3,7 @@ import {
   Scale, Mic, Type, Camera, FolderOpen, X, ChevronLeft, AlertTriangle, CheckCircle2,
   Clock, Plus, Trash2, FileText, Send, Loader2, ShieldAlert, Sparkles,
 } from "lucide-react";
-import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
+import { SP, RAD, FS, FW, glass, glassLite, glassSurface } from "../lib/theme.js";
 import { Field, inputStyle, EmptyLine, BodyPortal, FloraMark } from "../lib/ui.jsx";
 import { dbGet, dbSet } from "../lib/db.js";
 import { uid, todayISO, faDigits, fmtJalali, isoToJalali, MONTHS_FA } from "../lib/format.js";
@@ -518,7 +518,7 @@ function LegalCaseView({ ctx, legalCase, onUpdate, onDelete, onBack }) {
 
         {confirmDelete && (
           <div className="fixed inset-0 z-[999] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", padding: SP.xl }}>
-            <div style={{ background: c.surface, borderRadius: RAD.lg, padding: SP.xl, maxWidth: 320 }}>
+            <div style={{ ...glassSurface(c), borderRadius: RAD.lg, padding: SP.xl, maxWidth: 320 }}>
               <p style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>حذف این پرونده</p>
               <p style={{ fontSize: 12, color: c.muted, lineHeight: 1.8, marginBottom: SP.lg }}>این اطلاعات برای همیشه حذف می‌شود. این عملیات قابل بازگشت نیست.</p>
               <div className="flex" style={{ gap: SP.sm }}>

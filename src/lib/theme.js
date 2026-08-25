@@ -65,6 +65,19 @@ const glass = (c) => c.isDark ? {
   boxShadow: c.shadow,
   borderRadius: 22,
 };
+// For modals/sheets that need c.surface as a background but define their
+// own border-radius shape (bottom sheets, custom dialogs) and so can't use
+// the full glass() object. In dark mode, c.surface alone is only 4%
+// opacity — without this same blur, whatever is behind the card visually
+// bleeds through and collides with the card's own text, which is exactly
+// the "text shows through the glass" bug this fixes everywhere it appears.
+const glassSurface = (c) => c.isDark ? {
+  background: c.surface,
+  backdropFilter: "blur(20px) saturate(180%)",
+  WebkitBackdropFilter: "blur(20px) saturate(180%)",
+} : {
+  background: c.surface,
+};
 // Same look, no backdrop-filter. Blur is one of the most expensive CSS effects
 // on iOS Safari — fine for a hero card or a sheet, but ruinous once it's applied
 // to every row in a long scrolling list (each blurred layer repaints on scroll).
@@ -76,4 +89,4 @@ const glassLite = (c, radius = 22) => ({
   borderRadius: radius,
 });
 
-export { T, FS, FW, SP, RAD, glass, glassLite };
+export { T, FS, FW, SP, RAD, glass, glassLite, glassSurface };

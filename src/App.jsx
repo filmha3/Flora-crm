@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Hammer, CalendarDays, Trees, Store, Briefcase,
   ArrowUpDown, BadgeCheck, Bell, MoreHorizontal, Calendar, ArrowRight,
   LayoutList, LayoutGrid, ChevronUp, Download, Upload, Building, Columns3, Edit3,
-  MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, HardHat, ArrowDownLeft, ArrowUpRight, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
+  MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, HardHat, ArrowUpRight, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
   CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
   Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
 } from "lucide-react";
@@ -15,20 +15,21 @@ import {
 // unmanageable/unshippable file — see src/lib and src/components) ----------
 import { DB_NAME, STORE, DATA_KEY, SETTINGS_KEY, REMINDER_KEY, COPILOT_KEY, CHAT_KEY, FINANCE_AI_KEY, MISSION_KEY, AUTOBACKUP_KEY, NBA_KEY, STREAK_KEY, MARKET_INSIGHT_KEY, DIVAR_CHAT_KEY, scopedKey, openDB, dbGet, dbSet, setActiveUid } from "./lib/db.js";
 import { div, faDigits, MONTHS_FA, WEEK_FA, LEAP_CYCLE, isLeapJalali, gregorianToJalali, jalaliToGregorian, isoToJalali, jalaliToIso, fmtJalali, jalaliMonthLength, jalaliFirstWeekday, toEnDigits, toDecimal, toNum, parseDivarText, uid, fmtToman, todayISO } from "./lib/format.js";
-import { TYPE_ICON, typeIcon, floraTypeIcon, STAGES, CUSTOMER_STAGES, INVESTMENT_STATUSES, INVESTMENT_TYPES, INVESTMENT_EXPENSE_CATEGORIES, CONSTRUCTION_CATEGORIES, INVESTMENT_PAYMENT_METHODS, CHECK_STATUSES, CUSTOMER_STAGE_COLOR, fmtBudgetShort, BUILD_STAGES, DEAL_FILTERS, TYPE_FILTERS, STAGE_FILTERS } from "./lib/constants.js";
+import { TYPE_ICON, typeIcon, floraTypeIcon, STAGES, CUSTOMER_STAGES, INVESTMENT_STATUSES, INVESTMENT_TYPES, INVESTMENT_EXPENSE_CATEGORIES, INVESTMENT_PAYMENT_METHODS, CHECK_STATUSES, CUSTOMER_STAGE_COLOR, fmtBudgetShort, BUILD_STAGES, DEAL_FILTERS, TYPE_FILTERS, STAGE_FILTERS } from "./lib/constants.js";
 import { MAX_IMAGE_DIM, IMAGE_QUALITY, supportsWebp, FALLBACK_DIM, FALLBACK_QUALITY, compressImage, reencodeToWebp, filesToMedia } from "./lib/image.js";
-import { T, FS, FW, SP, RAD, glass, glassLite } from "./lib/theme.js";
+import { T, FS, FW, SP, RAD, glass, glassLite, glassSurface } from "./lib/theme.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
 import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
-import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle } from "./lib/ui.jsx";
+import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker } from "./lib/ui.jsx";
 import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
-import { computeFormulaValuation, computeQuickValuationFromMap, buildFormulaExplanation } from "./lib/valuation.js";
-import { computeProjectStats, computeMonthlyReport } from "./lib/construction.js";
-import { groupChecksByMonth } from "./lib/checks.js";
+import { SAREIN_CENTER, DARK_TILE_URL, LIGHT_TILE_URL, loadLeaflet, reverseGeocodeAddress } from "./lib/geo.js";
+import { FloraValuationSheet } from "./components/Valuation.jsx";
+import { ConstructionHome } from "./components/Construction.jsx";
+import { ChecksHome } from "./components/Checks.jsx";
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -41,17 +42,6 @@ import { groupChecksByMonth } from "./lib/checks.js";
 
 // CARTO's Dark Matter basemap — OSM data, but rendered dark by design. Chosen
 // over filtering the standard light OSM tiles: filters that darken enough to
-// match this app either crush the roads to black or wash the base out, because
-// roads are the *brightest* thing on a light tile. Starting from a genuinely
-// dark tile and tinting it warm gets the midnight-blue-and-gold look cleanly.
-const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-// The location picker specifically uses a light/day map — real streets and
-// landmarks read far more clearly on a bright satellite-style basemap than
-// on the app's own dark theme, even though every other map in Flora stays
-// dark to match the rest of the UI.
-const LIGHT_TILE_URL = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
-
-
 // ---------- Seed data ----------
 const seedOwners = [{ id: "o1", name: "آقای رحیمی", phone: "09121234567" }, { id: "o2", name: "خانم صادقی", phone: "09351234567" }];
 const seedBuilders = [{ id: "b1", name: "شرکت سازه پارس", phone: "02122223333" }];
@@ -228,8 +218,6 @@ export default function FloraCRM() {
   const [showCustomerPrice, setShowCustomerPrice] = useState(false);
   const [homeStagingOpen, setHomeStagingOpen] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [grokKey, setGrokKey] = useState("");
   const [perplexityKey, setPerplexityKey] = useState("");
   const [avalaiKey, setAvalaiKey] = useState("");
   const [avalaiModel, setAvalaiModel] = useState("gpt-4o-mini");
@@ -275,8 +263,6 @@ export default function FloraCRM() {
 
         const settings = await dbGet(SETTINGS_KEY);
         setGeminiKey(settings?.geminiKey || "");
-        setOpenaiKey(settings?.openaiKey || "");
-        setGrokKey(settings?.grokKey || "");
         setPerplexityKey(settings?.perplexityKey || "");
         setAvalaiKey(settings?.avalaiKey || "");
         if (settings?.avalaiModel) setAvalaiModel(settings.avalaiModel);
@@ -302,7 +288,7 @@ export default function FloraCRM() {
     }, 400);
     return () => clearTimeout(t);
   }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions]);
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, openaiKey, grokKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
+  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Appointments live only in this device's IndexedDB (local-first, like
   // everything else in Flora) — but a push notification still needs to fire
@@ -457,7 +443,7 @@ export default function FloraCRM() {
   // profileReady === false no longer blocks the whole app — see the
   // CityPopup rendered further down, alongside the other overlays.
 
-  const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "openai" && openaiKey) || (aiProvider === "grok" && grokKey) || (aiProvider === "perplexity" && perplexityKey);
+  const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "perplexity" && perplexityKey);
   // Voice-to-text uses AvalAI's Whisper proxy specifically — the other providers
   // aren't wired for audio, so voice notes need an AvalAI key regardless of which
   // provider is chosen for text (only real Whisper gets Persian numbers/names right).
@@ -555,36 +541,6 @@ export default function FloraCRM() {
       if (!res.ok) throw new Error(data?.error?.message || `خطای AvalAI (کد ${res.status})`);
       const text = data?.choices?.[0]?.message?.content;
       if (!text) throw new Error("پاسخ خالی از AvalAI");
-      return text;
-    }
-    if (aiProvider === "openai") {
-      if (!openaiKey) throw new Error("کلید OpenAI وارد نشده");
-      let res, data;
-      try {
-        res = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-          body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }] }),
-        });
-      } catch (netErr) { throw new Error("اتصال به OpenAI برقرار نشد (احتمالاً مرورگر درخواست مستقیم را مسدود کرده — CORS)"); }
-      data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error?.message || `خطای OpenAI (کد ${res.status})`);
-      const text = data?.choices?.[0]?.message?.content;
-      if (!text) throw new Error("پاسخ خالی از OpenAI");
-      return text;
-    }
-    if (aiProvider === "grok") {
-      if (!grokKey) throw new Error("کلید Grok وارد نشده");
-      let res, data;
-      try {
-        res = await fetch("https://api.x.ai/v1/chat/completions", {
-          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${grokKey}` },
-          body: JSON.stringify({ model: "grok-2-latest", messages: [{ role: "user", content: prompt }] }),
-        });
-      } catch (netErr) { throw new Error("اتصال به Grok برقرار نشد (احتمالاً مرورگر درخواست مستقیم را مسدود کرده — CORS)"); }
-      data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error?.message || `خطای Grok (کد ${res.status})`);
-      const text = data?.choices?.[0]?.message?.content;
-      if (!text) throw new Error("پاسخ خالی از Grok");
       return text;
     }
     if (aiProvider === "perplexity") {
@@ -760,7 +716,7 @@ export default function FloraCRM() {
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
-    openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
     cloudBackupNow, restoreFromCloud,
   };
@@ -944,7 +900,7 @@ export default function FloraCRM() {
             into the rail's own box instead of covering the screen. */}
         {divarSearchOpen && <DivarSearchSheet ctx={ctx} onClose={() => setDivarSearchOpen(false)} />}
         {legalOpen && <LegalHome ctx={ctx} />}
-        {quickValuationOpen && <QuickValuationSheet ctx={ctx} onClose={() => setQuickValuationOpen(false)} />}
+        {quickValuationOpen && <FloraValuationSheet ctx={ctx} onClose={() => setQuickValuationOpen(false)} />}
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
         {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
@@ -1237,7 +1193,7 @@ function MarketWidget({ c }) {
   const Cell = ({ label, value, color }) => (
     <div className="flex items-center" style={{ gap: SP.sm }}>
       <span style={{ fontSize: FS.caption, color: c.muted }}>{label}</span>
-      <span style={{ fontSize: FS.body, fontWeight: FW.heavy, color, direction: "ltr" }}>{value ? Number(value).toLocaleString("en-US") : "—"}</span>
+      <span style={{ fontSize: FS.body, fontWeight: FW.heavy, color, direction: "ltr" }}>{value ? Number(value).toLocaleString("de-DE") : "—"}</span>
     </div>
   );
 
@@ -1975,7 +1931,7 @@ function VoiceOrb({ c, level = 0, state = "listening" }) {
       </div>
       {/* crisp glass core with the state icon */}
       <div className="flex items-center justify-center" style={{
-        position: "relative", width: 88, height: 88, borderRadius: "50%", background: c.surface,
+        position: "relative", width: 88, height: 88, borderRadius: "50%", ...glassSurface(c),
         backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)",
         border: `1px solid ${palette[0]}40`, boxShadow: `0 8px 28px -8px ${palette[0]}55`,
         transform: `scale(${reactive ? 1 + Math.min(0.1, level * 0.14) : 1})`, transition: "transform .1s ease-out",
@@ -3231,6 +3187,14 @@ function PropertiesTab({ ctx, search, setSearch, stageHint }) {
 
 // Every pinned property on one Sarein map. Markers are colour-coded by deal type and
 // tapping one opens that file.
+// Anything interpolated into raw HTML (like Leaflet's bindPopup below,
+// which renders a plain string as markup, not React) has to be escaped —
+// a property title isn't always agent-typed; Divar imports pull it from an
+// external page, so it's untrusted text as far as this string goes.
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
 function AllPropertiesMap({ c, rows, onOpen }) {
   const ref = useRef(null); const objRef = useRef(null);
   const pinned = rows.filter((p) => p.lat && p.lng);
@@ -3254,9 +3218,9 @@ function AllPropertiesMap({ c, rows, onOpen }) {
         });
         const m = L.marker([p.lat, p.lng], { icon }).addTo(map);
         m.bindPopup(`<div style="font-family:Vazirmatn,sans-serif;direction:rtl;text-align:right;min-width:130px">
-          <b style="font-size:12px">${p.title}</b><br/>
-          <span style="font-size:11px;color:#2f7cf6;direction:ltr;display:inline-block">${(p.price || 0).toLocaleString("en-US")} تومان</span><br/>
-          <span style="font-size:10px;color:#666">${p.deal} · ${p.area} متر</span>
+          <b style="font-size:12px">${escapeHtml(p.title)}</b><br/>
+          <span style="font-size:11px;color:#2f7cf6;direction:ltr;display:inline-block">${(p.price || 0).toLocaleString("de-DE")} تومان</span><br/>
+          <span style="font-size:10px;color:#666">${escapeHtml(p.deal)} · ${escapeHtml(p.area)} متر</span>
         </div>`);
         m.on("popupopen", () => {
           const el = document.querySelector(".leaflet-popup-content");
@@ -4036,7 +4000,7 @@ function AccountBackupCard({ ctx }) {
           <>
             <input dir="ltr" style={inputStyle(c)} value={emailInput} onChange={(e) => setEmailInput(e.target.value)} />
             <div className="flex gap-2" style={{ marginTop: 8 }}>
-              <button onClick={() => setEditingEmail(false)} className="press flex-1 rounded-lg py-2" style={{ background: c.surface, color: c.muted, fontSize: 11, fontWeight: 700 }}>لغو</button>
+              <button onClick={() => setEditingEmail(false)} className="press flex-1 rounded-lg py-2" style={{ ...glassSurface(c), color: c.muted, fontSize: 11, fontWeight: 700 }}>لغو</button>
               <button onClick={saveBackupEmail} disabled={busy} className="press flex-1 rounded-lg py-2" style={{ background: c.primary, color: "#fff", fontSize: 11, fontWeight: 700 }}>ذخیره</button>
             </div>
           </>
@@ -4087,7 +4051,7 @@ function AccountBackupCard({ ctx }) {
 
       {confirmRestore && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", padding: SP.xl }}>
-          <div style={{ background: c.surface, borderRadius: RAD.lg, padding: SP.xl, maxWidth: 340 }}>
+          <div style={{ ...glassSurface(c), borderRadius: RAD.lg, padding: SP.xl, maxWidth: 340 }}>
             <div className="flex items-center gap-2 mb-2"><AlertTriangle size={18} color={c.danger} /><p style={{ fontWeight: 800, fontSize: 14 }}>بازیابی بکاپ</p></div>
             <p style={{ fontSize: 12, color: c.muted, lineHeight: 1.8, marginBottom: SP.lg }}>بازیابی بکاپ می‌تواند اطلاعات فعلی را تغییر دهد. قبل از ادامه یک بکاپ ایمنی از وضعیت فعلی ساخته می‌شود.</p>
             <div className="flex gap-2">
@@ -4500,7 +4464,10 @@ function InvestmentPaymentForm({ c, onClose, onSave, editing }) {
           ); })}
         </div>
       </Field>
-      <Field c={c} label="مبلغ (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} /></Field>
+      <Field c={c} label="مبلغ (تومان)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} />
+        <p style={{ fontSize: 11, color: c.muted, marginTop: 5 }}>{fmtToman(toNum(f.amount))}</p>
+      </Field>
       <Field c={c} label="تاریخ"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
       {isCheck && (
         <>
@@ -4522,7 +4489,10 @@ function InvestmentExpenseForm({ c, onClose, onSave }) {
   return (
     <SheetShell c={c} title="ثبت هزینه" onClose={onClose}>
       <Field c={c} label="دسته‌بندی"><Select c={c} value={f.category} onChange={set("category")} options={INVESTMENT_EXPENSE_CATEGORIES.map((x) => ({ value: x, label: x }))} /></Field>
-      <Field c={c} label="مبلغ (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} /></Field>
+      <Field c={c} label="مبلغ (تومان)">
+        <input style={inputStyle(c)} inputMode="numeric" value={f.amount} onChange={set("amount")} />
+        <p style={{ fontSize: 11, color: c.muted, marginTop: 5 }}>{fmtToman(toNum(f.amount))}</p>
+      </Field>
       <Field c={c} label="تاریخ"><JalaliDatePicker c={c} value={f.date} onChange={(iso) => setF({ ...f, date: iso })} /></Field>
       <Field c={c} label="پرداخت‌کننده"><input style={inputStyle(c)} value={f.payer} onChange={set("payer")} /></Field>
       <Field c={c} label="توضیح"><input style={inputStyle(c)} value={f.desc} onChange={set("desc")} /></Field>
@@ -5463,721 +5433,12 @@ function ScheduleVisitCard({ ctx, property }) {
   );
 }
 
-// Quick Valuation — the phone-call-speed entry point. Same brand ("Flora
-// Valuation"), same underlying number-honesty rules, but a different,
-// much shorter path: no saved property needed yet, just a map pin + area,
-// answered from the 4 nearest real listings instead of the full weighted
-// engine across everything. Saving afterward hands off to the same
-// PropertyForm + full ValuationSheet already built — one system, two speeds.
 // Construction & Building — a deliberately separate workspace from general
 // Finance (per explicit instruction: "این حسابداری عمومی نیست"). Voice/text
 // entry never stores the audio itself, only the extracted transcript text —
 // every transaction is still fully confirmable/editable before it saves,
 // matching the same "never finalize without the advisor seeing it" rule
 // used everywhere else voice creates something.
-function ConstructionHome({ ctx, onClose }) {
-  const { c, constructionProjects, constructionTransactions, setConstructionProjects, notify } = ctx;
-  const [openProjectId, setOpenProjectId] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
-
-  const project = openProjectId ? constructionProjects.find((p) => p.id === openProjectId) : null;
-  if (project) {
-    return <ConstructionProjectDetail ctx={ctx} project={project} onBack={() => setOpenProjectId(null)} onClose={onClose} />;
-  }
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
-        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>ساخت‌وساز و ساختمان</p>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-8">
-          {constructionProjects.length === 0 ? (
-            <EmptyLine c={c} text="هنوز پروژه‌ای نداری — با «پروژه جدید» شروع کن" />
-          ) : (
-            <div className="flex flex-col gap-3 mb-4">
-              {constructionProjects.map((p) => {
-                const stats = computeProjectStats(constructionTransactions, p.id);
-                const jNow = isoToJalali(todayISO());
-                const monthly = computeMonthlyReport(constructionTransactions, p.id, jNow[0], jNow[1]);
-                return (
-                  <button key={p.id} onClick={() => setOpenProjectId(p.id)} className="press w-full text-right rounded-2xl p-4" style={glass(c)}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><HardHat size={17} color={c.attn} /></div>
-                      <div className="min-w-0">
-                        <p style={{ fontSize: 14, fontWeight: 800 }}>{p.name}</p>
-                        {p.buildingType && <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{p.buildingType}</p>}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p style={{ fontSize: 10.5, color: c.muted }}>هزینه تا امروز</p>
-                        <p style={{ fontSize: 17, fontWeight: 800 }}>{fmtBudgetShort(stats.totalSpent)}</p>
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 10.5, color: c.muted }}>این ماه</p>
-                        <p style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>{fmtBudgetShort(monthly.total)}</p>
-                      </div>
-                    </div>
-                    <p style={{ fontSize: 10.5, color: c.muted, marginTop: SP.sm }}>{faDigits(stats.count)} پرداخت</p>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          <button onClick={() => setShowAdd(true)} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 13, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
-            <Plus size={15} /> پروژه جدید
-          </button>
-        </div>
-      </div>
-      {showAdd && (
-        <ConstructionAddProject
-          ctx={ctx}
-          onClose={() => setShowAdd(false)}
-          onCreated={(id) => { setShowAdd(false); setOpenProjectId(id); }}
-        />
-      )}
-    </BodyPortal>
-  );
-}
-
-function ConstructionAddProject({ ctx, onClose, onCreated }) {
-  const { c, setConstructionProjects, notify } = ctx;
-  const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [buildingType, setBuildingType] = useState("");
-  const [showMore, setShowMore] = useState(false);
-
-  const create = () => {
-    if (!name.trim()) { notify("اسم پروژه رو وارد کن"); return; }
-    const id = uid();
-    setConstructionProjects((prev) => [{ id, name: name.trim(), address: address.trim() || null, buildingType: buildingType.trim() || null, status: "فعال", createdAt: new Date().toISOString() }, ...prev]);
-    onCreated(id);
-  };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[250] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-        <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ background: c.surface, borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390 }}>
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>پروژه جدید</p>
-          <Field c={c} label="نام پروژه"><input style={inputStyle(c)} value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً پروژه آذرخش ۳" autoFocus /></Field>
-          {!showMore ? (
-            <button onClick={() => setShowMore(true)} className="press" style={{ fontSize: 12, color: c.primary, fontWeight: 700, marginBottom: SP.lg }}>+ جزئیات بیشتر (اختیاری)</button>
-          ) : (
-            <>
-              <Field c={c} label="آدرس"><input style={inputStyle(c)} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="مثلاً سرعین، ..." /></Field>
-              <Field c={c} label="نوع ساختمان"><input style={inputStyle(c)} value={buildingType} onChange={(e) => setBuildingType(e.target.value)} placeholder="مثلاً ساختمان ۶ طبقه" /></Field>
-            </>
-          )}
-          <button onClick={create} disabled={!name.trim()} className="press w-full rounded-xl" style={{ paddingBlock: 13, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13, opacity: name.trim() ? 1 : 0.5 }}>ایجاد پروژه</button>
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
-function ConstructionProjectDetail({ ctx, project, onBack, onClose }) {
-  const { c, constructionTransactions } = ctx;
-  const [entryMode, setEntryMode] = useState(null); // "voice" | "text" | null
-  const [editTx, setEditTx] = useState(null);
-  const stats = computeProjectStats(constructionTransactions, project.id);
-  const jNow = isoToJalali(todayISO());
-  const monthly = computeMonthlyReport(constructionTransactions, project.id, jNow[0], jNow[1]);
-  const recent = constructionTransactions.filter((t) => t.projectId === project.id).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8);
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[210] flex flex-col" style={{ background: c.bg }}>
-        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={onBack} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronRight size={16} color={c.ink} /></button>
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{project.name}</p>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-8">
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <div className="rounded-2xl p-4" style={glass(c)}>
-              <p style={{ fontSize: 10.5, color: c.muted }}>هزینه کل</p>
-              <p style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>{fmtBudgetShort(stats.totalSpent)}</p>
-            </div>
-            <div className="rounded-2xl p-4" style={glass(c)}>
-              <p style={{ fontSize: 10.5, color: c.muted }}>این ماه</p>
-              <p style={{ fontSize: 18, fontWeight: 800, marginTop: 4, color: c.primary }}>{fmtBudgetShort(monthly.total)}</p>
-              {monthly.comparisonPct != null && (
-                <p style={{ fontSize: 10, color: monthly.comparisonPct > 0 ? c.danger : c.success, marginTop: 2 }}>
-                  {monthly.comparisonPct > 0 ? "↑" : "↓"} {faDigits(Math.abs(monthly.comparisonPct))}٪ نسبت به ماه قبل
-                </p>
-              )}
-            </div>
-            <div className="rounded-2xl p-4" style={glass(c)}>
-              <p style={{ fontSize: 10.5, color: c.muted }}>بدهی</p>
-              <p style={{ fontSize: 15, fontWeight: 800, marginTop: 4, color: c.danger }}>{fmtBudgetShort(stats.totalPayable)}</p>
-            </div>
-            <div className="rounded-2xl p-4" style={glass(c)}>
-              <p style={{ fontSize: 10.5, color: c.muted }}>طلب</p>
-              <p style={{ fontSize: 15, fontWeight: 800, marginTop: 4, color: c.success }}>{fmtBudgetShort(stats.totalReceivable)}</p>
-            </div>
-          </div>
-
-          <div className="flex gap-2 mb-4">
-            <button onClick={() => setEntryMode("voice")} className="press flex-1 flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 13, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>
-              <Mic size={15} /> ثبت هزینه
-            </button>
-            <button onClick={() => setEntryMode("text")} className="press flex-1 flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>
-              <Edit3 size={15} /> ثبت با متن
-            </button>
-          </div>
-
-          {monthly.topCategory && (
-            <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
-              <p style={{ fontSize: 12, fontWeight: 700, marginBottom: SP.sm }}>بیشترین هزینه‌ی این ماه</p>
-              <div className="flex items-center justify-between">
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{monthly.topCategory.category}</span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(monthly.topCategory.amount)}</span>
-              </div>
-            </div>
-          )}
-
-          <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: SP.sm }}>تراکنش‌های اخیر</p>
-          {recent.length === 0 ? (
-            <EmptyLine c={c} text="هنوز پرداختی ثبت نشده" />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {recent.map((t) => (
-                <button key={t.id} onClick={() => setEditTx(t)} className="press w-full text-right flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 11, ...glassLite(c) }}>
-                  <div className="min-w-0">
-                    <p style={{ fontSize: 12.5, fontWeight: 700 }}>{t.category}{t.recipient ? ` — ${t.recipient}` : ""}</p>
-                    <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{fmtJalali(t.date)}{t.type !== "payment" ? ` · ${t.type === "payable" ? "بدهی" : "طلب"}` : ""}</p>
-                  </div>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: t.type === "receivable" ? c.success : c.ink, flexShrink: 0 }}>{fmtBudgetShort(t.amount)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      {editTx && (
-        <ConstructionEditTransaction
-          ctx={ctx}
-          transaction={editTx}
-          onClose={() => setEditTx(null)}
-        />
-      )}
-      {entryMode && (
-        <ConstructionEntrySheet
-          ctx={ctx}
-          projectId={project.id}
-          mode={entryMode}
-          onClose={() => setEntryMode(null)}
-        />
-      )}
-    </BodyPortal>
-  );
-}
-
-// Direct answer to "voice sometimes gets it wrong" — every field extracted
-// by voice or text is fully editable here after the fact, and deleting a
-// wrongly-created transaction is just as available as fixing it.
-function ConstructionEditTransaction({ ctx, transaction, onClose }) {
-  const { c, setConstructionTransactions, notify } = ctx;
-  const [amount, setAmount] = useState(String(transaction.amount || ""));
-  const [recipient, setRecipient] = useState(transaction.recipient || "");
-  const [category, setCategory] = useState(transaction.category || "سایر");
-  const [type, setType] = useState(transaction.type || "payment");
-  const [date, setDate] = useState(transaction.date || todayISO());
-  const [description, setDescription] = useState(transaction.description || "");
-
-  const save = () => {
-    if (!toNum(amount)) { notify("مبلغ را وارد کن"); return; }
-    setConstructionTransactions((prev) => prev.map((t) => t.id === transaction.id ? {
-      ...t, amount: toNum(amount), recipient: recipient.trim(), category, type, date, description: description.trim(),
-    } : t));
-    notify("تراکنش به‌روزرسانی شد");
-    onClose();
-  };
-
-  const remove = () => {
-    setConstructionTransactions((prev) => prev.filter((t) => t.id !== transaction.id));
-    notify("تراکنش حذف شد");
-    onClose();
-  };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[260] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-        <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ background: c.surface, borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "85vh", overflowY: "auto" }}>
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>ویرایش تراکنش</p>
-          <Field c={c} label="مبلغ (تومان)"><input value={amount} onChange={(e) => setAmount(toEnDigits(e.target.value).replace(/[^\d]/g, ""))} inputMode="numeric" style={inputStyle(c)} dir="ltr" /></Field>
-          <Field c={c} label="به / از"><input style={inputStyle(c)} value={recipient} onChange={(e) => setRecipient(e.target.value)} /></Field>
-          <Field c={c} label="نوع">
-            <div className="flex gap-2">
-              {[["payment", "پرداخت"], ["payable", "بدهکاریم"], ["receivable", "طلبکارم"]].map(([v, label]) => (
-                <button key={v} type="button" onClick={() => setType(v)} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === v ? c.gradientPrimary : c.surface2, color: type === v ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{label}</button>
-              ))}
-            </div>
-          </Field>
-          <Field c={c} label="دسته">
-            <div className="flex flex-wrap gap-1.5">
-              {CONSTRUCTION_CATEGORIES.map((cat) => (
-                <button key={cat} type="button" onClick={() => setCategory(cat)} className="press rounded-lg" style={{ paddingInline: 9, paddingBlock: 7, background: category === cat ? c.gradientPrimary : c.surface2, color: category === cat ? "#fff" : c.muted, fontSize: 10.5, fontWeight: 700 }}>{cat}</button>
-              ))}
-            </div>
-          </Field>
-          <Field c={c} label="تاریخ"><JalaliDatePicker c={c} value={date} onChange={setDate} /></Field>
-          <Field c={c} label="توضیح"><input style={inputStyle(c)} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-
-          <div className="flex gap-2 mt-2">
-            <button onClick={remove} className="press rounded-xl" style={{ paddingInline: 16, paddingBlock: 13, background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 13 }}><Trash2 size={15} /></button>
-            <button onClick={onClose} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>لغو</button>
-            <button onClick={save} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره</button>
-          </div>
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
-function ConstructionEntrySheet({ ctx, projectId, mode, onClose }) {
-  const { c, canTranscribe, transcribeAudio, hasAiKey, callAI, setConstructionTransactions, notify } = ctx;
-  const [phase, setPhase] = useState(mode === "voice" ? "recording" : "typing"); // recording | transcribing | extracting | review | typing | error
-  const [error, setError] = useState("");
-  const [seconds, setSeconds] = useState(0);
-  const [textInput, setTextInput] = useState("");
-  const [extracted, setExtracted] = useState(null);
-  const mediaRef = useRef(null);
-  const chunksRef = useRef([]);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    if (mode === "voice") start();
-    return () => { clearInterval(timerRef.current); mediaRef.current?.stream?.getTracks().forEach((t) => t.stop()); };
-  }, []); // eslint-disable-line
-
-  const start = async () => {
-    if (!canTranscribe) { setError("اول کلید AvalAI را در تنظیمات وارد کن"); setPhase("error"); return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || "";
-      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      // The recorded blob is only ever used locally to get a transcript —
-      // it's discarded right after transcription, never saved to the
-      // transaction or anywhere else, per explicit instruction.
-      rec.onstop = () => { stream.getTracks().forEach((t) => t.stop()); handleAudioReady(rec.mimeType || "audio/webm"); };
-      mediaRef.current = rec; rec.start();
-      setPhase("recording"); setSeconds(0);
-      timerRef.current = setInterval(() => setSeconds((s) => { if (s + 1 >= 30) stopRecording(); return s + 1; }), 1000);
-    } catch (e) { setError("دسترسی به میکروفون داده نشد"); setPhase("error"); }
-  };
-  const stopRecording = () => { clearInterval(timerRef.current); if (mediaRef.current?.state === "recording") mediaRef.current.stop(); };
-
-  const extractFromText = async (text) => {
-    setPhase("extracting");
-    try {
-      if (!hasAiKey) throw new Error("کلید هوش مصنوعی لازم است");
-      const [jy, jm, jd] = isoToJalali(todayISO());
-      const prompt = `مشاور یه هزینه یا بدهی/طلب مربوط به یک پروژه‌ی ساخت‌وساز رو توصیف کرده. امروز شمسی ${faDigits(jd)} ${MONTHS_FA[jm - 1]} ${faDigits(jy)} است.
-متن: «${text}»
-
-دسته‌های مجاز (یکی از این‌ها رو دقیقاً انتخاب کن، نزدیک‌ترین مورد): ${CONSTRUCTION_CATEGORIES.join("، ")}
-
-نکته‌ی مهم درباره‌ی اعداد فارسی محاوره‌ای — حتماً رعایت کن:
-«هفت میلیارد» = 7000000000 — «7 میلیارد» = 7000000000 — «هفت میلیارد تومن» یا «۷ میلیارد تومان» هم همین‌طور.
-«سه و نیم میلیارد» = 3500000000 — «صد و بیست میلیون» = 120000000 — «پونصد میلیون» = 500000000 — «سیصد میلیون» = 300000000.
-هرگز میلیارد و میلیون را با هم اشتباه نگیر. «تومن» و «تومان» یکی هستند. اگر «ریال» گفته شد، تقسیم بر ۱۰ کن.
-
-نوع تراکنش را هم دقیق تشخیص بده:
-اگر «پرداخت کردم / دادم / پول دادم» → type="payment"
-اگر «بدهکارم / باید بدم / هنوز پرداخت نکردم» → type="payable"
-اگر «طلبکارم / باید بهم بده / از فلانی طلب دارم» → type="receivable"
-
-این JSON خام را برگردان: {"amount":0,"recipient":"اسم گیرنده یا خالی","category":"یکی از دسته‌های بالا","type":"payment یا payable یا receivable","date":"تاریخ میلادی YYYY-MM-DD — اگر نسبی گفته (دیروز، دو روز پیش) خودت حساب کن، وگرنه امروز","description":"خلاصه‌ی یک‌خطی"}`;
-      const raw = await callAI(prompt);
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن");
-      let parsed;
-      try { parsed = JSON.parse(jsonMatch[0]); } catch { throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن"); }
-      setExtracted({ ...parsed, transcript: text });
-      setPhase("review");
-    } catch (e) { setError(e.message || "خطا در پردازش"); setPhase("error"); }
-  };
-
-  const handleAudioReady = async (mimeType) => {
-    setPhase("transcribing");
-    try {
-      const text = await transcribeAudio(new Blob(chunksRef.current, { type: mimeType }));
-      chunksRef.current = []; // discard immediately — nothing beyond this point ever touches the audio again
-      await extractFromText(text);
-    } catch (e) { setError(e.message || "خطا در پردازش"); setPhase("error"); }
-  };
-
-  const save = () => {
-    setConstructionTransactions((prev) => [{
-      id: uid(), projectId,
-      amount: toNum(extracted.amount) || 0,
-      recipient: (extracted.recipient || "").trim(),
-      category: CONSTRUCTION_CATEGORIES.includes(extracted.category) ? extracted.category : "سایر",
-      type: ["payment", "payable", "receivable"].includes(extracted.type) ? extracted.type : "payment",
-      date: extracted.date || todayISO(),
-      description: extracted.description || "",
-      transcript: extracted.transcript || textInput || "",
-      attachments: [],
-      createdAt: new Date().toISOString(),
-    }, ...prev]);
-    notify("تراکنش ثبت شد");
-    onClose();
-  };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[260] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", padding: SP.xl }}>
-        <div style={{ background: c.surface, borderRadius: RAD.lg, padding: SP.xl, maxWidth: 340, width: "100%" }}>
-          {phase === "recording" && (
-            <div className="text-center">
-              <div className="flex items-center justify-center" style={{ width: 70, height: 70, borderRadius: "50%", background: c.dangerSoft, margin: "0 auto" }}>
-                <button onClick={stopRecording} className="press flex items-center justify-center" style={{ width: 50, height: 50, borderRadius: "50%", background: c.danger }}><div style={{ width: 16, height: 16, borderRadius: 4, background: "#fff" }} /></button>
-              </div>
-              <p style={{ marginTop: SP.md, fontSize: 13, color: c.muted }}>بگو برای چی، چقدر، به کی — {faDigits(seconds)} ثانیه</p>
-            </div>
-          )}
-          {(phase === "transcribing" || phase === "extracting") && (
-            <div className="text-center"><Loader2 size={28} color={c.primary} className="animate-spin" style={{ margin: "0 auto" }} /><p style={{ marginTop: SP.md, fontSize: 13, color: c.muted }}>{phase === "transcribing" ? "در حال شنیدن..." : "در حال فهمیدن..."}</p></div>
-          )}
-          {phase === "typing" && (
-            <>
-              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.md }}>ثبت با متن</p>
-              <textarea value={textInput} onChange={(e) => setTextInput(e.target.value)} placeholder="مثلاً: ۱۰ میلیارد به بتن آماده احمدی پرداخت کردم" style={{ ...inputStyle(c), minHeight: 90, resize: "none", marginBottom: SP.md }} />
-              <div className="flex gap-2">
-                <button onClick={onClose} className="press flex-1 rounded-xl" style={{ paddingBlock: 12, background: c.surface2, fontWeight: 700, fontSize: 13 }}>لغو</button>
-                <button onClick={() => extractFromText(textInput)} disabled={!textInput.trim()} className="press flex-1 rounded-xl" style={{ paddingBlock: 12, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13, opacity: textInput.trim() ? 1 : 0.5 }}>ادامه</button>
-              </div>
-            </>
-          )}
-          {phase === "review" && extracted && (
-            <>
-              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.md }}>تأیید تراکنش</p>
-              <div className="flex flex-col gap-2 mb-4">
-                <div className="flex items-center justify-between"><span style={{ fontSize: 12, color: c.muted }}>مبلغ</span><span style={{ fontSize: 15, fontWeight: 800 }}>{fmtToman(toNum(extracted.amount) || 0)}</span></div>
-                <div className="flex items-center justify-between"><span style={{ fontSize: 12, color: c.muted }}>نوع</span><span style={{ fontSize: 13, fontWeight: 700 }}>{extracted.type === "payable" ? "بدهکاریم" : extracted.type === "receivable" ? "طلبکارم" : "پرداخت"}</span></div>
-                <div className="flex items-center justify-between"><span style={{ fontSize: 12, color: c.muted }}>به / از</span><span style={{ fontSize: 13, fontWeight: 700 }}>{extracted.recipient || "—"}</span></div>
-                <div className="flex items-center justify-between"><span style={{ fontSize: 12, color: c.muted }}>دسته</span><span style={{ fontSize: 13, fontWeight: 700 }}>{extracted.category}</span></div>
-                <div className="flex items-center justify-between"><span style={{ fontSize: 12, color: c.muted }}>تاریخ</span><span style={{ fontSize: 13, fontWeight: 700 }}>{fmtJalali(extracted.date)}</span></div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={onClose} className="press flex-1 rounded-xl" style={{ paddingBlock: 12, background: c.surface2, fontWeight: 700, fontSize: 13 }}>لغو</button>
-                <button onClick={save} className="press flex-1 flex items-center justify-center rounded-xl" style={{ gap: 5, paddingBlock: 12, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}><Check size={14} /> تأیید</button>
-              </div>
-            </>
-          )}
-          {phase === "error" && (
-            <div className="text-center">
-              <AlertTriangle size={26} color={c.danger} style={{ margin: "0 auto" }} />
-              <p style={{ marginTop: SP.md, fontSize: 12, color: c.danger }}>{error}</p>
-              <button onClick={onClose} className="press w-full rounded-xl mt-4" style={{ paddingBlock: 11, background: c.surface2, fontWeight: 700, fontSize: 12 }}>بستن</button>
-            </div>
-          )}
-          {phase !== "review" && phase !== "error" && phase !== "typing" && (
-            <button onClick={onClose} className="press w-full rounded-xl mt-4" style={{ paddingBlock: 11, background: c.surface2, fontWeight: 700, fontSize: 12 }}>لغو</button>
-          )}
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
-function QuickValuationSheet({ ctx, onClose }) {
-  const { c, properties, notify, setSheet, setPrefillNew } = ctx;
-  const mapRef = useRef(null); const mapObjRef = useRef(null); const markerRef = useRef(null);
-  const [location, setLocation] = useState(null); // { lat, lng, address }
-  const [loadingAddr, setLoadingAddr] = useState(false);
-  const [area, setArea] = useState("");
-  const [type, setType] = useState("آپارتمان");
-  const [yearBuilt, setYearBuilt] = useState("");
-  const [locationQuality, setLocationQuality] = useState("");
-  const [viewCategory, setViewCategory] = useState("");
-  const [floorCategory, setFloorCategory] = useState("");
-  const [buildingQuality, setBuildingQuality] = useState("");
-  const [furnishLevel, setFurnishLevel] = useState("");
-  const [hasCalculated, setHasCalculated] = useState(false);
-
-  const resolveAddress = async (lat, lng) => {
-    setLoadingAddr(true);
-    const address = await reverseGeocodeAddress(lat, lng);
-    setLocation({ lat, lng, address });
-    setLoadingAddr(false);
-  };
-
-  // The map lives directly on this screen now instead of behind a second
-  // tap into a separate overlay — one less step, and it sidesteps the class
-  // of bug where a map initializes while its own container is still
-  // mid-slide-in (this screen itself has no transform animation, so
-  // Leaflet measures its real, final position from the start).
-  useEffect(() => {
-    let cancelled = false;
-    loadLeaflet().then((L) => {
-      if (cancelled || !mapRef.current || mapObjRef.current) return;
-      const start = SAREIN_CENTER;
-      const map = L.map(mapRef.current, { attributionControl: false }).setView(start, 14);
-      L.tileLayer(LIGHT_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
-      const marker = L.marker(start, { draggable: true }).addTo(map);
-      markerRef.current = marker;
-      marker.on("dragend", () => { const p = marker.getLatLng(); resolveAddress(p.lat, p.lng); });
-      map.on("click", (e) => { marker.setLatLng(e.latlng); resolveAddress(e.latlng.lat, e.latlng.lng); });
-      mapObjRef.current = map;
-      resolveAddress(start[0], start[1]);
-    });
-    return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
-  }, []);
-
-  const extras = { yearBuilt: yearBuilt ? toNum(yearBuilt) : null, locationQuality, viewCategory, floorCategory, buildingQuality, furnishLevel };
-
-  const result = useMemo(() => {
-    if (!hasCalculated || !location || !toNum(area)) return null;
-    return computeQuickValuationFromMap(location.lat, location.lng, toNum(area), type, properties, 4, extras);
-  }, [hasCalculated, location, area, type, yearBuilt, locationQuality, viewCategory, floorCategory, buildingQuality, furnishLevel, properties]);
-
-  const calculate = () => {
-    if (!location) { notify("اول موقعیت رو روی نقشه انتخاب کن"); return; }
-    if (!toNum(area)) { notify("متراژ رو وارد کن"); return; }
-    setHasCalculated(true);
-  };
-
-  const saveAsFile = () => {
-    setPrefillNew({
-      area: toNum(area), type, address: location.address, lat: location.lat, lng: location.lng,
-      pricePerMeter: result?.ok ? result.pricePerMeter : "", yearBuilt: yearBuilt ? toNum(yearBuilt) : undefined,
-      locationQuality: locationQuality || undefined, viewCategory: viewCategory || undefined,
-      floorCategory: floorCategory || undefined, buildingQuality: buildingQuality || undefined, furnishLevel: furnishLevel || undefined,
-    });
-    onClose();
-    setSheet("property");
-  };
-
-  const REFINE_FIELDS = [
-    { key: "locationQuality", value: locationQuality, set: setLocationQuality, label: "موقعیت", options: ["ضعیف", "معمولی", "خوب", "ممتاز"] },
-    { key: "viewCategory", value: viewCategory, set: setViewCategory, label: "ویو / جهت", options: ["بدون ویو", "حیاط معمولی", "کوچه معمولی", "خیابان خوب", "ویوی باز", "ویوی ممتاز"] },
-    { key: "floorCategory", value: floorCategory, set: setFloorCategory, label: "طبقه", options: ["همکف نامطلوب", "طبقه میانی", "طبقه بالا با ویو", "طبقه آخر"] },
-    { key: "buildingQuality", value: buildingQuality, set: setBuildingQuality, label: "کیفیت ساختمان", options: ["ضعیف", "معمولی", "خوب", "خیلی خوب", "لوکس"] },
-    { key: "furnishLevel", value: furnishLevel, set: setFurnishLevel, label: "فرنیش", options: ["خالی", "نیمه‌فرنیش", "فول‌فرنیش معمولی", "فول‌فرنیش خوب", "فول‌فرنیش لوکس"] },
-  ];
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
-        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-          <div>
-            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>Flora Valuation</p>
-            <p style={{ fontSize: FS.caption, color: c.muted }}>قیمت‌گذاری سریع — برای وقتی مالک پای تلفنه</p>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-8">
-          {!result && (
-            <div className="rounded-2xl mb-4 overflow-hidden" style={glass(c)}>
-              <div ref={mapRef} style={{ width: "100%", height: 240, background: c.surface2 }} />
-              <div style={{ padding: SP.lg }}>
-                <div className="flex items-center gap-1.5 mb-4">
-                  <MapPin size={13} color={c.primary} />
-                  <p style={{ fontSize: 12.5, fontWeight: 700 }}>{loadingAddr ? "در حال یافتن آدرس…" : (location?.address || "روی نقشه لمس کن یا نشانگر را جابه‌جا کن")}</p>
-                </div>
-
-                <p style={{ fontSize: 12, color: c.muted, marginBottom: 6 }}>متراژ</p>
-                <input value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), marginBottom: SP.md, fontSize: 18, fontWeight: 700 }} placeholder="مثلاً 120" dir="ltr" />
-
-                <div className="flex gap-2 mb-4">
-                  {TYPE_FILTERS.filter((t) => t !== "همه").map((t) => (
-                    <button key={t} onClick={() => setType(t)} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === t ? c.primary : c.surface2, color: type === t ? "#fff" : c.muted, fontSize: 11.5, fontWeight: 700 }}>{t}</button>
-                  ))}
-                </div>
-
-                <button onClick={calculate} className="press w-full rounded-xl" style={{ paddingBlock: 14, background: c.gradientPrimary, color: "#fff", fontWeight: 800, fontSize: 14 }}>محاسبه</button>
-              </div>
-            </div>
-          )}
-
-          {result && !result.ok && (
-            <>
-              <EmptyLine c={c} text={result.reason} />
-              <button onClick={() => setHasCalculated(false)} className="press w-full rounded-xl mt-4" style={{ paddingBlock: 12, background: c.surface2, fontWeight: 700, fontSize: 13 }}>تغییر ورودی</button>
-            </>
-          )}
-
-          {result?.ok && (
-            <>
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="rounded-xl p-3 text-center" style={glassLite(c)}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>فروش سریع</p><p style={{ fontSize: 14, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.quickSale)}</p></div>
-                <div className="rounded-xl p-3 text-center" style={{ ...glassLite(c), border: `1.5px solid ${c.primary}55` }}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>منصفانه</p><p style={{ fontSize: 14, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairPrice)}</p></div>
-                <div className="rounded-xl p-3 text-center" style={glassLite(c)}><p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>پیشنهاد فروش</p><p style={{ fontSize: 14, fontWeight: 800, color: c.attn }}>{fmtBudgetShort(result.askingPrice)}</p></div>
-              </div>
-              <p style={{ fontSize: 12, color: c.muted, textAlign: "center", marginBottom: SP.sm }}>{fmtToman(result.pricePerMeter)} / متر</p>
-              {(() => {
-                const explanation = buildFormulaExplanation(result);
-                return explanation ? <p style={{ fontSize: 11.5, color: c.muted, textAlign: "center", marginBottom: SP.lg, lineHeight: 1.8 }}>{explanation}</p> : null;
-              })()}
-
-              {/* Optional, offered only after a result already exists — per
-                  spec, never blocks getting a number. Any change here
-                  recomputes live (see the useMemo above), so filling these
-                  in actually moves the number instead of just describing it. */}
-              <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
-                <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>دقت بیشتر؟ (اختیاری)</p>
-                <input value={yearBuilt} onChange={(e) => setYearBuilt(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), marginBottom: SP.md }} placeholder="سال ساخت (شمسی)" dir="ltr" />
-                <div className="flex flex-col gap-3">
-                  {REFINE_FIELDS.map(({ key, value, set, label, options }) => (
-                    <div key={key}>
-                      <p style={{ fontSize: 10.5, color: c.muted, marginBottom: 5 }}>{label}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {options.map((v) => (
-                          <button key={v} onClick={() => set(value === v ? "" : v)} className="press rounded-lg" style={{ paddingInline: 9, paddingBlock: 7, background: value === v ? c.primary : c.surface2, color: value === v ? "#fff" : c.muted, fontSize: 10.5, fontWeight: 700 }}>{v}</button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button onClick={() => setHasCalculated(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>محاسبه‌ی دیگر</button>
-                <button onClick={saveAsFile} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.primary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره به‌عنوان فایل</button>
-              </div>
-
-              <div className="flex items-start gap-2" style={{ padding: SP.sm, marginTop: SP.md }}>
-                <ShieldAlert size={12} color={c.muted} style={{ flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 10, color: c.muted, lineHeight: 1.7 }}>برآورد سریع بر اساس نزدیک‌ترین فایل‌ها روی نقشه — نه قیمت قطعی معامله.</p>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
-// Flora Valuation — every number here traces back to either a real
-// comparable in the local database or something the advisor typed in
-// themselves for this exact street. Nothing is ever the model's own guess
-// at a market price (see lib/valuation.js — that rule lives at the pure-
-// function level, this component just presents whatever it returns).
-function ValuationSheet({ ctx, propertyId, onClose }) {
-  const { c, properties, setProperties, streetPrices, setStreetPrices, notify, setDetail } = ctx;
-  const property = properties.find((p) => p.id === propertyId);
-  const [streetInput, setStreetInput] = useState(property?.street || "");
-  const [manualAmount, setManualAmount] = useState("");
-  const [manualArea, setManualArea] = useState("");
-
-  if (!property) return null;
-
-  const result = computeFormulaValuation(property, properties, streetPrices);
-  const streetManualPrices = property.street ? streetPrices.filter((s) => s.street === property.street) : [];
-
-  const saveStreet = () => {
-    if (!streetInput.trim()) return;
-    setProperties((prev) => prev.map((p) => p.id === propertyId ? { ...p, street: streetInput.trim() } : p));
-  };
-
-  const addManualPrice = () => {
-    const amt = toNum(manualAmount);
-    if (!amt) { notify("مبلغ رو وارد کن"); return; }
-    // Accept either a direct price-per-meter, or a total price + area to
-    // derive it — whichever the advisor actually has in mind for that unit.
-    const pricePerMeter = manualArea ? Math.round(amt / toNum(manualArea)) : amt;
-    setStreetPrices((prev) => [...prev, { id: uid(), street: property.street, pricePerMeter, enteredAt: new Date().toISOString() }]);
-    notify("قیمت ثبت شد");
-    setManualAmount(""); setManualArea("");
-  };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
-        <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-          <div>
-            <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>Flora Valuation</p>
-            <p style={{ fontSize: FS.caption, color: c.muted }}>برآورد ارزش بازار — {property.title}</p>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-8">
-          {/* Step 1: street is the single biggest accuracy factor and the
-              spec's own required first question — ask for it inline rather
-              than sending the advisor back to the edit form. */}
-          {!property.street && (
-            <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
-              <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>خیابان این فایل کجاست؟</p>
-              <p style={{ fontSize: 11.5, color: c.muted, marginBottom: SP.md, lineHeight: 1.8 }}>بدون خیابان، فقط فایل‌های نزدیک روی نقشه (اگه موقعیت ثبت شده) در نظر گرفته می‌شن — دقت پایین‌تر می‌مونه.</p>
-              <div className="flex gap-2">
-                <input value={streetInput} onChange={(e) => setStreetInput(e.target.value)} style={{ ...inputStyle(c), flex: 1 }} placeholder="مثلاً خیابان امام" />
-                <button onClick={saveStreet} disabled={!streetInput.trim()} className="press shrink-0 rounded-xl px-4" style={{ background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5, opacity: streetInput.trim() ? 1 : 0.5 }}>ثبت</button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2 (only reachable once street is known): if Flora's own
-              database doesn't have enough on this street, ask the advisor's
-              own market knowledge instead of guessing — exact instruction
-              from spec. */}
-          {property.street && result.needsManualPrice && (
-            <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
-              <div className="flex items-start gap-2 mb-3">
-                <AlertTriangle size={14} color={c.attn} style={{ flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 12.5, lineHeight: 1.9 }}>{result.count > 0 ? `فقط ${result.count} فایل مشابه توی «${property.street}» داریم — حداقل ۳ تا لازمه. برای دقت بیشتر، قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن.` : `برای «${property.street}» فایل مشابهی نداریم. قیمت واحدهایی که خودت از این خیابون می‌دونی وارد کن تا برآورد بدیم.`}</p>
-              </div>
-              {streetManualPrices.length > 0 && (
-                <div className="flex flex-col gap-1.5 mb-3">
-                  {streetManualPrices.map((sp) => (
-                    <div key={sp.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: c.surface2 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600 }}>{fmtToman(sp.pricePerMeter)} / متر</span>
-                      <span style={{ fontSize: 10, color: c.muted }}>وارد‌شده توسط تو</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2 mb-2">
-                <input value={manualAmount} onChange={(e) => setManualAmount(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), flex: 1 }} placeholder="قیمت هر متر یا کل" dir="ltr" />
-                <input value={manualArea} onChange={(e) => setManualArea(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" style={{ ...inputStyle(c), width: 90 }} placeholder="متراژ (اختیاری)" dir="ltr" />
-              </div>
-              <p style={{ fontSize: 10, color: c.muted, marginBottom: SP.md }}>اگه متراژ رو هم بدی، مبلغ رو به قیمت‌هرمتر تبدیل می‌کنیم؛ وگرنه مبلغ رو مستقیم قیمت‌هرمتر در نظر می‌گیریم.</p>
-              <button onClick={addManualPrice} className="press w-full rounded-xl" style={{ paddingBlock: 10, background: c.primary, color: "#fff", fontWeight: 700, fontSize: 12.5 }}>افزودن قیمت</button>
-            </div>
-          )}
-
-          {!result.ok && !result.needsStreet && !result.needsManualPrice && (
-            <EmptyLine c={c} text={result.reason} />
-          )}
-
-          {result.ok && (
-            <>
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="rounded-xl p-3 text-center" style={glassLite(c)}>
-                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>فروش سریع</p>
-                  <p style={{ fontSize: 14, fontWeight: 800, color: c.success }}>{fmtBudgetShort(result.quickSale)}</p>
-                </div>
-                <div className="rounded-xl p-3 text-center" style={{ ...glassLite(c), border: `1.5px solid ${c.primary}55` }}>
-                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>منصفانه</p>
-                  <p style={{ fontSize: 14, fontWeight: 800, color: c.primary }}>{fmtBudgetShort(result.fairPrice)}</p>
-                </div>
-                <div className="rounded-xl p-3 text-center" style={glassLite(c)}>
-                  <p style={{ fontSize: 10, color: c.muted, marginBottom: 3 }}>پیشنهاد فروش</p>
-                  <p style={{ fontSize: 14, fontWeight: 800, color: c.attn }}>{fmtBudgetShort(result.askingPrice)}</p>
-                </div>
-              </div>
-              <p style={{ fontSize: 12, color: c.muted, textAlign: "center", marginBottom: SP.sm }}>{fmtToman(result.pricePerMeter)} / متر</p>
-              {(() => {
-                const explanation = buildFormulaExplanation(result);
-                return explanation ? <p style={{ fontSize: 11.5, color: c.muted, textAlign: "center", lineHeight: 1.8 }}>{explanation}</p> : null;
-              })()}
-            </>
-          )}
-        </div>
-      </div>
-    </BodyPortal>
-  );
-}
-
 function PropertyDetail({ id, ctx, onBack }) {
   const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, setSheet } = ctx;
   const p = properties.find((x) => x.id === id);
@@ -6234,7 +5495,7 @@ function PropertyDetail({ id, ctx, onBack }) {
               <TrendingUp size={14} /> Flora Valuation — برآورد ارزش بازار
             </button>
           )}
-          {valuationOpen && <ValuationSheet ctx={ctx} propertyId={p.id} onClose={() => setValuationOpen(false)} />}
+          {valuationOpen && <FloraValuationSheet ctx={ctx} propertyId={p.id} onClose={() => setValuationOpen(false)} />}
         </div>
 
         {p.furnished && <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.md, color: c.muted, fontSize: FS.caption }}><BadgeCheck size={13} />{p.furnished}</div>}
@@ -6581,7 +5842,7 @@ function MissionOfTheDay({ ctx }) {
                 {editing ? (
                   <div className="flex items-center gap-1.5 mt-1">
                     <span style={{ fontSize: 10, color: c.muted }}>هدف:</span>
-                    <input inputMode="numeric" value={m.target} onChange={(e) => setTarget(m.id, e.target.value)} style={{ width: 46, textAlign: "center", background: c.surface, border: `1px solid ${c.border}`, borderRadius: 8, padding: "3px 4px", fontSize: 11, color: c.ink }} />
+                    <input inputMode="numeric" value={m.target} onChange={(e) => setTarget(m.id, e.target.value)} style={{ width: 46, textAlign: "center", ...glassSurface(c), border: `1px solid ${c.border}`, borderRadius: 8, padding: "3px 4px", fontSize: 11, color: c.ink }} />
                   </div>
                 ) : (
                   <p style={{ fontSize: 11, color: c.muted }}>{faDigits(Math.min(m.done, m.target))} از {faDigits(m.target)}</p>
@@ -6589,7 +5850,7 @@ function MissionOfTheDay({ ctx }) {
               </div>
               {!editing && (
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <button onClick={() => bump(m.id, -1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface, color: c.muted, fontSize: 15, fontWeight: 700 }}>−</button>
+                  <button onClick={() => bump(m.id, -1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ ...glassSurface(c), color: c.muted, fontSize: 15, fontWeight: 700 }}>−</button>
                   <button onClick={() => { bump(m.id, +1); if (m.done + 1 >= m.target) notify(`${m.label} تکمیل شد ✓`); }} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: complete ? c.success : c.primary, color: "#fff", fontSize: 15, fontWeight: 700 }}>{complete ? "✓" : "+"}</button>
                 </div>
               )}
@@ -7008,7 +6269,7 @@ function RecentActivityCard({ ctx, onSeeAll }) {
                 <p style={{ fontSize: 10, color: "rgba(255,255,255,.4)", marginTop: 1 }}>{fmtJalali(t.date)}</p>
               </div>
               <p dir="ltr" style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{Math.round(t.amount).toLocaleString("en-US")}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{Math.round(t.amount).toLocaleString("de-DE")}</span>
                 <span style={{ fontSize: 10, color: "rgba(255,255,255,.4)" }}> تومان</span>
               </p>
             </div>
@@ -7016,255 +6277,6 @@ function RecentActivityCard({ ctx, onSeeAll }) {
         </div>
       )}
     </div>
-  );
-}
-
-
-// ---------- Checks to pay ----------
-// A check only needs three things to be useful later: who gets paid, how
-// much, and when it's due. Voice input goes through the same
-// transcribe→AI-extract pattern as voice notes elsewhere in the app, just
-// with a prompt scoped to these three fields instead of a whole call summary.
-function formatAmountInput(v) {
-  const digits = String(v || "").replace(/[^\d]/g, "");
-  if (!digits) return "";
-  return Number(digits).toLocaleString("en-US");
-}
-
-function ChecksVoiceCapture({ ctx, onExtracted, onClose }) {
-  const { c, canTranscribe, transcribeAudio, hasAiKey, callAI } = ctx;
-  const [phase, setPhase] = useState("idle"); // idle | recording | transcribing | extracting | error
-  const [error, setError] = useState("");
-  const [seconds, setSeconds] = useState(0);
-  const mediaRef = useRef(null);
-  const chunksRef = useRef([]);
-  const timerRef = useRef(null);
-
-  useEffect(() => { start(); return () => { clearInterval(timerRef.current); mediaRef.current?.stream?.getTracks().forEach((t) => t.stop()); }; }, []); // eslint-disable-line
-
-  const start = async () => {
-    if (!canTranscribe) { setError("اول کلید AvalAI را در تنظیمات وارد کن"); return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || "";
-      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      rec.onstop = () => { stream.getTracks().forEach((t) => t.stop()); done(rec.mimeType || "audio/webm"); };
-      mediaRef.current = rec; rec.start();
-      setPhase("recording"); setSeconds(0);
-      timerRef.current = setInterval(() => setSeconds((s) => { if (s + 1 >= 25) stop(); return s + 1; }), 1000);
-    } catch (e) { setError("دسترسی به میکروفون داده نشد"); }
-  };
-  const stop = () => { clearInterval(timerRef.current); if (mediaRef.current?.state === "recording") mediaRef.current.stop(); };
-
-  const done = async (mimeType) => {
-    setPhase("transcribing");
-    try {
-      const text = await transcribeAudio(new Blob(chunksRef.current, { type: mimeType }));
-      setPhase("extracting");
-      if (!hasAiKey) throw new Error("کلید هوش مصنوعی لازم است");
-      const [jy, jm, jd] = isoToJalali(todayISO());
-      const prompt = `مشاور یک چک پرداختی را با صدا توصیف کرده. امروز شمسی ${faDigits(jd)} ${MONTHS_FA[jm - 1]} ${faDigits(jy)} است.
-متن: «${text}»
-
-نکته‌ی مهم درباره‌ی اعداد فارسی محاوره‌ای — حتماً رعایت کن:
-«هفت میلیارد» = 7000000000 — «7 میلیارد» = 7000000000 — «هفت میلیارد تومن» یا «۷ میلیارد تومان» هم همین‌طور.
-«سه و نیم میلیارد» = 3500000000 — «صد و بیست میلیون» = 120000000 — «پونصد میلیون» = 500000000 — «سیصد میلیون» = 300000000.
-هرگز میلیارد و میلیون را با هم اشتباه نگیر: «۱۲ میلیارد» یعنی 12000000000، نه 12000000.
-«تومن» و «تومان» یکی هستند. اگر «ریال» گفته شد، برای تبدیل به تومان تقسیم بر ۱۰ کن.
-اگر عدد و واحد هردو گفته شده، حتماً به عدد کامل تبدیلش کن، نصفه‌کاره نگذار.
-
-این JSON خام را برگردان: {"recipient":"اسم گیرنده چک یا خالی","amount":0,"dueDateJalali":"تاریخ شمسی سررسید مثل ۲۵ مرداد ۱۴۰۵، اگر نسبی گفته (مثل دو هفته دیگه) خودت حساب کن، وگرنه خالی","notes":"هر توضیح اضافه یا خالی"}`;
-      const raw = await callAI(prompt);
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن");
-      let parsed;
-      try { parsed = JSON.parse(jsonMatch[0]); } catch { throw new Error("پاسخ قابل‌خواندن نبود — دوباره امتحان کن"); }
-      onExtracted(parsed);
-    } catch (e) { setError(e.message || "خطا در پردازش"); setPhase("error"); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", padding: SP.xl }}>
-      <div style={{ background: c.surface, borderRadius: RAD.lg, padding: SP.xl, maxWidth: 300, width: "100%", textAlign: "center" }}>
-        {phase === "recording" && (
-          <>
-            <div className="flex items-center justify-center" style={{ width: 70, height: 70, borderRadius: "50%", background: c.dangerSoft, margin: "0 auto" }}>
-              <button onClick={stop} className="press flex items-center justify-center" style={{ width: 50, height: 50, borderRadius: "50%", background: c.danger }}><div style={{ width: 16, height: 16, borderRadius: 4, background: "#fff" }} /></button>
-            </div>
-            <p style={{ marginTop: SP.md, fontSize: 13, color: c.muted }}>بگو برای کی، چقدر، کِی — {faDigits(seconds)} ثانیه</p>
-          </>
-        )}
-        {(phase === "transcribing" || phase === "extracting") && (<><Loader2 size={28} color={c.primary} className="animate-spin" style={{ margin: "0 auto" }} /><p style={{ marginTop: SP.md, fontSize: 13, color: c.muted }}>{phase === "transcribing" ? "در حال شنیدن..." : "در حال فهمیدن..."}</p></>)}
-        {phase === "error" && (<><AlertTriangle size={26} color={c.danger} style={{ margin: "0 auto" }} /><p style={{ marginTop: SP.md, fontSize: 12, color: c.danger }}>{error}</p></>)}
-        <button onClick={onClose} className="press w-full rounded-xl py-2.5 mt-4" style={{ background: c.surface2, fontSize: 12, fontWeight: 700 }}>لغو</button>
-      </div>
-    </div>
-  );
-}
-
-// Checks — its own standalone home-screen section now, deliberately
-// separate from Finance. Grouped into a single-open month accordion once
-// the list gets long (same UX pattern as the size-category accordion on
-// Files), with each month's header showing real received/paid totals, not
-// just a count.
-function ChecksHome({ ctx, onClose }) {
-  const { c, checks, setChecks, notify } = ctx;
-  const groups = groupChecksByMonth(checks);
-  const [openMonthKey, setOpenMonthKey] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [showVoice, setShowVoice] = useState(false);
-  const [editCheck, setEditCheck] = useState(null);
-
-  useEffect(() => {
-    if (groups.length > 0 && openMonthKey === null) {
-      const [ty, tm] = isoToJalali(todayISO());
-      const todayKey = `${ty}-${String(tm).padStart(2, "0")}`;
-      const match = groups.find((g) => g.key === todayKey) || groups[0];
-      setOpenMonthKey(match.key);
-    }
-  }, [groups.length]); // eslint-disable-line
-
-  const unpaidTotal = checks.filter((ch) => !ch.paid && (ch.type || "پرداختی") === "پرداختی").reduce((s, ch) => s + ch.amount, 0);
-
-  const handleVoiceExtracted = (parsed) => {
-    setShowVoice(false);
-    setEditCheck({
-      id: null, recipient: parsed.recipient || "", amount: parsed.amount || "", dueDate: todayISO(),
-      notes: parsed.notes || "", type: "پرداختی", checkNumber: "", paid: false,
-      _dueDateHint: parsed.dueDateJalali || "",
-    });
-  };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
-        <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
-          <div className="flex items-center" style={{ gap: SP.md }}>
-            <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-            <div>
-              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>چک‌ها</p>
-              <p style={{ fontSize: 11, color: c.muted }}>مجموع پرداخت‌نشده: {fmtToman(unpaidTotal)}</p>
-            </div>
-          </div>
-          <div className="flex" style={{ gap: 6 }}>
-            {ctx.canTranscribe && <button onClick={() => setShowVoice(true)} className="press w-10 h-10 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Mic size={15} color={c.primary} /></button>}
-            <button onClick={() => setEditCheck({ id: null, recipient: "", amount: "", dueDate: todayISO(), notes: "", type: "پرداختی", checkNumber: "", paid: false })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={{ background: c.gradientPrimary }}><Plus size={16} color="#fff" /></button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-8">
-          {showVoice && <ChecksVoiceCapture ctx={ctx} onExtracted={handleVoiceExtracted} onClose={() => setShowVoice(false)} />}
-
-          {groups.length === 0 ? (
-            <EmptyLine c={c} text="هنوز چکی ثبت نکردی — با دکمه‌ی + یا میکروفون بالا اضافه کن" />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {groups.map((g) => {
-                const open = openMonthKey === g.key;
-                return (
-                  <div key={g.key} className="rounded-2xl overflow-hidden" style={glass(c)}>
-                    <button onClick={() => setOpenMonthKey(open ? null : g.key)} className="press w-full text-right flex items-center justify-between px-4" style={{ paddingBlock: 13 }}>
-                      <div className="flex items-center gap-2">
-                        <ChevronDown size={15} color={c.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-                        <span style={{ fontSize: 13, fontWeight: 800 }}>{g.label}</span>
-                      </div>
-                      <div className="text-left" style={{ fontSize: 10.5 }}>
-                        {g.totalReceived > 0 && <span style={{ color: c.success, fontWeight: 700 }}>{fmtBudgetShort(g.totalReceived)} دریافتی</span>}
-                        {g.totalReceived > 0 && g.totalPaid > 0 && <span style={{ color: c.muted }}> · </span>}
-                        {g.totalPaid > 0 && <span style={{ color: c.danger, fontWeight: 700 }}>{fmtBudgetShort(g.totalPaid)} پرداختی</span>}
-                      </div>
-                    </button>
-                    {open && (
-                      <div className="flex flex-col gap-2 px-3" style={{ paddingBottom: SP.md }}>
-                        {g.checks.map((ch) => {
-                          const isReceived = (ch.type || "پرداختی") === "دریافتی";
-                          return (
-                            <button key={ch.id} onClick={() => setEditCheck({ ...ch, amount: String(ch.amount) })} className="press w-full text-right rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2, opacity: ch.paid ? 0.55 : 1 }}>
-                              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: isReceived ? c.successSoft : c.dangerSoft }}>
-                                {isReceived ? <ArrowDownLeft size={14} color={c.success} /> : <ArrowUpRight size={14} color={c.danger} />}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p style={{ fontSize: 12.5, fontWeight: 700, textDecoration: ch.paid ? "line-through" : "none" }}>{ch.recipient}{ch.checkNumber ? ` · #${faDigits(ch.checkNumber)}` : ""}</p>
-                                <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>{fmtJalali(ch.dueDate)}{ch.notes ? ` · ${ch.notes}` : ""}</p>
-                              </div>
-                              <span style={{ fontSize: 13, fontWeight: 800, color: isReceived ? c.success : c.danger, flexShrink: 0 }}>{fmtToman(ch.amount)}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-      {editCheck && <ChecksEditSheet ctx={ctx} check={editCheck} onClose={() => setEditCheck(null)} />}
-    </BodyPortal>
-  );
-}
-
-function ChecksEditSheet({ ctx, check, onClose }) {
-  const { c, setChecks, notify } = ctx;
-  const isNew = !check.id;
-  const [recipient, setRecipient] = useState(check.recipient || "");
-  const [amount, setAmount] = useState(check.amount || "");
-  const [dueDate, setDueDate] = useState(check.dueDate || todayISO());
-  const [notes, setNotes] = useState(check.notes || "");
-  const [type, setType] = useState(check.type || "پرداختی");
-  const [checkNumber, setCheckNumber] = useState(check.checkNumber || "");
-
-  const save = () => {
-    if (!recipient.trim() || !toNum(amount)) { notify("گیرنده و مبلغ لازم است"); return; }
-    if (isNew) {
-      setChecks((prev) => [{ id: uid(), recipient: recipient.trim(), amount: toNum(amount), dueDate, notes: notes.trim(), type, checkNumber: toEnDigits(checkNumber).trim(), createdAt: new Date().toISOString(), paid: false }, ...prev]);
-      notify("چک ثبت شد");
-    } else {
-      setChecks((prev) => prev.map((ch) => ch.id === check.id ? { ...ch, recipient: recipient.trim(), amount: toNum(amount), dueDate, notes: notes.trim(), type, checkNumber: toEnDigits(checkNumber).trim() } : ch));
-      notify("چک به‌روزرسانی شد");
-    }
-    onClose();
-  };
-
-  const togglePaid = () => { setChecks((prev) => prev.map((ch) => ch.id === check.id ? { ...ch, paid: !ch.paid } : ch)); onClose(); };
-  const remove = () => { setChecks((prev) => prev.filter((ch) => ch.id !== check.id)); notify("چک حذف شد"); onClose(); };
-
-  return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[260] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-        <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ background: c.surface, borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "85vh", overflowY: "auto" }}>
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>{isNew ? "چک جدید" : "ویرایش چک"}</p>
-          {check._dueDateHint && <p style={{ fontSize: 11, color: c.attn, marginBottom: SP.md }}>تاریخ گفته‌شده: {check._dueDateHint} — پایین تنظیم کن</p>}
-
-          <Field c={c} label="نوع چک">
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setType("پرداختی")} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === "پرداختی" ? c.danger : c.surface2, color: type === "پرداختی" ? "#fff" : c.muted, fontSize: 12, fontWeight: 700 }}>پرداختی</button>
-              <button type="button" onClick={() => setType("دریافتی")} className="press flex-1 rounded-lg" style={{ paddingBlock: 9, background: type === "دریافتی" ? c.success : c.surface2, color: type === "دریافتی" ? "#fff" : c.muted, fontSize: 12, fontWeight: 700 }}>دریافتی</button>
-            </div>
-          </Field>
-          <Field c={c} label={type === "دریافتی" ? "پرداخت‌کننده" : "گیرنده چک"}><input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={inputStyle(c)} placeholder="مثلاً آقای احمدی" /></Field>
-          <Field c={c} label="مبلغ (تومان)"><input value={amount} onChange={(e) => setAmount(toEnDigits(e.target.value).replace(/[^\d]/g, ""))} style={inputStyle(c)} inputMode="numeric" placeholder="۱۰۰,۰۰۰,۰۰۰" dir="ltr" /></Field>
-          <Field c={c} label="شماره چک (اختیاری)"><input value={checkNumber} onChange={(e) => setCheckNumber(toEnDigits(e.target.value))} style={inputStyle(c)} placeholder="مثلاً 123456 یا ۱۲۳۴۵۶" dir="ltr" /></Field>
-          <Field c={c} label="تاریخ سررسید"><JalaliDatePicker c={c} value={dueDate} onChange={setDueDate} /></Field>
-          <Field c={c} label="توضیحات (اختیاری)"><input value={notes} onChange={(e) => setNotes(e.target.value)} style={inputStyle(c)} /></Field>
-
-          {!isNew && (
-            <button onClick={togglePaid} className="press w-full flex items-center justify-center rounded-xl mb-3" style={{ gap: 6, paddingBlock: 11, background: check.paid ? c.attnSoft : c.successSoft, color: check.paid ? c.attn : c.success, fontWeight: 700, fontSize: 12.5 }}>
-              {check.paid ? <><Clock size={14} /> علامت‌گذاری به‌عنوان پرداخت‌نشده</> : <><CheckCircle2 size={14} /> علامت‌گذاری به‌عنوان پرداخت‌شده</>}
-            </button>
-          )}
-
-          <div className="flex gap-2">
-            {!isNew && <button onClick={remove} className="press rounded-xl" style={{ paddingInline: 16, paddingBlock: 13, background: c.dangerSoft, color: c.danger, fontWeight: 700, fontSize: 13 }}><Trash2 size={15} /></button>}
-            <button onClick={onClose} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.surface2, fontWeight: 700, fontSize: 13 }}>لغو</button>
-            <button onClick={save} className="press flex-1 rounded-xl" style={{ paddingBlock: 13, background: c.gradientPrimary, color: "#fff", fontWeight: 700, fontSize: 13 }}>ذخیره</button>
-          </div>
-        </div>
-      </div>
-    </BodyPortal>
   );
 }
 
@@ -7984,7 +6996,7 @@ function SplitTab({ ctx, deals, payments }) {
               <div className="flex gap-1.5">
                 {SPLIT_PARTIES.map((p, i) => (
                   <div key={p.id} className="flex-1 rounded-lg py-1.5 px-1 text-center" style={{ background: p.color + "14" }}>
-                    <p style={{ fontSize: 11, fontWeight: 800, color: p.color, direction: "ltr" }}>{dp[i].toLocaleString("en-US")}</p>
+                    <p style={{ fontSize: 11, fontWeight: 800, color: p.color, direction: "ltr" }}>{dp[i].toLocaleString("de-DE")}</p>
                     <p style={{ fontSize: 10, color: c.muted, marginTop: 1 }}>{p.label}</p>
                   </div>
                 ))}
@@ -8117,38 +7129,9 @@ function QuickAddSheet({ ctx, onClose }) {
 function Select({ c, value, onChange, options, placeholder }) { return <select value={value} onChange={onChange} style={inputStyle(c)}><option value="">{placeholder}</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>; }
 function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={onClick} disabled={disabled} className="press w-full" style={{ borderRadius: RAD.md, paddingBlock: SP.md + 2, marginTop: SP.sm, background: disabled ? c.surface2 : c.gradientPrimary, color: disabled ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.subtitle }}>{label}</button>; }
 
-function JalaliDatePicker({ c, value, onChange }) {
-  const [open, setOpen] = useState(false);
-  const selJ = isoToJalali(value);
-  const [viewY, setViewY] = useState(selJ[0]);
-  const [viewM, setViewM] = useState(selJ[1]);
-  const monthLen = jalaliMonthLength(viewY, viewM);
-  const firstDow = jalaliFirstWeekday(viewY, viewM);
-  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: monthLen }, (_, i) => i + 1)];
-  const nav = (dir) => { let m = viewM + dir, y = viewY; if (m > 12) { m = 1; y++; } else if (m < 1) { m = 12; y--; } setViewM(m); setViewY(y); };
-  const pick = (day) => { onChange(jalaliToIso(viewY, viewM, day)); setOpen(false); };
-  return (
-    <div>
-      <button type="button" onClick={() => setOpen((o) => !o)} className="press w-full flex items-center gap-2" style={{ ...inputStyle(c), justifyContent: "flex-start" }}><CalendarDays size={15} color={c.primary} /><span>{fmtJalali(value)}</span></button>
-      {open && (
-        <div className="mt-2 rounded-xl p-3 flora-up" style={glass(c)}>
-          <div className="flex items-center justify-between mb-2">
-            <button onClick={() => nav(-1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronRight size={14} color={c.ink} /></button>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>{MONTHS_FA[viewM - 1]} {faDigits(viewY)}</span>
-            <button onClick={() => nav(1)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronLeft size={14} color={c.ink} /></button>
-          </div>
-          <div className="grid grid-cols-7 gap-1 mb-1">{WEEK_FA.map((w, i) => <div key={i} style={{ fontSize: 11, color: c.muted, textAlign: "center", fontWeight: 700 }}>{w}</div>)}</div>
-          <div className="grid grid-cols-7 gap-1">
-            {cells.map((day, i) => { const isSel = day && viewY === selJ[0] && viewM === selJ[1] && day === selJ[2]; return day ? <button key={i} onClick={() => pick(day)} className="press rounded-xl flex items-center justify-center" style={{ height: 30, fontSize: 13, fontWeight: isSel ? 800 : 500, color: isSel ? "#fff" : c.ink, background: isSel ? c.primary : "transparent" }}>{faDigits(day)}</button> : <div key={i} />; })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+
 
 // ---------- Map picker (Sarein) — separate overlay, never unmounts the form beneath it ----------
-const SAREIN_CENTER = [38.1465, 48.0043];
 
 // Pre-download every map tile covering Sarein across the useful zoom levels, so the
 // whole town is visible offline afterwards (the service worker keeps them forever).
@@ -8186,30 +7169,6 @@ async function precacheSareinTiles(onProgress) {
   return total;
 }
 
-function loadLeaflet() {
-  return new Promise((resolve) => {
-    if (window.L) return resolve(window.L);
-    const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"; document.head.appendChild(link);
-    const script = document.createElement("script"); script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"; script.onload = () => resolve(window.L); document.body.appendChild(script);
-  });
-}
-// Shared by every "pick a point, tell me the street" map — used to be
-// duplicated inline inside MapPickerModal; QuickValuationSheet's own inline
-// map needs the exact same resolution logic, so it's a real function now
-// instead of a second copy.
-async function reverseGeocodeAddress(lat, lng) {
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fa`);
-    const data = await res.json();
-    const a = data.address || {};
-    const parts = [
-      a.road || a.pedestrian || a.footway,
-      a.neighbourhood || a.suburb || a.quarter,
-      a.city || a.town || a.village || "سرعین",
-    ].filter(Boolean);
-    return parts.length ? parts.join("، ") : (data.display_name || "سرعین، آدرس دقیق یافت نشد");
-  } catch { return "سرعین، آدرس دقیق یافت نشد"; }
-}
 function MapPickerModal({ c, onPick, onClose, initial }) {
   const mapRef = useRef(null); const mapObjRef = useRef(null);
   const [address, setAddress] = useState(""); const [loadingAddr, setLoadingAddr] = useState(false);
@@ -8290,11 +7249,9 @@ function FormSheet({ sheetVal, ctx, onClose }) {
 }
 
 function AiSettingsSheet({ ctx, onClose }) {
-  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, openaiKey, setOpenaiKey, grokKey, setGrokKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, agentName, setAgentName, notify } = ctx;
+  const { c, aiProvider, setAiProvider, geminiKey, setGeminiKey, perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, agentName, setAgentName, notify } = ctx;
   const [provider, setProvider] = useState(aiProvider);
   const [gKey, setGKey] = useState(geminiKey || "");
-  const [oKey, setOKey] = useState(openaiKey || "");
-  const [xKey, setXKey] = useState(grokKey || "");
   const [pKey, setPKey] = useState(perplexityKey || "");
   const [aKey, setAKey] = useState(avalaiKey || "");
   const [aModel, setAModel] = useState(avalaiModel || "gpt-4o-mini");
@@ -8302,8 +7259,6 @@ function AiSettingsSheet({ ctx, onClose }) {
   const providers = [
     { id: "avalai", label: "اول‌ای‌آی", hint: "درگاه ایرانی، از داخل ایران بدون فیلترشکن کار می‌کند و به همه‌ی مدل‌ها دسترسی دارد — کلید: avalai.ir" },
     { id: "gemini", label: "Gemini", hint: "کلید رایگان: aistudio.google.com — ممکن است از ایران بدون فیلترشکن کار نکند" },
-    { id: "openai", label: "GPT", hint: "کلید: platform.openai.com — ممکن است مرورگر تماس مستقیم را مسدود کند (CORS)" },
-    { id: "grok", label: "Grok", hint: "کلید: console.x.ai — ممکن است مرورگر تماس مستقیم را مسدود کند" },
     { id: "perplexity", label: "Perplexity", hint: "کلید: perplexity.ai/settings/api — جواب‌ها همراه با جستجوی زنده‌ی وب و منبع است، برای سوال‌های نیازمند اطلاعات به‌روز مناسب‌تر است" },
   ];
   const AVALAI_MODELS = [
@@ -8313,8 +7268,8 @@ function AiSettingsSheet({ ctx, onClose }) {
     { value: "claude-3-5-sonnet-20240620-v1:0", label: "Claude 3.5 Sonnet" },
     { value: "deepseek-chat", label: "DeepSeek" },
   ];
-  const keyByProvider = { avalai: aKey, openai: oKey, grok: xKey, gemini: gKey, perplexity: pKey };
-  const setKeyByProvider = { avalai: setAKey, openai: setOKey, grok: setXKey, gemini: setGKey, perplexity: setPKey };
+  const keyByProvider = { avalai: aKey, gemini: gKey, perplexity: pKey };
+  const setKeyByProvider = { avalai: setAKey, gemini: setGKey, perplexity: setPKey };
   const currentKey = keyByProvider[provider];
   const setCurrentKey = setKeyByProvider[provider];
   return (
@@ -8338,7 +7293,7 @@ function AiSettingsSheet({ ctx, onClose }) {
       <Field c={c} label="کلید API"><input style={inputStyle(c)} dir="ltr" value={currentKey} onChange={(e) => setCurrentKey(e.target.value)} placeholder="کلید را اینجا وارد کن" /></Field>
       <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.9, marginBottom: SP.md }}>{providers.find((p) => p.id === provider)?.hint} — کلید فقط روی همین گوشی ذخیره می‌شود.</p>
       <SubmitBtn c={c} label="ذخیره" disabled={!currentKey.trim()} onClick={() => {
-        setAiProvider(provider); setGeminiKey(gKey.trim()); setOpenaiKey(oKey.trim()); setGrokKey(xKey.trim()); setPerplexityKey(pKey.trim()); setAvalaiKey(aKey.trim()); setAvalaiModel(aModel); setAgentName(name.trim());
+        setAiProvider(provider); setGeminiKey(gKey.trim()); setPerplexityKey(pKey.trim()); setAvalaiKey(aKey.trim()); setAvalaiModel(aModel); setAgentName(name.trim());
         notify("تنظیمات هوش مصنوعی ذخیره شد"); onClose();
       }} />
     </SheetShell>

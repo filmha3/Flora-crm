@@ -91,11 +91,10 @@ export function computeBaseAreaPrice(subject, allProperties, manualStreetPrices 
 }
 
 /**
- * The full spec'd formula. Every coefficient applied is returned in
-/**
- * Applies all 6 formula factors to a base price/meter — shared by the
- * street-based full engine and the map-based quick engine, so both compute
- * identically once they have a base price, whatever method got them there.
+ * Applies all 6 formula factors to a base price/meter — shared by every
+ * path that reaches a valuation (a saved property with a street, or a
+ * map-picked point with no property saved yet), so the math is identical
+ * once a base price exists, however that base price was found.
  */
 export function applyFormulaFactors(basePricePerMeter, subject) {
   const factors = [];
@@ -119,8 +118,13 @@ export function applyFormulaFactors(basePricePerMeter, subject) {
 }
 
 /**
- * `factors` with whether it was provided or defaulted, so the caller can
- * be honest about what actually went into the number.
+ * The one and only valuation entry point. Works identically whether
+ * `subject` is a saved property (has street, floor, etc. as real fields)
+ * or a fresh, unsaved subject built from a map pick (has only lat/lng and
+ * whatever the advisor typed in) — findComparables already treats both the
+ * same way. `factors` in the result always says whether each coefficient
+ * was actually provided or defaulted to neutral, so the caller can be
+ * honest about what really went into the number.
  */
 export function computeFormulaValuation(subject, allProperties, manualStreetPrices = []) {
   if (!subject.area || subject.area <= 0) return { ok: false, reason: "متراژ این فایل مشخص نیست." };
@@ -262,57 +266,3 @@ export function splitOutliers(items) {
   const excluded = items.filter((i) => i.value < lower || i.value > upper);
   return { kept, excluded };
 }
-
-/**
- * Quick, map-first valuation for a phone-call moment — no saved property
- * needed yet. Uses exactly the N nearest real properties by geographic
- * distance (default 4, per the requested "4 nearest from the map"), not the
- * full weighted engine across the whole dataset. Distance is still the
- * weighting factor among those N, so the closest of the four still counts
- * for more than the farthest.
- */
-/**
- * Quick, map-first valuation for a phone-call moment — no saved property
- * needed yet. Uses exactly the N nearest real properties by geographic
- * distance (default 4, per "4 nearest from the map"). Same hard minimum of
- * 3 comparables and the same mean-based base price as the full engine —
- * one formula, two ways of finding the comparable set.
- */
-export function computeQuickValuationFromMap(lat, lng, area, type, allProperties, nearestCount = 4, extras = {}) {
-  if (lat == null || lng == null) return { ok: false, reason: "موقعیتی روی نقشه انتخاب نشده." };
-  if (!area || area <= 0) return { ok: false, reason: "متراژ را وارد کن." };
-
-  const withDistance = allProperties
-    .filter((p) => p.lat != null && p.lng != null && p.pricePerMeter > 0 && (!type || p.type === type))
-    .map((p) => ({ property: p, km: haversineKm(lat, lng, p.lat, p.lng) }))
-    .filter((c) => c.km != null)
-    .sort((a, b) => a.km - b.km)
-    .slice(0, nearestCount);
-
-  const items = withDistance.map((c) => ({ value: c.property.pricePerMeter, property: c.property, km: c.km }));
-  const { kept, excluded } = splitOutliers(items);
-
-  if (kept.length < 3) {
-    return { ok: false, reason: `فقط ${kept.length} فایل نزدیک این نقطه پیدا شد — حداقل ۳ فایل لازم است.`, count: kept.length };
-  }
-
-  const basePricePerMeter = kept.reduce((s, i) => s + i.value, 0) / kept.length;
-  const { pricePerMeter, multiplier, factors } = applyFormulaFactors(basePricePerMeter, extras);
-  const fairValue = Math.round(pricePerMeter * area);
-
-  return {
-    ok: true,
-    pricePerMeter,
-    basePricePerMeter: Math.round(basePricePerMeter),
-    multiplier,
-    factors,
-    fairValue,
-    quickSale: Math.round(fairValue * 0.95),
-    fairPrice: fairValue,
-    askingPrice: Math.round(fairValue * 1.075),
-    comparableCount: kept.length,
-    excludedOutliers: excluded.length,
-    comparables: kept.map((i) => ({ property: i.property, pricePerMeter: i.value, km: i.km })),
-  };
-}
-
