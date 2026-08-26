@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { X, Plus, Mic, Edit3, ChevronRight, HardHat, Check, AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { SP, RAD, FS, FW, glass, glassLite, glassSurface } from "../lib/theme.js";
 import { BodyPortal, EmptyLine, Field, inputStyle, JalaliDatePicker } from "../lib/ui.jsx";

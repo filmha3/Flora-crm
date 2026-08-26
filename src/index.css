@@ -25,3 +25,17 @@ body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: none;
 }
+
+/* inputStyle() (and several inline styles) remove the default browser
+   outline — it renders inconsistently across browsers and ignores
+   border-radius — but nothing replaced it, which is a real accessibility
+   gap for anyone navigating with a keyboard rather than touch.
+   :focus-visible only fires for keyboard focus, never for a touch tap, so
+   this never shows up as an unwanted ring on mobile. Lives in this
+   truly-global stylesheet (not the authenticated app shell's own <style>
+   block) specifically so it also covers the Auth/Login screen, which
+   mounts before that shell ever does. */
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
+  box-shadow: 0 0 0 2px #2f7cf6aa !important;
+  outline: none;
+}

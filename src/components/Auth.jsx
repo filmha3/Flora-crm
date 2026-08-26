@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Mic, Home, Layers, Sparkles, CheckCircle2, X } from "lucide-react";
+import { Mic, Home, Layers, Sparkles, CheckCircle2, X, Loader2 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient.js";
 import { SP, RAD, FS, FW, glass, glassLite, glassSurface } from "../lib/theme.js";
 import { Field, inputStyle } from "../lib/ui.jsx";
@@ -113,20 +113,29 @@ function AuthScreen({ c, dark }) {
   return (
     <div className="fixed inset-0 flex items-center justify-center overflow-y-auto" style={{ background: c.bg, padding: SP.xl }}>
       <style>{`
-        @keyframes floraRingBreathe { 0%,100% { opacity:.5; transform: scale(1); } 50% { opacity:.85; transform: scale(1.04); } }
+        @keyframes floraRingBreathe { 0%,100% { opacity:.4; transform: scale(1); } 50% { opacity:.6; transform: scale(1.015); } }
         @keyframes floraCardIn { from { opacity:0; transform: translateY(14px) scale(.97); } to { opacity:1; transform: translateY(0) scale(1); } }
+        .flora-auth-ring { animation: floraRingBreathe 8s cubic-bezier(.45,0,.55,1) infinite; }
+        .flora-auth-card { animation: floraCardIn .5s cubic-bezier(.22,1,.36,1) backwards; }
+        @media (prefers-reduced-motion: reduce) {
+          .flora-auth-ring { animation: none; opacity: .5; }
+          .flora-auth-card { animation: none; }
+        }
       `}</style>
+      {/* A very slow, low-amplitude breathe — restrained on purpose. This is
+          ambient texture behind a login form, not something that should
+          compete for attention; if it's noticeable as "moving," it's doing
+          too much. */}
       <div
-        className="fixed inset-0"
+        className="fixed inset-0 flora-auth-ring"
         style={{
           background: `repeating-radial-gradient(circle at 50% 42%, ${c.primary}14 0px, ${c.primary}14 1px, transparent 1px, transparent 46px)`,
-          animation: "floraRingBreathe 5s ease-in-out infinite",
           pointerEvents: "none",
         }}
       />
       <div
-        className="w-full relative"
-        style={{ maxWidth: 360, animation: "floraCardIn .5s cubic-bezier(.22,1,.36,1)", padding: SP.xl, borderRadius: RAD.lg + 6, ...glass(c, RAD.lg + 6), boxShadow: "0 24px 60px -20px rgba(0,0,0,0.5)" }}
+        className="w-full relative flora-auth-card"
+        style={{ maxWidth: 360, padding: SP.xl, ...glass(c), borderRadius: RAD.lg + 6, boxShadow: "0 24px 60px -20px rgba(0,0,0,0.5)" }}
       >
         <div className="flex flex-col items-center" style={{ marginBottom: SP.xl }}>
           <img src={floraBrandIcon} alt="" style={{ width: 84, height: "auto" }} />
@@ -151,10 +160,11 @@ function AuthScreen({ c, dark }) {
         <button
           onClick={submit}
           disabled={loading}
-          className="press w-full"
-          style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.5 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
+          className="press w-full flex items-center justify-center"
+          style={{ gap: 8, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: loading ? 0.7 : 1, boxShadow: "0 12px 28px -10px rgba(47,124,246,0.5)" }}
         >
-          {loading ? "..." : "ورود / ساخت حساب"}
+          {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+          {loading ? "در حال ورود..." : "ورود / ساخت حساب"}
         </button>
       </div>
     </div>

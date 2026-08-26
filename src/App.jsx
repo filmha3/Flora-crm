@@ -739,7 +739,7 @@ export default function FloraCRM() {
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { display: none; }
-        .press { transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease, opacity .18s ease; }
+        .press { transition: transform .22s cubic-bezier(.34,1.56,.64,1), opacity .18s ease; }
         .press:active { transform: scale(0.955); opacity: .92; }
         /* Map styling. Dark Matter renders near-monochrome grey on near-black;
            a warm hue-rotate pushes the roads gold and the base navy, matching
@@ -783,6 +783,22 @@ export default function FloraCRM() {
           to   { opacity: 1; transform: scale(1); }
         }
         .flora-focus-in { animation: floraFullscreenUp .3s cubic-bezier(.22,1,.36,1) backwards; }
+        /* The two other prefers-reduced-motion blocks in this file only cover
+           rare decorative moments (a celebration illustration, a glowing
+           badge) — this one covers what actually matters: every tap
+           (.press) and every screen navigation (.flora-door), plus every
+           sheet/modal entrance. Content still appears instantly; it just
+           doesn't move to get there. */
+        @media (prefers-reduced-motion: reduce) {
+          .press { transition: opacity .1s ease; }
+          .press:active { transform: none; opacity: .8; }
+          .flora-door, .flora-up, .flora-sheet, .flora-pop, .flora-focus-in,
+          .flora-rise, .flora-stagger > * {
+            animation: none !important;
+            opacity: 1 !important;
+            transform: none !important;
+          }
+        }
         .nba-blob { position:absolute; top:-30px; left:-20px; width:200px; height:200px; border-radius:50%; filter: blur(30px); opacity:.32; pointer-events:none; animation: liquidMove 4s ease-in-out infinite; }
         @keyframes liquidMove { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(60px,20px) scale(1.25);} 66% { transform: translate(20px,45px) scale(.85);} }
         .flora-orb-breathe { animation: floraOrbBreathe 2.6s ease-in-out infinite; }
