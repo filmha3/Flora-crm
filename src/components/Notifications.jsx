@@ -46,7 +46,7 @@ function IosInstallOnboarding({ ctx, onClose }) {
     { title: "فعال کردن اعلان‌ها", desc: "داخل همین اپِ نصب‌شده، دوباره روی «اعلان‌های Flora را فعال کن» بزن.", icon: Bell },
   ];
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[400] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
           <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>

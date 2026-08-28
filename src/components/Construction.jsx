@@ -23,7 +23,7 @@ function ConstructionHome({ ctx, onClose }) {
   }
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
           <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
@@ -96,7 +96,7 @@ function ConstructionAddProject({ ctx, onClose, onCreated }) {
   };
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[250] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
         <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ ...glassSurface(c), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390 }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>پروژه جدید</p>
@@ -126,7 +126,7 @@ function ConstructionProjectDetail({ ctx, project, onBack, onClose }) {
   const recent = constructionTransactions.filter((t) => t.projectId === project.id).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8);
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[210] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
           <button onClick={onBack} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><ChevronRight size={16} color={c.ink} /></button>
@@ -242,7 +242,7 @@ function ConstructionEditTransaction({ ctx, transaction, onClose }) {
   };
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[260] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
         <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ ...glassSurface(c), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "85vh", overflowY: "auto" }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>ویرایش تراکنش</p>
@@ -372,7 +372,7 @@ function ConstructionEntrySheet({ ctx, projectId, mode, onClose }) {
   };
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[260] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", padding: SP.xl }}>
         <div style={{ ...glassSurface(c), borderRadius: RAD.lg, padding: SP.xl, maxWidth: 340, width: "100%" }}>
           {phase === "recording" && (

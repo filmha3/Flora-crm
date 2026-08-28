@@ -60,7 +60,7 @@ function FloraValuationSheet({ ctx, propertyId, onClose }) {
       if (cancelled || !mapRef.current || mapObjRef.current) return;
       const start = SAREIN_CENTER;
       const map = L.map(mapRef.current, { attributionControl: false }).setView(start, 14);
-      L.tileLayer(LIGHT_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
+      L.tileLayer(LIGHT_TILE_URL, { attribution: "", maxZoom: 20, maxNativeZoom: 16 }).addTo(map);
       const marker = L.marker(start, { draggable: true }).addTo(map);
       markerRef.current = marker;
       marker.on("dragend", () => { const p = marker.getLatLng(); resolveAddress(p.lat, p.lng); });
@@ -134,7 +134,7 @@ function FloraValuationSheet({ ctx, propertyId, onClose }) {
   const currentStreet = savedProperty?.street || quickStreet;
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center shrink-0" style={{ gap: SP.md, padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
           <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>

@@ -24,12 +24,25 @@ const T = {
     isDark: false,
     bg: "#F0F0F2", orb1: "#2f7cf6", orb2: "#7c6ff5", orb3: "#2f7cf6",
     surface: "#FFFFFF", surface2: "#F5F5F7",
-    border: "rgba(10,10,10,0.05)", ink: "#0A0A0A", muted: "#8E8E93",
+    // #8E8E93 (iOS system gray) reads fine on iOS's own translucent chrome, but
+    // flattened on our solid white surface it's 3.26:1 — under WCAG AA's 4.5:1
+    // for normal text, and this token drives nearly every caption/label in the
+    // app. #6E6E73 keeps the same neutral hue at 5.07:1.
+    border: "rgba(10,10,10,0.05)", ink: "#0A0A0A", muted: "#6E6E73",
     primary: "#0A0A0A", primarySoft: "#F0F0F0",
-    info: "#2F7CF6", infoSoft: "rgba(47,124,246,0.10)",
-    attn: "#F59E0B", attnSoft: "rgba(245,158,11,0.12)",
-    danger: "#EF4444", dangerSoft: "rgba(239,68,68,0.10)",
-    success: "#22C55E", successSoft: "rgba(34,197,94,0.10)",
+    // Same hues as the dark theme, several steps darker. The dark theme's
+    // saturated info/attn/danger/success read fine because they sit on
+    // near-black; flattened onto this theme's white/near-white surfaces the
+    // *same hex values* dropped to 1.96–3.94:1 (attn's #F59E0B was 2.15:1 on
+    // white) — under WCAG AA's 4.5:1, on colors used for status badges and
+    // alerts, i.e. exactly the text meant to be read at a glance. Darkened
+    // until each clears 4.5:1 both on a plain surface and on its own *Soft
+    // tint (the badge case) — which also happens to match this theme's own
+    // high-contrast character (primary is pure black here, not a pastel).
+    info: "#2563EB", infoSoft: "rgba(47,124,246,0.10)",
+    attn: "#B45309", attnSoft: "rgba(245,158,11,0.12)",
+    danger: "#C0392B", dangerSoft: "rgba(239,68,68,0.10)",
+    success: "#15803D", successSoft: "rgba(34,197,94,0.10)",
     purple: "#0A0A0A", purpleSoft: "#F0F0F0",
     shadow: "0 4px 16px rgba(10,10,10,0.08)",
     gradientPrimary: "#0A0A0A",

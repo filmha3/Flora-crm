@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { CalendarDays, ChevronRight, ChevronLeft } from "lucide-react";
 import { SP, RAD, FS, glass } from "./theme.js";
 import { isoToJalali, jalaliMonthLength, jalaliFirstWeekday, jalaliToIso, fmtJalali, faDigits, MONTHS_FA, WEEK_FA } from "./format.js";
@@ -45,9 +45,29 @@ function EmptyLine({ c, text }) {
   );
 }
 
-function BodyPortal({ children }) {
+// onClose is optional — every full-screen sheet in the app renders through
+// this one primitive, so wiring Escape-to-close and dialog semantics here
+// once covers all of them instead of repeating it at each call site. Callers
+// that don't pass onClose (rare) keep their previous behavior unchanged.
+function BodyPortal({ children, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!onClose) return;
+    ref.current?.focus();
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return <div style={{ position: "fixed", inset: 0, zIndex: 2147483000, pointerEvents: "none" }}>
-    <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>{children}</div>
+    <div
+      ref={ref}
+      role={onClose ? "dialog" : undefined}
+      aria-modal={onClose ? "true" : undefined}
+      tabIndex={onClose ? -1 : undefined}
+      style={{ position: "absolute", inset: 0, pointerEvents: "auto", outline: "none" }}
+    >
+      {children}
+    </div>
   </div>;
 }
 

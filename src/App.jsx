@@ -216,7 +216,6 @@ export default function FloraCRM() {
   // to the customer — not just on the grid.
   const [customerMode, setCustomerMode] = useState(false);
   const [showCustomerPrice, setShowCustomerPrice] = useState(false);
-  const [homeStagingOpen, setHomeStagingOpen] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
   const [perplexityKey, setPerplexityKey] = useState("");
   const [avalaiKey, setAvalaiKey] = useState("");
@@ -473,58 +472,10 @@ export default function FloraCRM() {
     try { return await transcribeWith(blob, "gpt-4o-transcribe"); }
     catch (e) { return await transcribeWith(blob, "whisper-1"); }
   };
-  // Virtual staging — analysis step uses AvalAI's vision-capable chat endpoint
-  // (same gateway, multi-modal content) to look at all selected photos together
-  // and produce ONE shared style profile, so every generated image is asked to
-  // follow the same description instead of inventing its own look per photo.
+  // canStage really means "has a vision-capable AvalAI key" — kept under this
+  // name because Divar ad diagnosis (diagnoseAd/diagnoseAdFromLink below)
+  // reuses it too, even after AI Virtual Staging itself was removed.
   const canStage = !!avalaiKey;
-  const analyzeForStaging = async (imageUrls, styleHint) => {
-    if (!avalaiKey) throw new Error("کلید AvalAI وارد نشده");
-    const content = [
-      { type: "text", text: `این ${imageUrls.length} عکس از یک ملک واحد هستند. اول نوع هر اتاق را به همین ترتیب تشخیص بده (یکی از: پذیرایی، اتاق‌خواب، اتاق‌خواب مستر، اتاق بچه، آشپزخانه، غذاخوری، حمام، راهرو، بالکن). سپس یک «پروفایل سبک» واحد برای کل ملک بساز که باید در تمام تصاویر یکسان و ثابت بماند — نه یک سبک جدا برای هر عکس. سبک درخواستی مشاور: «${styleHint || "مدرن ایرانی مسکونی"}». دقیقاً همین JSON خام را برگردان، بدون توضیح و بدون markdown:
-{"rooms":["به ترتیب همان تعداد عکس"],"styleProfile":{"colorPalette":"...","furnitureStyle":"...","woodMaterial":"...","curtainStyle":"...","rugStyle":"...","decorationStyle":"...","lightingMood":"...","luxuryLevel":"..."}}` },
-      ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } })),
-    ];
-    let res, data;
-    try {
-      res = await fetch("https://api.avalai.ir/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
-        body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content }] }),
-      });
-    } catch (netErr) { throw new Error("اتصال برقرار نشد — اینترنت را بررسی کن"); }
-    data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error?.message || `خطای تحلیل تصاویر (کد ${res.status})`);
-    const text = data?.choices?.[0]?.message?.content;
-    try { return JSON.parse(text.replace(/```json|```/g, "").trim()); }
-    catch (e) { throw new Error("پاسخ تحلیل قابل‌خواندن نبود"); }
-  };
-  // The actual generation step — Nano Banana 2 (Gemini 3.1 Flash Image), proxied
-  // by AvalAI through the same chat/completions endpoint used for text, just with
-  // an image attached to the message and an image returned in the response. It's
-  // Google's current image-editing model and is specifically documented as strong
-  // at multi-reference consistency — a good match for "one style across six
-  // photos," though still not a hard architectural mask-lock; results can vary.
-  const stageImage = async (dataUrl, prompt) => {
-    if (!avalaiKey) throw new Error("کلید AvalAI وارد نشده");
-    let res, data;
-    try {
-      res = await fetch("https://api.avalai.ir/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
-        body: JSON.stringify({
-          model: "gemini-3.1-flash-image",
-          messages: [{ role: "user", content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: dataUrl } },
-          ] }],
-        }),
-      });
-    } catch (netErr) { throw new Error("اتصال برقرار نشد — اینترنت را بررسی کن"); }
-    data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error?.message || `خطای تولید تصویر (کد ${res.status})`);
-    const img = data?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    if (!img) throw new Error("تصویری برنگشت");
-    return img; // AvalAI returns either a data: URI or an https URL — both work directly as <img src>
-  };
   const callAI = async (prompt) => {
     // AvalAI — an Iranian gateway that's OpenAI-compatible and reachable from Iran
     // without a VPN, so it sidesteps the Gemini/OpenAI regional blocks.
@@ -714,9 +665,9 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    divarSearchOpen, setDivarSearchOpen, homeStagingOpen, setHomeStagingOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
+    divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
-    perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, analyzeForStaging, stageImage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
     cloudBackupNow, restoreFromCloud,
   };
@@ -920,7 +871,6 @@ export default function FloraCRM() {
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
         {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
-        {homeStagingOpen && <VirtualStagingSheet ctx={ctx} p={null} onClose={() => setHomeStagingOpen(false)} />}
         {/* City is no longer a blocking gate before the app loads — this is
             a light popup that sits on top of the already-usable home
             screen, per explicit request to reach home first and ask city
@@ -964,14 +914,14 @@ function TopBar({ c, dark, setDark, tab, pendingCalls, setSheet, setDetail, setT
       </div>
       <div className="flex items-center gap-2">
         {pendingCalls > 0 && (
-          <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center gap-1.5 rounded-full px-2.5 py-2" style={{ background: c.attnSoft }}>
+          <button onClick={() => setDetail({ type: "calls" })} aria-label={`${faDigits(pendingCalls)} تماس در انتظار پیگیری`} className="press flex items-center gap-1.5 rounded-full px-2.5 py-2" style={{ background: c.attnSoft }}>
             <PhoneCall size={12} color={c.attn} />
             <span style={{ fontSize: 11, fontWeight: 700, color: c.attn }}>{faDigits(pendingCalls)}</span>
           </button>
         )}
-        <button onClick={() => setDetail({ type: "ai-chat" })} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}><MessageCircle size={16} color={c.ink} /></button>
-        <button onClick={() => setSheet("ai-settings")} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}><Sparkles size={16} color={c.ink} /></button>
-        <button onClick={() => setDark(!dark)} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}>{dark ? <Sun size={16} color={c.ink} /> : <Moon size={16} color={c.ink} />}</button>
+        <button onClick={() => setDetail({ type: "ai-chat" })} aria-label="گفتگو با دستیار هوش مصنوعی" className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}><MessageCircle size={16} color={c.ink} /></button>
+        <button onClick={() => setSheet("ai-settings")} aria-label="تنظیمات هوش مصنوعی" className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}><Sparkles size={16} color={c.ink} /></button>
+        <button onClick={() => setDark(!dark)} aria-label={dark ? "روشن کردن حالت روز" : "روشن کردن حالت شب"} className="press w-10 h-10 rounded-full flex items-center justify-center" style={glass(c)}>{dark ? <Sun size={16} color={c.ink} /> : <Moon size={16} color={c.ink} />}</button>
       </div>
     </div>
   );
@@ -1396,7 +1346,7 @@ function FocusMode({ ctx }) {
 
       {/* top: close + segmented progress (stories-style, not just a fraction) */}
       <div className="flex items-center shrink-0 relative" style={{ gap: SP.md, padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={() => setFocusQueue(null)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <button onClick={() => setFocusQueue(null)} aria-label="خروج از حالت تمرکز" className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <div className="flex-1 flex" style={{ gap: SP.xs }}>
           {actions.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: RAD.pill, background: c.surface2, overflow: "hidden" }}>
@@ -1542,17 +1492,6 @@ function DocumentsTile({ ctx }) {
         .flora-docs-tile:active .flora-doc-2 { transform: translate(4px, 4px) rotate(6deg); }
         .flora-docs-tile:active .flora-doc-1 { transform: translate(-1px, -2px); }
       `}</style>
-    </button>
-  );
-}
-
-function HomeStagingTile({ ctx }) {
-  const { c, setHomeStagingOpen } = ctx;
-  return (
-    <button onClick={() => setHomeStagingOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-      <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.purpleSoft, marginBottom: SP.md }}><Wand2 size={20} color={c.purple} /></div>
-      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>استیجینگ مجازی</p>
-      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>آپلود مستقیم، کیفیت کامل</p>
     </button>
   );
 }
@@ -1790,10 +1729,10 @@ ${views ? "- نسبت بازدید به تماس: با توجه به بازدی�
   };
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
     <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <button onClick={onClose} aria-label="بستن" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>جستجوی دیوار با AI</h2>
         <button onClick={clearChat} disabled={messages.length === 0} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: messages.length === 0 ? 0.5 : 1 }}><Trash2 size={16} color={messages.length === 0 ? c.muted : c.danger} /></button>
       </div>
@@ -2172,13 +2111,13 @@ ${activeListings}
   ) : [];
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
     <div className="fixed inset-0 z-[95] flex flex-col flora-pop" style={{ background: c.bg }}>
       <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
         <span style={{ position: "absolute", top: "-15%", left: "50%", transform: "translateX(-50%)", width: 340, height: 340, borderRadius: "50%", background: `radial-gradient(circle, #22d3ee22, transparent 70%)`, filter: "blur(10px)" }} />
       </div>
       <div className="flex items-center justify-between shrink-0 relative" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
+        <button onClick={onClose} aria-label="بستن" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>یادداشت صوتی</h2>
         <div style={{ width: 36 }} />
       </div>
@@ -2673,51 +2612,6 @@ function DateBadge({ c }) {
   );
 }
 
-// Price-trend and street-density insight — deliberately scoped to "your own
-// listings," not a live citywide feed Flora has no access to. Framed
-// honestly rather than presented as authoritative market data.
-function PropertyMarketInsightCard({ ctx }) {
-  const { c, properties, agencyCity } = ctx;
-  const [cjy, cjm] = isoToJalali(todayISO());
-  let py = cjy, pm = cjm - 1; if (pm <= 0) { pm = 12; py -= 1; }
-
-  const inMonth = (p, y, m) => { const [jy, jm] = isoToJalali((p.createdAt || todayISO()).slice(0, 10)); return jy === y && jm === m; };
-  const avgPPM = (list) => { const vals = list.map((p) => p.pricePerMeter).filter(Boolean); return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null; };
-
-  const thisMonthAvg = avgPPM(properties.filter((p) => inMonth(p, cjy, cjm)));
-  const lastMonthAvg = avgPPM(properties.filter((p) => inMonth(p, py, pm)));
-  const pctChange = thisMonthAvg && lastMonthAvg ? Math.round(((thisMonthAvg - lastMonthAvg) / lastMonthAvg) * 100) : null;
-
-  const streetOf = (addr) => {
-    if (!addr) return null;
-    const m = addr.match(/(خیابان|بلوار|کوچه)\s+([^\،,]+)/);
-    if (m) return `${m[1]} ${m[2].trim().split(" ").slice(0, 2).join(" ")}`;
-    const first = addr.trim().split(/[\،,]/)[0].trim();
-    return first ? first.slice(0, 24) : null;
-  };
-  const streetCounts = {};
-  properties.forEach((p) => { const s = streetOf(p.address); if (s) streetCounts[s] = (streetCounts[s] || 0) + 1; });
-  const topStreet = Object.entries(streetCounts).sort((a, b) => b[1] - a[1])[0];
-
-  if (pctChange === null && !topStreet) return null; // not enough data yet to say anything honest
-
-  return (
-    <div style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c), marginBottom: SP.xl }}>
-      <div className="flex items-center gap-1.5 mb-2"><TrendingUp size={14} color={c.primary} /><p style={{ fontSize: 12, fontWeight: 700 }}>تحلیل بازار — بر اساس فایل‌های خودت</p></div>
-      {pctChange !== null && (
-        <p style={{ fontSize: 13, lineHeight: 1.9 }}>
-          {agencyCity || "منطقه‌ی تو"} {faDigits(Math.abs(pctChange))}٪ {pctChange >= 0 ? "افزایش" : "کاهش"} قیمت هر متر نسبت به ماه قبل داشته (میانگین فایل‌های ثبت‌شده)
-        </p>
-      )}
-      {topStreet && (
-        <p style={{ fontSize: 13, color: c.muted, marginTop: 6, lineHeight: 1.9 }}>
-          بیشترین فایل فعال: <b style={{ color: c.ink }}>{topStreet[0]}</b> ({faDigits(topStreet[1])} فایل)
-        </p>
-      )}
-      <p style={{ fontSize: 10, color: c.muted, marginTop: 8 }}>این تحلیل فقط بر اساس فایل‌های ثبت‌شده‌ی خودته، نه داده‌ی زنده‌ی بازار.</p>
-    </div>
-  );
-}
 
 function HomeTab({ ctx }) {
   const { c, properties, setDetail, setTab, agentName, agencyCity, simpleMode, setSheet } = ctx;
@@ -2737,7 +2631,7 @@ function HomeTab({ ctx }) {
             <AgentAvatar ctx={ctx} />
             <div>
               <p style={{ fontSize: FS.caption, color: c.muted }}>{greetingPhrase()}</p>
-              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{agentName || "مشاور"}</p>
+              <p style={{ fontSize: FS.hero, fontWeight: FW.heavy, letterSpacing: "-0.015em", lineHeight: 1.15 }}>{agentName || "مشاور"}</p>
             </div>
           </div>
           <div className="text-left">
@@ -2747,31 +2641,55 @@ function HomeTab({ ctx }) {
         </div>
       </div>
 
-      {/* Live market strip */}
-      <div style={{ marginBottom: SP.xl }}><MarketWidget c={c} /></div>
-
-      <HomeInsightSlider ctx={ctx} />
-
-      {/* Deal Coach — the first actionable thing the agent sees */}
+      {/* Deal Coach — promoted to right after the header. It's the single most
+          personalized, data-driven "what do I do right now" on the page, so it
+          should be the first thing the agent's eye lands on — not the fourth,
+          competing with two informational widgets for that first glance. */}
       <NextBestActionCard ctx={ctx} />
 
-      {/* Showing / Tour Mode entry point — the agent's most repeated real-world
-          action (taking a customer to see several files) gets a one-tap door,
-          right on the dashboard, instead of being buried inside a form. */}
-      <div style={{ marginTop: SP.md }}><TourEntryCard ctx={ctx} /></div>
+      {/* Ambient context — live prices and this week's obligations. Both are
+          "good to glance at," neither is an action, so they're grouped as one
+          quiet cluster right under Deal Coach instead of floating separately
+          at the top of the page where they used to outrank it. */}
+      <div style={{ marginTop: SP.lg }}><MarketWidget c={c} /></div>
+      <div style={{ marginTop: SP.sm }}><HomeInsightSlider ctx={ctx} /></div>
 
-      {/* Direct door to divar.ir itself — same destination as the link inside
-          the "جستجوی دیوار با AI" sheet, just promoted to the dashboard since
-          it's the one agents reach for constantly, not only when diagnosing
-          a specific ad. */}
-      <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginTop: SP.md, background: "linear-gradient(135deg,#0F5132,#1E7A4F)", boxShadow: "0 14px 30px -10px rgba(15,81,50,0.45)" }}>
-        <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.16)" }}><DivarMark size={22} color="#fff" /></div>
-        <div className="flex-1 text-right">
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: "#fff" }}>ورود به وب دیوار</p>
-          <p style={{ fontSize: FS.caption, color: "rgba(255,255,255,0.88)", marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
+      {/* Quick tools — tour mode, Divar, and the AI rail used to be three
+          separate full-width blocks stacked in a row, each shouting at the
+          same volume. Grouping them under one heading (matching how every
+          other screen in the app introduces a cluster of cards, e.g.
+          FinanceCenterView) turns "a wall of cards" into "a section." */}
+      <SectionHeader c={c} title="ابزارهای سریع" />
+      <div className="flex flex-col" style={{ gap: SP.md }}>
+        {/* Showing / Tour Mode entry point — the agent's most repeated
+            real-world action (taking a customer to see several files) gets a
+            one-tap door, right on the dashboard, instead of being buried
+            inside a form. */}
+        <TourEntryCard ctx={ctx} />
+
+        {/* Direct door to divar.ir itself — same destination as the link
+            inside the "جستجوی دیوار با AI" sheet, just promoted to the
+            dashboard since it's the one agents reach for constantly, not only
+            when diagnosing a specific ad. */}
+        <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
+          <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: "#1E7A4F1F" }}><DivarMark size={20} color="#1E7A4F" /></div>
+          <div className="flex-1 text-right">
+            <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, color: c.ink }}>ورود به وب دیوار</p>
+            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
+          </div>
+          <ChevronLeft size={18} color={c.muted} />
+        </a>
+
+        {/* Quick-launch tools. A horizontal rail rather than a grid: five tools
+            in a 2-column grid leaves a lopsided half-empty last row, and the
+            rail also means adding a sixth tool later doesn't reshuffle the
+            layout. */}
+        <div className="flex" style={{ gap: SP.md, overflowX: "auto", paddingBottom: SP.xs, scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch" }}>
+          <VoiceAssistantTile ctx={ctx} />
+          <LegalTile ctx={ctx} />
+          <DocumentsTile ctx={ctx} />
         </div>
-        <ChevronLeft size={20} color="rgba(255,255,255,0.75)" />
-      </a>
+      </div>
 
       {/* Primary action — the ONLY place the accent gradient appears */}
       {simpleMode && (
@@ -2786,22 +2704,12 @@ function HomeTab({ ctx }) {
         </button>
       )}
 
-      {/* Quick-launch tools. A horizontal rail rather than a grid: five tools
-          in a 2-column grid leaves a lopsided half-empty last row, and the rail
-          also means adding a sixth tool later doesn't reshuffle the layout. */}
-      <div style={{ marginTop: SP.xl }}>
-        <div className="flex" style={{ gap: SP.md, overflowX: "auto", paddingBottom: SP.xs, scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch" }}>
-          <VoiceAssistantTile ctx={ctx} />
-          <LegalTile ctx={ctx} />
-          <DocumentsTile ctx={ctx} />
-        </div>
-      </div>
-
-      {/* Portfolio skyline */}
-      <div style={{ marginTop: SP.xl }}><BuildingScrollHero ctx={ctx} /></div>
-
-      {/* Latest files */}
-      <div className="flex items-baseline justify-between" style={{ marginTop: SP.xxl, marginBottom: SP.lg, paddingRight: 2 }}>
+      {/* Portfolio — the skyline and the latest-files list are both "your
+          files," so they're now one visual section (skyline leads into the
+          list it's a picture of) instead of the skyline sitting between two
+          unrelated blocks. */}
+      <div style={{ marginTop: SP.xxl }}><BuildingScrollHero ctx={ctx} /></div>
+      <div className="flex items-baseline justify-between" style={{ marginTop: SP.lg, marginBottom: SP.lg, paddingRight: 2 }}>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>جدیدترین فایل‌ها</h2>
         <button onClick={() => setTab("properties")} style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>همه ›</button>
       </div>
@@ -3222,7 +3130,7 @@ function AllPropertiesMap({ c, rows, onOpen }) {
       if (cancelled || !ref.current) return;
       if (objRef.current) { objRef.current.remove(); objRef.current = null; }
       const map = L.map(ref.current, { zoomControl: false, attributionControl: false }).setView(SAREIN_CENTER, 14);
-      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { attribution: "", maxZoom: 20, maxNativeZoom: 16 }).addTo(map);
 
       pinned.forEach((p) => {
         const color = DEAL_COLOR[p.deal] || "#2f7cf6";
@@ -4765,11 +4673,11 @@ function InvestmentDetail({ id, ctx, onBack }) {
 function BackHeader({ c, title, onBack, onEdit, onDelete }) {
   return (
     <div className="flex items-center justify-between pt-2 pb-4">
-      <button onClick={onBack} className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><ArrowRight size={16} color={c.ink} /></button>
+      <button onClick={onBack} aria-label="بازگشت" className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><ArrowRight size={16} color={c.ink} /></button>
       <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.bold }}>{title}</h2>
       <div className="flex items-center gap-2">
-        {onEdit && <button onClick={onEdit} className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><Edit3 size={15} color={c.primary} /></button>}
-        {onDelete && <button onClick={onDelete} className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><Trash2 size={15} color={c.danger} /></button>}
+        {onEdit && <button onClick={onEdit} aria-label="ویرایش" className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><Edit3 size={15} color={c.primary} /></button>}
+        {onDelete && <button onClick={onDelete} aria-label="حذف" className="press w-11 h-11 rounded-full flex items-center justify-center" style={glass(c)}><Trash2 size={15} color={c.danger} /></button>}
         {!onEdit && !onDelete && <div style={{ width: 36 }} />}
       </div>
     </div>
@@ -4842,11 +4750,11 @@ function Lightbox({ item, onClose }) {
   const go = (d) => setIdx((i) => Math.max(0, Math.min(media.length - 1, i + d)));
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
     <div className="fixed inset-0 z-[90] flex flex-col flora-pop" style={{ background: "rgba(0,0,0,0.94)" }} onClick={onClose}>
       {/* top bar: close + counter, clear of the notch */}
       <div className="flex items-center justify-between px-5 shrink-0" style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))", paddingBottom: 12 }} onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
+        <button onClick={onClose} aria-label="بستن" className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><X size={16} color="#fff" /></button>
         {media.length > 1 && <span style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", fontWeight: 600, direction: "ltr" }}>{idx + 1} / {media.length}</span>}
       </div>
 
@@ -4907,7 +4815,7 @@ function PropertyMiniMap({ c, lat, lng, title }) {
     loadLeaflet().then((L) => {
       if (cancelled || !ref.current || objRef.current) return;
       const map = L.map(ref.current, { zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false }).setView([lat, lng], 16);
-      L.tileLayer(DARK_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
+      L.tileLayer(DARK_TILE_URL, { attribution: "", maxZoom: 20, maxNativeZoom: 16 }).addTo(map);
       L.marker([lat, lng]).addTo(map);
       objRef.current = map;
     });
@@ -5063,226 +4971,6 @@ ${builderName ? `نام سازنده: ${builderName}` : ""}
         </div>
       )}
     </div>
-  );
-}
-
-// A proper standalone entry point — this deserves its own card, same visual
-// weight as the Divar ad-copy card, not a link buried inside another feature.
-function VirtualStagingCard({ ctx, p }) {
-  const { c } = ctx;
-  const [open, setOpen] = useState(false);
-  const hasPhotos = (p.media || []).some((m) => m.type === "image");
-  return (
-    <div style={{ marginBottom: SP.lg }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: SP.md, paddingRight: 2 }}>
-        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>استیجینگ مجازی با AI</h2>
-      </div>
-      {hasPhotos ? (
-        <button onClick={() => setOpen(true)} className="press w-full flex items-center justify-center relative overflow-hidden" style={{ gap: SP.sm, paddingBlock: SP.lg, borderRadius: RAD.lg, background: "linear-gradient(135deg,#7c6ff5,#c084fc)", boxShadow: "0 14px 30px -10px rgba(124,111,245,0.45)" }}>
-          <Wand2 size={17} color="#fff" /><span style={{ color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>عکس‌های خالی رو با مبلمان دکور کن</span>
-        </button>
-      ) : (
-        <div className="flex items-center" style={{ gap: SP.sm, padding: SP.lg, borderRadius: RAD.lg, ...glassLite(c, RAD.lg) }}>
-          <ImageIcon size={16} color={c.muted} /><p style={{ fontSize: FS.caption, color: c.muted }}>اول برای این فایل عکس ثبت کن</p>
-        </div>
-      )}
-      {open && <VirtualStagingSheet ctx={ctx} p={p} onClose={() => setOpen(false)} />}
-    </div>
-  );
-}
-
-// Virtual staging, Focus Mode — pick up to 6 photos (from a file's existing
-// pictures, or freshly uploaded at full quality — this flow deliberately skips
-// the app's normal compressImage pipeline, since staging needs the best possible
-// source and the results are downloaded straight out, not stored in the app).
-const STAGE_STYLES = ["مدرن ایرانی", "لوکس مدرن", "مینیمال"];
-const readFileFullQuality = (file) => new Promise((resolve) => {
-  const r = new FileReader();
-  r.onload = () => resolve({ id: uid(), type: "image", url: r.result, name: file.name });
-  r.readAsDataURL(file);
-});
-function VirtualStagingSheet({ ctx, p, onClose }) {
-  const { c, canStage, analyzeForStaging, stageImage, notify } = ctx;
-  const fileMedia = (p?.media || []).filter((m) => m.type === "image");
-  const [uploaded, setUploaded] = useState([]); // freshly-picked, full-quality, not saved anywhere
-  const images = [...fileMedia, ...uploaded];
-  const [phase, setPhase] = useState("select"); // select | style | receiving | analyzing | profile | generating | done
-  const [selected, setSelected] = useState([]);
-  const [styleHint, setStyleHint] = useState(STAGE_STYLES[0]);
-  const [customStyle, setCustomStyle] = useState("");
-  const [genIndex, setGenIndex] = useState(0);
-  const [results, setResults] = useState([]);
-  const [error, setError] = useState("");
-  const fileRef = useRef(null);
-
-  const handleUpload = async (fileList) => {
-    const files = Array.from(fileList).slice(0, 6 - uploaded.length - fileMedia.length);
-    if (files.length === 0) { notify("حداکثر ۶ عکس"); return; }
-    const items = await Promise.all(files.map(readFileFullQuality));
-    setUploaded((prev) => [...prev, ...items]);
-    setSelected((prev) => [...prev, ...items].slice(0, 6));
-  };
-
-  const toggleSelect = (m) => {
-    setSelected((prev) => {
-      if (prev.some((x) => x.id === m.id)) return prev.filter((x) => x.id !== m.id);
-      if (prev.length >= 6) { notify("حداکثر ۶ عکس"); return prev; }
-      return [...prev, m];
-    });
-  };
-
-  const run = async () => {
-    if (!canStage) { setError("اول کلید AvalAI را در تنظیمات وارد کن"); return; }
-    const style = customStyle.trim() || styleHint;
-    setError(""); setResults([]);
-    setPhase("receiving");
-    await new Promise((r) => setTimeout(r, 500));
-    setPhase("analyzing");
-    let analysis;
-    try { analysis = await analyzeForStaging(selected.map((m) => m.url), style); }
-    catch (e) { setError(e.message || "خطا در تحلیل تصاویر"); setPhase("style"); return; }
-    setPhase("profile");
-    await new Promise((r) => setTimeout(r, 500));
-    setPhase("generating");
-    const profile = analysis.styleProfile || {};
-    const rooms = analysis.rooms || [];
-    const out = [];
-    for (let i = 0; i < selected.length; i++) {
-      setGenIndex(i + 1);
-      const room = rooms[i] || "اتاق";
-      const prompt = `این عکس یک ${room} واقعی است. فقط مبلمان و دکور اضافه یا جایگزین کن؛ دیوارها، سقف، پنجره‌ها، درها، کف، ستون‌ها، کابینت آشپزخانه، شومینه، اندازه‌ی اتاق، زاویه‌ی دوربین و پرسپکتیو را اصلاً تغییر نده. سبک: ${profile.furnitureStyle || style}. پالت رنگ: ${profile.colorPalette || "-"}. جنس چوب: ${profile.woodMaterial || "-"}. پرده: ${profile.curtainStyle || "-"}. فرش: ${profile.rugStyle || "-"}. دکور: ${profile.decorationStyle || "-"}. نور: ${profile.lightingMood || "-"}. سطح لوکس‌بودن: ${profile.luxuryLevel || "-"}. نتیجه باید کاملاً واقعی و شبیه عکس گرفته‌شده توسط عکاس حرفه‌ای املاک باشد، نه شبیه تصویر تولیدشده با هوش مصنوعی.`;
-      try { const staged = await stageImage(selected[i].url, prompt); out.push({ original: selected[i].url, staged, room }); }
-      catch (e) { out.push({ original: selected[i].url, staged: null, room, error: e.message || "خطا" }); }
-      setResults([...out]);
-    }
-    setPhase("done");
-  };
-
-  // The download attribute only works reliably for same-origin/blob/data URLs —
-  // if AvalAI returns a hosted https:// URL instead of an inline data URI, a plain
-  // <a href download> silently gets ignored by the browser and just opens/does
-  // nothing. Fetching it into a local blob first sidesteps that entirely.
-  const downloadImage = async (dataUrl, name) => {
-    try {
-      const blob = await (await fetch(dataUrl)).blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl; a.download = name; a.click();
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
-    } catch (e) {
-      // Some hosts block cross-origin fetch even though <img> can display them —
-      // open it directly so the agent can at least long-press → save manually.
-      window.open(dataUrl, "_blank");
-      notify("دانلود خودکار نشد — عکس تو تب جدید باز شد، نگهش دار");
-    }
-  };
-  const STEP_ORDER = ["receiving", "analyzing", "profile", "generating"];
-
-  return (
-    <BodyPortal>
-    <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
-      <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={onClose} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>استیجینگ مجازی</h2>
-        <div style={{ width: 36 }} />
-      </div>
-
-      <div className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
-        {error && <p style={{ fontSize: FS.caption, color: c.danger, background: c.dangerSoft, padding: SP.md, borderRadius: RAD.md, marginBottom: SP.md, lineHeight: 1.8 }}>{error}</p>}
-
-        {phase === "select" && (
-          <div>
-            <p style={{ fontSize: FS.body, color: c.muted, marginBottom: SP.lg, lineHeight: 1.8 }}>تا ۶ عکس انتخاب یا آپلود کن — همه‌شون با یه سبک واحد دکور می‌شن، نه هرکدوم جدا. عکس‌های آپلودی با کیفیت کامل پردازش می‌شن.</p>
-            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ""; }} />
-            <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
-              <button onClick={() => fileRef.current?.click()} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: c.primarySoft, border: `1px dashed ${c.primary}55` }}>
-                <ImagePlus size={20} color={c.primary} /><span style={{ fontSize: 10, color: c.primary, fontWeight: FW.bold, marginTop: 4 }}>آپلود</span>
-              </button>
-              {images.map((m) => {
-                const idx = selected.findIndex((x) => x.id === m.id);
-                const isSel = idx > -1;
-                return (
-                  <button key={m.id} onClick={() => toggleSelect(m)} className="press relative" style={{ aspectRatio: "1", borderRadius: RAD.md, overflow: "hidden", border: isSel ? `2px solid ${c.primary}` : `1px solid ${c.border}` }}>
-                    <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    {isSel && <span className="absolute flex items-center justify-center" style={{ top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: c.primary, color: "#fff", fontSize: 11, fontWeight: 800 }}>{faDigits(idx + 1)}</span>}
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={() => setPhase("style")} disabled={selected.length === 0} className="press w-full" style={{ paddingBlock: SP.md, borderRadius: RAD.md, background: selected.length ? c.primary : c.surface2, color: selected.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.body }}>ادامه ({faDigits(selected.length)} عکس)</button>
-          </div>
-        )}
-
-        {phase === "style" && (
-          <div>
-            <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.md }}>سبک دکوراسیون</p>
-            <div className="flex flex-wrap" style={{ gap: SP.sm, marginBottom: SP.lg }}>
-              {STAGE_STYLES.map((s) => { const active = styleHint === s && !customStyle; return (
-                <button key={s} onClick={() => { setStyleHint(s); setCustomStyle(""); }} className="press" style={{ paddingInline: SP.lg, paddingBlock: SP.sm + 2, borderRadius: RAD.pill, background: active ? c.primary : c.surface2, color: active ? "#fff" : c.ink, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>{s}</button>
-              ); })}
-            </div>
-            <input value={customStyle} onChange={(e) => setCustomStyle(e.target.value)} placeholder="یا خودت بنویس، مثلاً «کلاسیک گرم»" style={inputStyle(c)} />
-            <button onClick={run} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>شروع استیجینگ</button>
-          </div>
-        )}
-
-        {STEP_ORDER.includes(phase) && (
-          <div className="flex flex-col items-center" style={{ paddingBlock: SP.xxl }}>
-            <VoiceOrb c={c} state="thinking" />
-            <div className="w-full" style={{ marginTop: SP.xl }}>
-              {[
-                { key: "receiving", label: `دریافت تصاویر (${faDigits(selected.length)}/${faDigits(selected.length)})` },
-                { key: "analyzing", label: "تحلیل ملک" },
-                { key: "profile", label: "ساخت پروفایل سبک" },
-                { key: "generating", label: `تولید تصاویر ${genIndex ? `(${faDigits(genIndex)}/${faDigits(selected.length)})` : ""}` },
-              ].map((step) => {
-                const curIdx = STEP_ORDER.indexOf(phase);
-                const stepIdx = STEP_ORDER.indexOf(step.key);
-                const state = stepIdx < curIdx ? "done" : stepIdx === curIdx ? "active" : "pending";
-                return (
-                  <div key={step.key} className="flex items-center" style={{ gap: SP.md, marginBottom: SP.md, opacity: state === "pending" ? 0.5 : 1 }}>
-                    <div className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: "50%", background: state === "done" ? c.successSoft : state === "active" ? c.primarySoft : c.surface2 }}>
-                      {state === "done" ? <CheckCircle2 size={14} color={c.success} /> : state === "active" ? <Loader2 size={13} className="animate-spin" color={c.primary} /> : <span style={{ width: 6, height: 6, borderRadius: 999, background: c.muted }} />}
-                    </div>
-                    <span style={{ fontSize: FS.caption + 1, color: state === "pending" ? c.muted : c.ink, fontWeight: state === "active" ? FW.bold : FW.medium }}>{step.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {phase === "done" && (
-          <div>
-            {results.some((r) => r.staged) && (
-              <button onClick={() => { results.forEach((r, i) => { if (r.staged) setTimeout(() => downloadImage(r.staged, `staged-${i + 1}.png`), i * 300); }); notify("دانلود همه شروع شد — تو گالری گوشیت ذخیره می‌شن"); }} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, marginBottom: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: "linear-gradient(135deg,#7c6ff5,#c084fc)", color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
-                <Download size={16} color="#fff" />دانلود همه با کیفیت کامل
-              </button>
-            )}
-            <div className="flex flex-col" style={{ gap: SP.lg }}>
-              {results.map((r, i) => (
-                <div key={i} style={{ borderRadius: RAD.lg, padding: SP.md, ...glass(c) }}>
-                  <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>{r.room}</p>
-                  {r.staged ? (
-                    <>
-                      <div className="grid grid-cols-2" style={{ gap: SP.sm }}>
-                        <div><img src={r.original} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 10, color: c.muted, textAlign: "center", marginTop: 4 }}>قبل</p></div>
-                        <div><img src={r.staged} alt="" style={{ width: "100%", borderRadius: RAD.sm, aspectRatio: "1", objectFit: "cover" }} /><p style={{ fontSize: 10, color: c.primary, textAlign: "center", marginTop: 4, fontWeight: FW.bold }}>بعد از استیجینگ</p></div>
-                      </div>
-                      <button onClick={() => downloadImage(r.staged, `staged-${i + 1}.png`)} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, marginTop: SP.sm, paddingBlock: SP.sm, borderRadius: RAD.md, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: FS.caption }}><Download size={13} color={c.primary} />دانلود</button>
-                    </>
-                  ) : (
-                    <p style={{ fontSize: FS.caption, color: c.danger, lineHeight: 1.8 }}>{r.error || "این عکس تولید نشد"}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-            <button onClick={onClose} className="press w-full" style={{ marginTop: SP.lg, paddingBlock: SP.md, borderRadius: RAD.md, background: c.ink, color: c.bg, fontWeight: FW.bold, fontSize: FS.body }}>تمام</button>
-          </div>
-        )}
-      </div>
-    </div>
-    </BodyPortal>
   );
 }
 
@@ -5504,7 +5192,12 @@ function PropertyDetail({ id, ctx, onBack }) {
           {(() => {
             const priceInfo = getPriceForDisplay({ realPrice: p.price, realPricePerMeter: p.pricePerMeter, area: p.area, customerMode: ctx.customerMode, showCustomerPrice: ctx.showCustomerPrice });
             if (!priceInfo.visible) return <p style={{ fontSize: FS.body, color: c.muted, marginTop: SP.xs }}>—</p>;
-            return <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.xs }}>{fmtToman(priceInfo.price)}</p>;
+            return (
+              <>
+                <p style={{ fontSize: FS.title, fontWeight: FW.heavy, color: c.primary, marginTop: SP.xs }}>{fmtToman(priceInfo.price)}</p>
+                {priceInfo.pricePerMeter > 0 && <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{fmtToman(priceInfo.pricePerMeter)} / متر</p>}
+              </>
+            );
           })()}
           {!ctx.customerMode && (
             <button onClick={() => setValuationOpen(true)} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, marginTop: SP.sm, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: 12.5 }}>
@@ -5543,8 +5236,6 @@ function PropertyDetail({ id, ctx, onBack }) {
       )}
 
       {p.lat && p.lng && <PropertyMiniMap c={c} lat={p.lat} lng={p.lng} title={p.title} />}
-
-      <VirtualStagingCard ctx={ctx} p={p} />
 
       <DivarAdCard ctx={ctx} p={p} />
 
@@ -7108,15 +6799,22 @@ function MoneyIdeasCard({ ctx, received }) {
 
 // ---------- Sheet shell + fields ----------
 function SheetShell({ c, title, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.focus();
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     // `fixed` (not `absolute`) — the app shell uses minHeight:100vh, so it can be
     // taller than the screen; an absolutely-positioned sheet would anchor to the
     // bottom of the *document* instead of the viewport and render off-screen.
     <div className="fixed inset-0 z-30 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full p-5 flora-sheet overflow-y-auto"
-        style={{ ...glass(c), borderRadius: "26px 26px 0 0", maxWidth: 390, maxHeight: "92dvh", overscrollBehavior: "contain", paddingBottom: `calc(${SP.xxl}px + env(safe-area-inset-bottom, 0px))` }}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onClick={(e) => e.stopPropagation()} className="w-full p-5 flora-sheet overflow-y-auto"
+        style={{ ...glass(c), borderRadius: "26px 26px 0 0", maxWidth: 390, maxHeight: "92dvh", overscrollBehavior: "contain", outline: "none", paddingBottom: `calc(${SP.xxl}px + env(safe-area-inset-bottom, 0px))` }}>
         <div className="w-10 h-1.5 rounded-full mx-auto mb-4" style={{ background: c.surface2 }} />
-        <div className="flex items-center justify-between mb-4"><h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{title}</h3><button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button></div>
+        <div className="flex items-center justify-between mb-4"><h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{title}</h3><button onClick={onClose} aria-label="بستن" className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button></div>
         {children}
       </div>
     </div>
@@ -7154,7 +6852,10 @@ function SubmitBtn({ c, label, onClick, disabled }) { return <button onClick={on
 // Covers roughly a 6km box around the centre — enough for the whole town + outskirts.
 async function precacheSareinTiles(onProgress) {
   const [lat, lng] = SAREIN_CENTER;
-  const zooms = [13, 14, 15, 16, 17];
+  // Esri's Canvas Dark Gray Base (see geo.js — same switch away from CARTO's
+  // now-key-gated CDN) only serves up to native zoom 16, so 17 is dropped;
+  // it also has no @2x variant, so this is one URL per tile, not two.
+  const zooms = [13, 14, 15, 16];
   const kmBox = 6; // half-width in km
   const lat2tile = (lat, z) => Math.floor(((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2) * Math.pow(2, z));
   const lng2tile = (lng, z) => Math.floor(((lng + 180) / 360) * Math.pow(2, z));
@@ -7167,8 +6868,7 @@ async function precacheSareinTiles(onProgress) {
     const yMin = lat2tile(lat + dLat, z), yMax = lat2tile(lat - dLat, z);
     for (let x = xMin; x <= xMax; x++)
       for (let y = yMin; y <= yMax; y++)
-        urls.push(`https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`);
-        urls.push(`https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}@2x.png`);
+        urls.push(`https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`);
   }
 
   let done = 0;
@@ -7201,7 +6901,7 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
       if (cancelled || !mapRef.current || mapObjRef.current) return;
       const start = initial && initial.lat ? [initial.lat, initial.lng] : SAREIN_CENTER;
       const map = L.map(mapRef.current, { attributionControl: false }).setView(start, initial && initial.lat ? 16 : 14);
-      L.tileLayer(LIGHT_TILE_URL, { subdomains: "abcd", attribution: "", detectRetina: true, maxZoom: 20, maxNativeZoom: 20 }).addTo(map);
+      L.tileLayer(LIGHT_TILE_URL, { attribution: "", maxZoom: 20, maxNativeZoom: 16 }).addTo(map);
       const marker = L.marker(start, { draggable: true }).addTo(map);
       marker.on("dragend", () => { const p = marker.getLatLng(); reverseGeocode(p.lat, p.lng); });
       map.on("click", (e) => { marker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
@@ -7219,12 +6919,12 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
     return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
   }, []);
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 flex items-end justify-center flora-pop" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
         <div onClick={(e) => e.stopPropagation()} className="w-full flora-sheet" style={{ ...glass(c), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, overflow: "hidden", maxWidth: 390 }}>
           <div className="flex items-center justify-between" style={{ paddingInline: SP.xl, paddingBlock: SP.md, borderBottom: `1px solid ${c.border}` }}>
             <h3 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>انتخاب آدرس از نقشه سرعین</h3>
-            <button onClick={onClose} className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button>
+            <button onClick={onClose} aria-label="بستن" className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={14} color={c.ink} /></button>
           </div>
           <div ref={mapRef} style={{ width: "100%", height: 300, background: c.surface2 }} />
           <div style={{ padding: SP.lg }} dir="rtl">
@@ -7893,27 +7593,22 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           <p style={{ fontSize: 11, color: c.muted, marginTop: 6 }}>برای ثبت موقعیت دقیق روی نقشه، دکمه‌ی کنار را بزن</p>
         )}
       </Field>
-      <Field c={c} label="خیابان (برای برآورد قیمت دقیق‌تر)"><input style={inputStyle(c)} value={f.street} onChange={set("street")} placeholder="مثلاً خیابان امام" /></Field>
+      {/* Street isn't collected here anymore — one field shorter on an
+          already-long form. Flora Valuation (Valuation.jsx) already has its
+          own street input (quickStreet) for exactly the case where a saved
+          property has none, so nothing downstream breaks; it's asked for
+          once, at the moment it's actually needed, instead of upfront. */}
 
-      {/* Every field below feeds Flora Valuation's formula directly — each
-          is optional (a skipped one just defaults to its "معمولی"/neutral
-          coefficient, never blocks a price), but filling them in is what
-          makes the number real instead of a generic area average. */}
-      {[
-        { key: "locationQuality", label: "موقعیت", options: ["ضعیف", "معمولی", "خوب", "ممتاز"] },
-        { key: "viewCategory", label: "ویو / جهت", options: ["بدون ویو", "حیاط معمولی", "کوچه معمولی", "خیابان خوب", "ویوی باز", "ویوی ممتاز"] },
-        { key: "floorCategory", label: "طبقه (کیفیت)", options: ["همکف نامطلوب", "طبقه میانی", "طبقه بالا با ویو", "طبقه آخر"] },
-        { key: "buildingQuality", label: "کیفیت ساختمان", options: ["ضعیف", "معمولی", "خوب", "خیلی خوب", "لوکس"] },
-        { key: "furnishLevel", label: "سطح فرنیش", options: ["خالی", "نیمه‌فرنیش", "فول‌فرنیش معمولی", "فول‌فرنیش خوب", "فول‌فرنیش لوکس"] },
-      ].map(({ key, label, options }) => (
-        <Field key={key} c={c} label={label}>
-          <div className="flex flex-wrap gap-2">
-            {options.map((v) => (
-              <button key={v} type="button" onClick={() => setF((p) => ({ ...p, [key]: p[key] === v ? "" : v }))} className="press rounded-lg" style={{ paddingInline: 10, paddingBlock: 8, background: f[key] === v ? c.primary : c.surface2, color: f[key] === v ? "#fff" : c.muted, fontSize: 11, fontWeight: 700 }}>{v}</button>
-            ))}
-          </div>
-        </Field>
-      ))}
+      {/* The five quality-coefficient selectors (موقعیت/ویو/طبقه/کیفیت
+          ساختمان/فرنیش) that used to live here were removed from this form.
+          They're still valid fields on a property (state/submit payload
+          below untouched) and Flora Valuation's formula still reads them
+          when present — it already treats a missing one as "معمولی"/neutral
+          rather than blocking the estimate, so nothing downstream breaks.
+          The saved-property path in Valuation.jsx has no UI to set them
+          after the fact, though (only quick-mode, phone-call estimates do)
+          — so for every file created from now on, valuation runs on
+          area/street/comparables alone. */}
       <button type="button" onClick={() => setShowMore((s) => !s)} className="press w-full flex items-center justify-between rounded-xl px-4 py-3 mb-3" style={{ background: c.surface2 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: c.ink }}>جزئیات بیشتر (اختیاری)</span>
         <ChevronDown size={16} color={c.muted} style={{ transform: showMore ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />

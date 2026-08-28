@@ -113,7 +113,7 @@ function ChecksHome({ ctx, onClose }) {
   };
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg }}>
         <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: "calc(20px + env(safe-area-inset-top, 0px))" }}>
           <div className="flex items-center" style={{ gap: SP.md }}>
@@ -208,7 +208,7 @@ function ChecksEditSheet({ ctx, check, onClose }) {
   const remove = () => { setChecks((prev) => prev.filter((ch) => ch.id !== check.id)); notify("چک حذف شد"); onClose(); };
 
   return (
-    <BodyPortal>
+    <BodyPortal onClose={onClose}>
       <div className="fixed inset-0 z-[260] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
         <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ ...glassSurface(c), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "85vh", overflowY: "auto" }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.lg }}>{isNew ? "چک جدید" : "ویرایش چک"}</p>
