@@ -74,14 +74,19 @@ Deno.serve(async (req: Request) => {
     });
 
     if (categoryEnabled && !inQuietHours) {
+      // Check due-date reminders (category "finance") carry the amount and
+      // recipient — the whole point of the notification — so they're never
+      // summarized or genericized, regardless of the user's own preview
+      // preference. Every other category still respects it.
+      const effectiveLevel = reminder.category === "finance" ? "full" : (prefs?.preview_level || "full");
       const { data: tgLink } = await admin.from("telegram_links").select("chat_id").eq("user_id", reminder.user_id).single();
       if (tgLink?.chat_id) {
-        const tgBody = applyPreviewLevel({ title: reminder.title, body: reminder.body }, prefs?.preview_level || "full");
+        const tgBody = applyPreviewLevel({ title: reminder.title, body: reminder.body }, effectiveLevel);
         await sendTelegram(tgLink.chat_id, tgBody.title, tgBody.body);
       }
 
       const { data: subs } = await admin.from("push_subscriptions").select("*").eq("user_id", reminder.user_id).eq("is_active", true);
-      const payload = JSON.stringify(applyPreviewLevel({ title: reminder.title, body: reminder.body, url: reminder.url || "/" }, prefs?.preview_level || "full"));
+      const payload = JSON.stringify(applyPreviewLevel({ title: reminder.title, body: reminder.body, url: reminder.url || "/" }, effectiveLevel));
       if (pushConfigured) {
         for (const sub of subs || []) {
           try {
