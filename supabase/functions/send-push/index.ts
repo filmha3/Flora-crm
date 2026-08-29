@@ -116,9 +116,14 @@ Deno.serve(async (req: Request) => {
   if (!categoryEnabled) return json({ ok: true, sent: 0, reason: "category disabled" });
   if (inQuietHours && !isCritical) return json({ ok: true, sent: 0, reason: "quiet hours" });
 
+  // Same rule as process-due-reminders: finance/check notifications always
+  // go out in full, no matter what preview level the user picked, since a
+  // summarized check reminder is missing the exact thing it exists to say.
+  const effectiveLevel = category === "finance" ? "full" : (prefs?.preview_level || "full");
+
   const { data: tgLink } = await admin.from("telegram_links").select("chat_id").eq("user_id", userId).single();
   if (tgLink?.chat_id) {
-    const tgBody = applyPreviewLevel({ title: notification.title, body: notification.body }, prefs?.preview_level || "full");
+    const tgBody = applyPreviewLevel({ title: notification.title, body: notification.body }, effectiveLevel);
     await sendTelegram(tgLink.chat_id, tgBody.title, tgBody.body);
   }
 
@@ -133,7 +138,7 @@ Deno.serve(async (req: Request) => {
 
   const payload = JSON.stringify(applyPreviewLevel(
     { title: notification.title, body: notification.body, url: notification.url || "/", badge: notification.badge, data: notification.data },
-    prefs?.preview_level || "full",
+    effectiveLevel,
   ));
 
   let sent = 0;
