@@ -411,9 +411,9 @@ function NotificationTestPanel({ ctx }) {
           <p style={{ fontSize: 12, fontWeight: 700, color: c.muted, marginBottom: SP.sm }}>تست‌های اخیر</p>
           <div className="flex flex-col gap-2">
             {testReminders.map((r) => (
-              <div key={r.id} className="flex items-center justify-between rounded-xl px-3.5" style={{ paddingBlock: 10, ...glassLite(c, RAD.md) }}>
+              <div key={r.id} className="flex items-start justify-between rounded-xl px-3.5" style={{ paddingBlock: 10, ...glassLite(c, RAD.md) }}>
                 <div className="min-w-0">
-                  <p style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.body}</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.8 }}>{r.body}</p>
                   <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{new Date(r.remind_at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</p>
                 </div>
                 <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: r.sent ? c.successSoft : c.attnSoft, color: r.sent ? c.success : c.attn, flexShrink: 0 }}>{r.sent ? "ارسال شد" : "در انتظار"}</span>
