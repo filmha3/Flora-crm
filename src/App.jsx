@@ -26,7 +26,7 @@ import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourSt
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
-import { SAREIN_CENTER, DARK_TILE_URL, LIGHT_TILE_URL, loadLeaflet, reverseGeocodeAddress } from "./lib/geo.js";
+import { SAREIN_CENTER, DARK_TILE_URL, LIGHT_TILE_URL, DARK_TILE_FILTER, loadLeaflet, reverseGeocodeAddress } from "./lib/geo.js";
 import { FloraValuationSheet } from "./components/Valuation.jsx";
 import { ConstructionHome } from "./components/Construction.jsx";
 import { ChecksHome } from "./components/Checks.jsx";
@@ -696,11 +696,11 @@ export default function FloraCRM() {
            a warm hue-rotate pushes the roads gold and the base navy, matching
            the printed city-map look without touching any other part of the UI. */
         .leaflet-container { background: #0A1628 !important; }
-        /* No filter here on purpose: CARTO's dark_all tiles are already
-           well-tuned, and the earlier blurriness/quality complaint traced
-           back to missing retina (@2x) tile support, not color grading —
-           see detectRetina below. Any filter on top just re-introduces risk
-           of crushing label contrast for no benefit. */
+        /* Real OpenStreetMap tiles are light by design (no free dark tile
+           server exists) — .flora-dark-map inverts+hue-rotates just the
+           tile layer to fake a dark basemap without touching markers,
+           popups, or any other UI on top of it. */
+        .flora-dark-map .leaflet-tile-pane { filter: ${DARK_TILE_FILTER}; }
         /* Tiles in the tool rail get a lift instead of a flat shrink — the card
            rises toward the finger, which reads as physical rather than "pressed
            into the screen". Snap keeps a tile edge-aligned after a flick. */
@@ -2641,17 +2641,15 @@ function HomeTab({ ctx }) {
         </div>
       </div>
 
-      {/* Deal Coach — promoted to right after the header. It's the single most
-          personalized, data-driven "what do I do right now" on the page, so it
-          should be the first thing the agent's eye lands on — not the fourth,
-          competing with two informational widgets for that first glance. */}
-      <NextBestActionCard ctx={ctx} />
+      {/* Live dollar/gold price — sits above Deal Coach so the day's market
+          number is the very first thing the agent's eye lands on. */}
+      <div><MarketWidget c={c} /></div>
 
-      {/* Ambient context — live prices and this week's obligations. Both are
-          "good to glance at," neither is an action, so they're grouped as one
-          quiet cluster right under Deal Coach instead of floating separately
-          at the top of the page where they used to outrank it. */}
-      <div style={{ marginTop: SP.lg }}><MarketWidget c={c} /></div>
+      {/* Deal Coach — the single most personalized, data-driven "what do I
+          do right now" on the page, right under the market glance. */}
+      <div style={{ marginTop: SP.lg }}><NextBestActionCard ctx={ctx} /></div>
+
+      {/* Ambient context — this week's obligations. */}
       <div style={{ marginTop: SP.sm }}><HomeInsightSlider ctx={ctx} /></div>
 
       {/* Quick tools — tour mode, Divar, and the AI rail used to be three
@@ -3163,7 +3161,7 @@ function AllPropertiesMap({ c, rows, onOpen }) {
 
   return (
     <div className="pb-4">
-      <div className="rounded-2xl overflow-hidden" style={glass(c)}>
+      <div className="rounded-2xl overflow-hidden flora-dark-map" style={glass(c)}>
         <div ref={ref} style={{ width: "100%", height: 420, background: c.surface2 }} />
       </div>
       <div className="flex flex-wrap gap-2 mt-3">
@@ -4822,7 +4820,7 @@ function PropertyMiniMap({ c, lat, lng, title }) {
     return () => { cancelled = true; if (objRef.current) { objRef.current.remove(); objRef.current = null; } };
   }, [lat, lng]);
   return (
-    <div className="rounded-2xl overflow-hidden mb-3" style={glass(c)}>
+    <div className="rounded-2xl overflow-hidden mb-3 flora-dark-map" style={glass(c)}>
       <div ref={ref} style={{ width: "100%", height: 160, background: c.surface2 }} />
       <a href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`} target="_blank" rel="noreferrer"
         className="press flex items-center justify-center gap-1.5 py-3" style={{ background: c.primarySoft, color: c.primary, fontSize: 11, fontWeight: 700 }}>
