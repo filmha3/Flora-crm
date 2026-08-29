@@ -19,15 +19,21 @@ delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
 export const SAREIN_CENTER = [38.1465, 48.0043];
-// CARTO's free dark_all/light_all CDN (basemaps.cartocdn.com) started
-// requiring an API key and every map in the app was showing "API key
-// required" tiles as a result. Esri's Canvas Dark/Light Gray Base tile
-// service is the closest visual match (same muted, label-forward minimal
-// basemap look) that's still genuinely free with no key or signup. Note the
-// tile order is {z}/{y}/{x} here, not {z}/{x}/{y} — and there's no {s}
-// subdomain or {r} retina variant, unlike the CARTO tiles this replaces.
-export const DARK_TILE_URL = "https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
-export const LIGHT_TILE_URL = "https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+// Real OpenStreetMap raster tiles (the standard "Standard" OSM style,
+// tile.openstreetmap.org) — same source Snapp's map is built on, free, no
+// key or signup, and it's also exactly what public/sw.js already caches for
+// offline use (isMapTile() there matches this same host). There's no free
+// pre-rendered dark OSM tile server, so dark mode reuses these same tiles
+// with a CSS filter (invert + hue-rotate) applied to the tile layer — see
+// LIGHT_TILE_URL/DARK_TILE_URL both pointing here, and the .leaflet-tile
+// filter rule wherever the map container is styled for dark mode.
+export const LIGHT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+export const DARK_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+// Applied to the Leaflet tile pane only in dark mode (not the whole map,
+// so markers/popups keep their real colors). Inverting then rotating hue
+// back turns OSM's light basemap into a dark one without needing a paid
+// tile provider.
+export const DARK_TILE_FILTER = "invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.6)";
 
 // Used to load Leaflet from cdnjs.cloudflare.com at runtime — a render-
 // blocking third-party script fetched fresh on every first map open, on top
