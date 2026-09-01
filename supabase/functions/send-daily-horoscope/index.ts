@@ -2,8 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
 
-// Same cron-secret pattern as process-due-reminders — this has no user JWT
-// either, it's a daily tick, not a response to anything the user did.
+// Same cron-secret pattern as the other scheduled functions.
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
 
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
@@ -26,20 +25,32 @@ function isQuietHoursNow(prefs: { quiet_hours_enabled?: boolean; quiet_hours_sta
   return current >= start || current < end;
 }
 
-function composeDigest(summary: { pending_calls?: number; todays_appointments?: number; hot_customer_name?: string | null; nearest_check_label?: string | null; top_action_label?: string | null } | null): string {
-  if (!summary) return "وقتشه امروز رو مرور کنی — تماس‌ها، بازدیدها و کارهای معلق رو چک و ردیف کن.";
-  // A check due this month is the single most time-sensitive thing Flora
-  // knows about, so it always leads. With no check pending, the same #1
-  // "بهترین اقدام امروز" item shown on the home screen fills in instead —
-  // never falls all the way back to the generic counts unless neither exists.
-  if (summary.nearest_check_label) return summary.nearest_check_label;
-  if (summary.top_action_label) return summary.top_action_label;
-  const parts: string[] = [];
-  if (summary.todays_appointments) parts.push(`امروز ${summary.todays_appointments} قرار بازدید داری`);
-  if (summary.pending_calls) parts.push(`${summary.pending_calls} تماس پیگیری‌نشده مونده`);
-  if (summary.hot_customer_name) parts.push(`مهم‌ترین مورد احتمالاً ${summary.hot_customer_name} است`);
-  if (parts.length === 0) return "امروز کار معلقی نداری — وقت خوبیه برای پیدا کردن فایل یا مشتری جدید.";
-  return parts.join("، ") + ".";
+// Flora has no birthdate or zodiac sign on file for anyone, so this is
+// deliberately NOT a per-person astrology reading — it's one shared,
+// upbeat "today's line" for every user, picked deterministically by the
+// day of the year so it's stable all day and doesn't repeat for months.
+// If a real per-user horoscope is wanted later, it needs a birthdate field
+// first — inventing a sign per person would just be wrong most of the time.
+const DAILY_LINES = [
+  "امروز روز خوبیه برای پیگیری همون مشتری که مدتیه معطلش گذاشتی.",
+  "یک قدم کوچیک امروز، فردا یه فایل فروخته‌شده‌ست — شروع کن.",
+  "امروز حرف‌زدن رو به فکرکردن ترجیح بده؛ یک تماس، از ده تا برنامه مؤثرتره.",
+  "انرژی امروزت برای مذاکره خوبه — اگر قراری معلق مونده، همین امروز جوش بده.",
+  "امروز روزیه که یک مشتری فراموش‌شده، دوباره یادت میفته — بهش زنگ بزن.",
+  "صبر امروزت جواب می‌ده؛ عجله نکن، ولی هم عقب نمون.",
+  "امروز حواست به جزئیات قرارداد باشه — یک نگاه دوباره ضرر نداره.",
+  "بهترین معامله‌های امروز از یک پیام ساده شروع می‌شن — یکی رو همین الان بفرست.",
+  "امروز روز خوبیه برای بازدید یک فایل جدید با چشم مشتری، نه چشم خودت.",
+  "یک تشکر ساده از یک مشتری قدیمی، امروز در رو به یک معرفی جدید باز می‌کنه.",
+  "امروز کمی سخت‌گیرتر باش روی قیمت — بازار امروز جای چانه‌زنیه.",
+  "بهترین فرصت امروزت شاید همونی باشه که دیروز به تعویق انداختیش.",
+];
+
+function todaysLine(): string {
+  const now = new Date();
+  const start = Date.UTC(now.getUTCFullYear(), 0, 0);
+  const dayOfYear = Math.floor((Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - start) / 86400000);
+  return DAILY_LINES[dayOfYear % DAILY_LINES.length];
 }
 
 Deno.serve(async (req: Request) => {
@@ -56,10 +67,6 @@ Deno.serve(async (req: Request) => {
   const pushConfigured = !!(vapidPublic && vapidPrivate);
   if (pushConfigured) webpush.setVapidDetails(vapidSubject, vapidPublic!, vapidPrivate!);
 
-  // One notification per user reachable through EITHER channel — a user
-  // with only Telegram linked (no push device at all) must still get the
-  // digest; keying this off push_subscriptions alone would silently skip
-  // them.
   const { data: subs } = await admin.from("push_subscriptions").select("*").eq("is_active", true);
   const { data: tgLinks } = await admin.from("telegram_links").select("user_id, chat_id");
 
@@ -75,15 +82,13 @@ Deno.serve(async (req: Request) => {
   if (allUserIds.size === 0) return new Response(JSON.stringify({ ok: true, sent: 0, reason: "no reachable users" }), { status: 200 });
 
   const title = "Flora";
+  const body = todaysLine();
 
   let sent = 0;
   for (const userId of allUserIds) {
     const userSubs = byUser.get(userId) || [];
     const { data: prefs } = await admin.from("notification_preferences").select("*").eq("user_id", userId).single();
-    if (isQuietHoursNow(prefs)) continue; // a daily check-in isn't critical enough to override quiet hours
-
-    const { data: summary } = await admin.from("digest_summary").select("*").eq("user_id", userId).single();
-    const body = composeDigest(summary);
+    if (isQuietHoursNow(prefs)) continue;
 
     await admin.from("notifications").insert({ user_id: userId, category: "general", title, body, url: "/" });
 
@@ -104,5 +109,5 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return new Response(JSON.stringify({ ok: true, sent, users: allUserIds.size }), { status: 200 });
+  return new Response(JSON.stringify({ ok: true, sent, users: allUserIds.size, line: body }), { status: 200 });
 });

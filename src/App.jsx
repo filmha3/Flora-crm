@@ -462,22 +462,44 @@ export default function FloraCRM() {
   // data lives only in this device's IndexedDB. This mirrors just the
   // handful of numbers already computed for the home screen anyway (not a
   // second copy of the whole data model) so the notification can actually
-  // say something true about today.
+  // say something true about today. nearest_check_label wins the digest
+  // when present (an unpaid check due within the next month is the most
+  // time-sensitive thing Flora knows about); top_action_label — the same
+  // #1 item "بهترین اقدام امروز" already shows — is the fallback when
+  // there's no check to flag.
   useEffect(() => {
     if (!loaded || !session?.user) return;
     const t = setTimeout(() => {
       const activeCustomers = customers.filter((cu) => !["خرید کرد", "منصرف شد", "بدون پیگیری"].includes(cu.stage));
       const hot = [...activeCustomers].sort((a, b) => (b.lastContactTs || 0) - (a.lastContactTs || 0))[0];
+
+      const now = Date.now();
+      const ROLLING_MONTH = 31 * 86400000;
+      const nearestCheck = checks
+        .filter((ch) => !ch.paid && ch.dueDate)
+        .map((ch) => ({ ch, dueTs: new Date(`${ch.dueDate}T00:00:00`).getTime() }))
+        .filter(({ dueTs }) => !isNaN(dueTs) && dueTs - now <= ROLLING_MONTH)
+        .sort((a, b) => a.dueTs - b.dueTs)[0]?.ch;
+      const daysLeft = nearestCheck ? Math.ceil((new Date(`${nearestCheck.dueDate}T00:00:00`).getTime() - now) / 86400000) : null;
+      const nearestCheckLabel = nearestCheck
+        ? `${daysLeft <= 0 ? "امروز" : `${faDigits(daysLeft)} روز دیگر`} سررسید چک ${nearestCheck.recipient} به مبلغ ${fmtToman(nearestCheck.amount)} است.`
+        : null;
+
+      const topAction = computeNextActions({ properties, customers, calls, appointments, deals })[0];
+      const topActionLabel = topAction ? `پیشنهاد امروز: ${topAction.title}${topAction.reason ? ` — ${topAction.reason}` : ""}` : null;
+
       supabase.from("digest_summary").upsert({
         user_id: session.user.id,
         pending_calls: calls.filter((cl) => cl.status !== "انجام‌شد").length,
         todays_appointments: appointments.filter((a) => a.date === todayISO()).length,
         hot_customer_name: hot?.name || null,
+        nearest_check_label: nearestCheckLabel,
+        top_action_label: topActionLabel,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" }).catch(() => {});
     }, 1500);
     return () => clearTimeout(t);
-  }, [loaded, calls, appointments, customers, session]);
+  }, [loaded, calls, appointments, customers, checks, properties, deals, session]);
 
   // Weekly auto-backup. Losing everything is the biggest risk with on-device storage,
   // Real auto-backup: every 3 days, push a snapshot to Supabase Storage via
@@ -7150,7 +7172,12 @@ function AiSettingsSheet({ ctx, onClose }) {
       )}
       <Field c={c} label="کلید API"><input style={inputStyle(c)} dir="ltr" value={currentKey} onChange={(e) => setCurrentKey(e.target.value)} placeholder="کلید را اینجا وارد کن" /></Field>
       <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.9, marginBottom: SP.md }}>{providers.find((p) => p.id === provider)?.hint} — کلید فقط روی همین گوشی ذخیره می‌شود.</p>
-      <SubmitBtn c={c} label="ذخیره" disabled={!currentKey.trim()} onClick={() => {
+      {/* Only the API key is truly required (an empty key means "AI off" —
+          fine, that's a valid state); the name field must be saveable on its
+          own, so it doesn't gate on currentKey. Previously this button was
+          disabled whenever the key field was empty, which silently blocked
+          saving just the name too — the whole sheet looked broken for that. */}
+      <SubmitBtn c={c} label="ذخیره" onClick={() => {
         setAiProvider(provider); setGeminiKey(gKey.trim()); setPerplexityKey(pKey.trim()); setAvalaiKey(aKey.trim()); setAvalaiModel(aModel); setAgentName(name.trim());
         notify("تنظیمات هوش مصنوعی ذخیره شد"); onClose();
       }} />
