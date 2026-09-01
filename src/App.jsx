@@ -14,13 +14,15 @@ import {
 // ---------- Extracted modules (kept App.jsx from becoming a single
 // unmanageable/unshippable file — see src/lib and src/components) ----------
 import { DB_NAME, STORE, DATA_KEY, SETTINGS_KEY, REMINDER_KEY, COPILOT_KEY, CHAT_KEY, FINANCE_AI_KEY, MISSION_KEY, AUTOBACKUP_KEY, NBA_KEY, STREAK_KEY, MARKET_INSIGHT_KEY, DIVAR_CHAT_KEY, scopedKey, openDB, dbGet, dbSet, setActiveUid } from "./lib/db.js";
+import { pullCloudData, pushCloudData, snapshotCloudData, subscribeCloudData } from "./lib/sync.js";
 import { div, faDigits, MONTHS_FA, WEEK_FA, LEAP_CYCLE, isLeapJalali, gregorianToJalali, jalaliToGregorian, isoToJalali, jalaliToIso, fmtJalali, jalaliMonthLength, jalaliFirstWeekday, toEnDigits, toDecimal, toNum, parseDivarText, uid, fmtToman, todayISO } from "./lib/format.js";
 import { TYPE_ICON, typeIcon, floraTypeIcon, STAGES, CUSTOMER_STAGES, INVESTMENT_STATUSES, INVESTMENT_TYPES, INVESTMENT_EXPENSE_CATEGORIES, INVESTMENT_PAYMENT_METHODS, CHECK_STATUSES, CUSTOMER_STAGE_COLOR, fmtBudgetShort, BUILD_STAGES, DEAL_FILTERS, TYPE_FILTERS, STAGE_FILTERS } from "./lib/constants.js";
 import { MAX_IMAGE_DIM, IMAGE_QUALITY, supportsWebp, FALLBACK_DIM, FALLBACK_QUALITY, compressImage, reencodeToWebp, filesToMedia } from "./lib/image.js";
 import { T, FS, FW, SP, RAD, glass, glassLite, glassSurface } from "./lib/theme.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
 import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
-import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker } from "./lib/ui.jsx";
+import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker, MediaThumb, MediaFull } from "./lib/ui.jsx";
+import { uploadPropertyImageBatch, migrateLegacyMediaItem, deletePropertyPhotoPaths, deletePropertyFolder } from "./lib/imageStore.js";
 import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
@@ -238,27 +240,67 @@ export default function FloraCRM() {
     setToast(msg); setTimeout(() => setToast(null), Math.min(6000, 2000 + msg.length * 40));
   };
 
+  // Highest updated_at we've either pulled from or pushed to the cloud this
+  // session — the save effect below waits for this before it's allowed to
+  // push, so a first-launch device with an empty local store can never race
+  // ahead and stomp real cloud data before the initial pull has even
+  // resolved. Also gates the realtime handler against reacting to our own echo.
+  const cloudSyncedAtRef = useRef(0);
+  const [cloudReady, setCloudReady] = useState(false);
+
+  const applyCoreData = (d) => {
+    setProperties(d?.properties || []);
+    setOwners(d?.owners || []);
+    setBuilders(d?.builders || []);
+    setCustomers(d?.customers || []);
+    setAppointments(d?.appointments || []);
+    setCalls(d?.calls || []);
+    setDeals(d?.deals || []);
+    setPayments(d?.payments || []);
+    setExpenses(d?.expenses || []);
+    setOfficeIncomes(d?.officeIncomes || []);
+    setInvestments(d?.investments || []);
+    setChecks(d?.checks || []);
+    setStreetPrices(d?.streetPrices || []);
+    setConstructionProjects(d?.constructionProjects || []);
+    setConstructionTransactions(d?.constructionTransactions || []);
+    setTours(d?.tours || []);
+  };
+
   useEffect(() => {
     if (session === undefined) return; // ACTIVE_UID isn't set yet — wait rather than read the wrong user's key
     (async () => {
+      let core = null;
       try {
         const saved = await dbGet(DATA_KEY);
-        setProperties(saved?.properties || []);
-        setOwners(saved?.owners || []);
-        setBuilders(saved?.builders || []);
-        setCustomers(saved?.customers || []);
-        setAppointments(saved?.appointments || []);
-        setCalls(saved?.calls || []);
-        setDeals(saved?.deals || []);
-        setPayments(saved?.payments || []);
-        setExpenses(saved?.expenses || []);
-        setOfficeIncomes(saved?.officeIncomes || []);
-        setInvestments(saved?.investments || []);
-        setChecks(saved?.checks || []);
-        setStreetPrices(saved?.streetPrices || []);
-        setConstructionProjects(saved?.constructionProjects || []);
-        setConstructionTransactions(saved?.constructionTransactions || []);
-        setTours(saved?.tours || []);
+        core = saved || null;
+        applyCoreData(core);
+
+        // Cloud reconciliation: whichever side (this device's IndexedDB vs.
+        // the flora_data row) has the newer updated_at wins and overwrites
+        // the other — the whole point being that a fresh install, a cleared
+        // browser, or a different phone still ends up with the real data,
+        // not the empty seed state.
+        if (session?.user) {
+          try {
+            const cloud = await pullCloudData(session.user.id);
+            const localTs = core?.updatedAt || 0;
+            const cloudTs = cloud?.updated_at ? new Date(cloud.updated_at).getTime() : 0;
+            if (cloud && cloudTs > localTs) {
+              core = { ...cloud.data, updatedAt: cloudTs };
+              applyCoreData(core);
+              dbSet(DATA_KEY, core).catch(() => {});
+              cloudSyncedAtRef.current = cloudTs;
+            } else if (core) {
+              // Local is newer (or cloud row doesn't exist yet) — push it up
+              // now instead of waiting for the next edit, so a device that's
+              // only ever been read from still ends up backed up in the cloud.
+              await pushCloudData(session.user.id, core);
+              cloudSyncedAtRef.current = Date.now();
+            }
+          } catch (e) { console.warn("Flora: cloud sync unavailable, continuing offline-only", e); }
+        }
+        setCloudReady(true);
 
         const settings = await dbGet(SETTINGS_KEY);
         setGeminiKey(settings?.geminiKey || "");
@@ -280,13 +322,39 @@ export default function FloraCRM() {
     // every time would clobber any in-memory edit not yet flushed to IndexedDB.
   }, [session === undefined ? "pending" : session?.user?.id || "signed-out"]); // eslint-disable-line
   // Debounced: writing the whole dataset on every keystroke was the main source of lag.
+  // Also pushes the same snapshot to the cloud (flora_data) once the initial
+  // pull/reconcile above has finished — cloudReady is the guard that stops
+  // an empty-on-launch device from racing ahead and overwriting real cloud
+  // data with its own still-loading blank state.
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      dbSet(DATA_KEY, { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions }).catch(() => {});
+      const now = Date.now();
+      const core = { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, updatedAt: now };
+      dbSet(DATA_KEY, core).catch(() => {});
+      if (cloudReady && session?.user) {
+        pushCloudData(session.user.id, core).then(() => { cloudSyncedAtRef.current = now; }).catch(() => {});
+      }
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions]);
+  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions]);
+
+  // Live cross-device convergence: if a second signed-in device (or this
+  // same account on the web) pushes a newer flora_data row while this tab
+  // is open, pull it in immediately instead of waiting for next launch.
+  useEffect(() => {
+    if (!cloudReady || !session?.user) return;
+    const unsubscribe = subscribeCloudData(session.user.id, (row) => {
+      const incomingTs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+      if (incomingTs <= cloudSyncedAtRef.current) return; // our own echo or stale
+      const core = { ...row.data, updatedAt: incomingTs };
+      applyCoreData(core);
+      dbSet(DATA_KEY, core).catch(() => {});
+      cloudSyncedAtRef.current = incomingTs;
+      notify("داده‌ها از دستگاه دیگری به‌روزرسانی شد");
+    });
+    return unsubscribe;
+  }, [cloudReady, session?.user?.id]); // eslint-disable-line
   useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
 
   // Appointments live only in this device's IndexedDB (local-first, like
@@ -582,6 +650,9 @@ export default function FloraCRM() {
   const cloudBackupNow = async () => {
     const { data, error } = await supabase.functions.invoke("create-backup", { body: { payload: buildBackupPayload(), kind: "manual" } });
     if (error) { notify("بکاپ ابری ناموفق بود"); return { ok: false }; }
+    // Also checkpoints the structured flora_data_snapshots row (best-effort,
+    // never blocks the file backup which is the part the person is waiting on).
+    if (session?.user) snapshotCloudData(session.user.id, buildBackupPayload()).catch(() => {});
     notify("بکاپ ابری ذخیره شد");
     return { ok: true, data };
   };
@@ -690,8 +761,14 @@ export default function FloraCRM() {
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { display: none; }
-        .press { transition: transform .22s cubic-bezier(.34,1.56,.64,1), opacity .18s ease; }
-        .press:active { transform: scale(0.955); opacity: .92; }
+        /* Single shared motion language — every interaction/transition tuned
+           below (press, page, sheet, image fade, gallery, skeleton) draws its
+           timing from these three tiers and one easing curve instead of each
+           picking its own number. fast = a tap's own feedback, normal = a
+           screen or element arriving, slow = a full sheet sliding into place. */
+        :root { --flora-fast: 120ms; --flora-normal: 200ms; --flora-slow: 320ms; --flora-ease: cubic-bezier(0.22, 1, 0.36, 1); }
+        .press { transition: transform var(--flora-fast) var(--flora-ease), opacity var(--flora-fast) ease; }
+        .press:active { transform: scale(0.98); opacity: .92; }
         /* Map styling. Dark Matter renders near-monochrome grey on near-black;
            a warm hue-rotate pushes the roads gold and the base navy, matching
            the printed city-map look without touching any other part of the UI. */
@@ -704,15 +781,17 @@ export default function FloraCRM() {
         /* Tiles in the tool rail get a lift instead of a flat shrink — the card
            rises toward the finger, which reads as physical rather than "pressed
            into the screen". Snap keeps a tile edge-aligned after a flick. */
-        .flora-tile { scroll-snap-align: start; transition: transform .28s cubic-bezier(.34,1.4,.64,1), box-shadow .28s ease; }
+        .flora-tile { scroll-snap-align: start; transition: transform var(--flora-fast) var(--flora-ease), box-shadow var(--flora-fast) ease; }
         .flora-tile:active { transform: translateY(-4px) scale(1.02); box-shadow: 0 14px 28px -12px rgba(0,0,0,.55); opacity: 1; }
         @keyframes floraUp { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
         @keyframes floraSheet { from { transform: translateY(100%);} to { transform: translateY(0);} }
-        @keyframes floraPop { from { opacity:0; transform: scale(.95);} to { opacity:1; transform: scale(1);} }
+        @keyframes floraPop { from { opacity:0; transform: translateY(12px);} to {opacity:1; transform: translateY(0);} }
         @keyframes floraPulse { 0%,100% { opacity:1; transform:scale(1);} 50% { opacity:.4; transform:scale(.8);} }
         @keyframes floraFloat { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-5px);} }
         @keyframes floraKeyTurn { 0%,100% { transform: rotate(-8deg);} 50% { transform: rotate(8deg);} }
-        @keyframes floraDoorOpen { from { opacity:0; transform: perspective(600px) rotateY(-12deg) scale(.97);} to { opacity:1; transform: perspective(600px) rotateY(0) scale(1);} }
+        /* Page/tab switches — a plain, calm arrival (opacity + a 6px rise),
+           not the old 3D door-swing: a premium app changes screens quietly. */
+        @keyframes floraDoorOpen { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         .flora-float { animation: floraFloat 2.6s ease-in-out infinite; }
         .flora-key { animation: floraKeyTurn 1.8s ease-in-out infinite; }
         /* Uses "backwards" fill, not "both", on purpose: "both" leaves the final
@@ -720,10 +799,10 @@ export default function FloraCRM() {
            a containing block — which silently breaks position:fixed for every
            sheet/modal rendered inside it. "backwards" still prevents the entry
            flash but drops the transform once the animation ends. */
-        .flora-door { animation: floraDoorOpen .4s cubic-bezier(.22,1,.36,1) backwards; }
-        .flora-up { animation: floraUp .3s cubic-bezier(.22,1,.36,1) backwards; }
-        .flora-sheet { animation: floraSheet .32s cubic-bezier(.22,1,.36,1) backwards; }
-        .flora-pop { animation: floraPop .2s ease backwards; }
+        .flora-door { animation: floraDoorOpen var(--flora-normal) var(--flora-ease) backwards; }
+        .flora-up { animation: floraUp var(--flora-normal) var(--flora-ease) backwards; }
+        .flora-sheet { animation: floraSheet var(--flora-slow) var(--flora-ease) backwards; }
+        .flora-pop { animation: floraPop 220ms var(--flora-ease) backwards; }
         /* Full-screen focus panels. Deliberately NOT a slide: any translateY
            briefly uncovers an edge of the viewport, letting the screen behind
            show through mid-animation. Scaling from the center keeps all four
@@ -744,11 +823,13 @@ export default function FloraCRM() {
           .press { transition: opacity .1s ease; }
           .press:active { transform: none; opacity: .8; }
           .flora-door, .flora-up, .flora-sheet, .flora-pop, .flora-focus-in,
-          .flora-rise, .flora-stagger > * {
+          .flora-rise, .flora-stagger > *, .flora-gallery-fade, .flora-bounce {
             animation: none !important;
             opacity: 1 !important;
             transform: none !important;
           }
+          .flora-img { transition: none !important; }
+          .flora-kenburns, .flora-skeleton { animation: none !important; }
         }
         .nba-blob { position:absolute; top:-30px; left:-20px; width:200px; height:200px; border-radius:50%; filter: blur(30px); opacity:.32; pointer-events:none; animation: liquidMove 4s ease-in-out infinite; }
         @keyframes liquidMove { 0%,100% { transform: translate(0,0) scale(1);} 33% { transform: translate(60px,20px) scale(1.25);} 66% { transform: translate(20px,45px) scale(.85);} }
@@ -788,21 +869,33 @@ export default function FloraCRM() {
         }
         @keyframes floraCoin { 0%,100% { transform: rotateY(0deg);} 50% { transform: rotateY(180deg);} }
         .flora-coin { animation: floraCoin 3.2s ease-in-out infinite; transform-style: preserve-3d; }
-        @keyframes floraRise { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
-        .flora-rise { animation: floraRise .5s cubic-bezier(.22,1,.36,1) backwards; }
 
-        /* A real physical "drop and settle" bounce — several decreasing oscillations,
-           not just a single overshoot — for moments that deserve extra weight
-           (a win landing on screen, a completed checklist item). */
-        @keyframes floraBounceIn {
-          0%   { transform: scale(0.3); opacity: 0; }
-          45%  { transform: scale(1.18); opacity: 1; }
-          65%  { transform: scale(0.90); }
-          80%  { transform: scale(1.06); }
-          92%  { transform: scale(0.98); }
-          100% { transform: scale(1); }
-        }
-        .flora-bounce { animation: floraBounceIn .65s cubic-bezier(.34,1.56,.64,1) backwards; }
+        /* Property photos (MOTION SYSTEM items 4–6): a soft opacity fade once
+           decoded — never a hard pop-in — plus, only where a component opts
+           in via kenBurns (the property hero cover and the lightbox's
+           full-res image, nowhere in scrolling grids/thumbnails), a scale of
+           at most 1.5% so slowly it reads as stillness with depth, not motion.
+           While a photo is still downloading its own background carries a
+           quiet shimmer instead of a spinner. */
+        .flora-img { opacity: 0; transition: opacity var(--flora-normal) var(--flora-ease); }
+        .flora-img-loaded { opacity: 1; }
+        @keyframes floraKenBurns { from { transform: scale(1); } to { transform: scale(1.015); } }
+        .flora-kenburns { animation: floraKenBurns 18s var(--flora-ease) forwards; }
+        @keyframes floraSkeleton { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        .flora-skeleton { background: linear-gradient(100deg, rgba(140,140,150,0.10) 25%, rgba(140,140,150,0.22) 50%, rgba(140,140,150,0.10) 75%); background-size: 200% 100%; animation: floraSkeleton 2.2s ease-in-out infinite; }
+        /* Lightbox: switching photos fades + very slightly scales in — never
+           a slide (see MOTION SYSTEM item 5). */
+        @keyframes floraGalleryFade { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: scale(1); } }
+        .flora-gallery-fade { animation: floraGalleryFade var(--flora-normal) var(--flora-ease) backwards; }
+
+        @keyframes floraRise { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
+        .flora-rise { animation: floraRise var(--flora-normal) var(--flora-ease) backwards; }
+
+        /* A calm settle for "this just succeeded" moments (a checkmark
+           landing, a checklist item completing) — no overshoot, no spring;
+           see MOTION SYSTEM item 8. */
+        @keyframes floraBounceIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+        .flora-bounce { animation: floraBounceIn var(--flora-normal) var(--flora-ease) backwards; }
 
         select { -webkit-appearance: none; appearance: none; }
       `}</style>
@@ -1246,42 +1339,30 @@ function computeNextActions(ctx) {
 // next step, and it auto-advances to the next task — like clearing levels in a game.
 // One robust, app-wide "win" animation — rendered at the true app root (like
 // FocusMode) so it's never clipped or mispositioned by a screen's own layout.
-// Big wins (deal closed, new file) get a confetti burst; quieter wins (a
-// follow-up logged) get a gentler pulse; a customer walking away gets an
-// acknowledgment, not a celebration.
+// A calm, consistent acknowledgment for every kind of win — no confetti,
+// no per-kind intensity tiers. The motion language stays the same whether
+// it's a closed deal or a logged follow-up; only the icon/color changes.
 function CelebrationOverlay({ c, celebration }) {
   const { kind, label } = celebration;
   const CONFIGS = {
-    deal: { icon: Trophy, color: c.success, soft: c.successSoft, confetti: true },
-    followup: { icon: CheckCircle2, color: c.primary, soft: c.primarySoft, confetti: false },
-    file: { icon: Building2, color: c.purple, soft: c.purpleSoft, confetti: true },
-    lost: { icon: UserX, color: c.danger, soft: c.dangerSoft, confetti: false },
-    tour: { icon: Car, color: c.purple, soft: c.purpleSoft, confetti: true },
+    deal: { icon: Trophy, color: c.success, soft: c.successSoft },
+    followup: { icon: CheckCircle2, color: c.primary, soft: c.primarySoft },
+    file: { icon: Building2, color: c.purple, soft: c.purpleSoft },
+    lost: { icon: UserX, color: c.danger, soft: c.dangerSoft },
+    tour: { icon: Car, color: c.purple, soft: c.purpleSoft },
   };
   const cfg = CONFIGS[kind] || CONFIGS.followup;
   const Icon = cfg.icon;
-  const particles = cfg.confetti ? Array.from({ length: 10 }, (_, i) => {
-    const angle = (i / 10) * 2 * Math.PI;
-    const dist = 56 + (i % 3) * 12;
-    return { x: Math.round(Math.cos(angle) * dist), y: Math.round(Math.sin(angle) * dist), delay: i * 0.02, color: [c.primary, c.success, c.purple, c.attn][i % 4] };
-  }) : [];
 
   return (
     <BodyPortal>
     <div className="fixed inset-0 z-[99] flex items-center justify-center flora-pop" style={{ background: "rgba(0,0,0,0.55)" }}>
       <div className="flex flex-col items-center" style={{ padding: SP.xl, borderRadius: RAD.lg, ...glass(c) }}>
-        <div className="relative flex items-center justify-center" style={{ width: 72, height: 72, marginBottom: SP.md }}>
-          {particles.map((p, i) => (
-            <span key={i} style={{ position: "absolute", width: 6, height: 6, borderRadius: "50%", background: p.color, "--px": `${p.x}px`, "--py": `${p.y}px`, animation: `floraConfetti .9s ease-out forwards ${p.delay}s` }} />
-          ))}
-          {cfg.confetti && <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${cfg.color}55`, animation: "floraRipple 1s ease-out 1" }} />}
-          <div className="flex items-center justify-center flora-bounce" style={{ width: 72, height: 72, borderRadius: "50%", background: cfg.soft }}>
-            <Icon size={32} color={cfg.color} />
-          </div>
+        <div className="flex items-center justify-center flora-bounce" style={{ width: 72, height: 72, borderRadius: "50%", background: cfg.soft, marginBottom: SP.md }}>
+          <Icon size={32} color={cfg.color} />
         </div>
         <p style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.ink, textAlign: "center" }}>{label}</p>
       </div>
-      <style>{`@keyframes floraConfetti { from { transform: translate(0,0) scale(1); opacity: 1; } to { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; } }`}</style>
     </div>
     </BodyPortal>
   );
@@ -1403,7 +1484,6 @@ function FocusMode({ ctx }) {
             ) : (
               <>
                 <div className="relative mx-auto" style={{ width: 72, height: 72, marginBottom: SP.lg }}>
-                  <span style={{ position: "absolute", inset: -10, borderRadius: "50%", border: `2px solid ${c.success}44`, animation: "floraRipple 1.6s ease-out 1" }} />
                   <div className="flex items-center justify-center flora-bounce" style={{ width: 72, height: 72, borderRadius: "50%", background: c.successSoft }}><CheckCircle2 size={34} color={c.success} /></div>
                 </div>
                 <p style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold, textAlign: "center", marginBottom: SP.sm, letterSpacing: "0.02em" }}>مرحله‌ی بعدی</p>
@@ -2924,9 +3004,9 @@ function ActivityApptRow({ a, ctx, showDelete }) {
 function PropertyMiniCard({ p, c, onClick }) {
   const cover = p.media && p.media[0]; const Icon = typeIcon(p.type); const sold = p.stage === "فروخته شد";
   return (
-    <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glass(c), opacity: sold ? 0.5 : 1 }}>
+    <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md), opacity: sold ? 0.5 : 1 }}>
       <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 56, height: 56, borderRadius: RAD.md, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
+        {cover ? (cover.type === "image" ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
       </div>
       <div className="flex-1 min-w-0">
         <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: sold ? "line-through" : "none" }}>{p.title}</p>
@@ -3210,15 +3290,9 @@ function PropertyGridCard({ p, ctx, onClick }) {
   const cover = p.media && p.media[0];
   const Icon = typeIcon(p.type);
   const sold = p.stage === "فروخته شد";
-  const url = cover && cover.type === "image" ? cover.url : null;
-  const imgRef = useRef(null);
+  const url = cover && cover.type === "image" ? (cover.thumbnailPath || cover.storagePath || cover.url) : null;
   const [rgb, setRgb] = useState(() => (url ? domColorCache.get(url) : null) || null);
-  useEffect(() => {
-    if (!url) return;
-    if (domColorCache.has(url)) { setRgb(domColorCache.get(url)); return; }
-    // Image may already be loaded (cached/fast) by the time this runs.
-    if (imgRef.current?.complete) setRgb(sampleDominantColor(imgRef.current, url));
-  }, [url]);
+  useEffect(() => { if (url && domColorCache.has(url)) setRgb(domColorCache.get(url)); }, [url]);
   // Deepen the sampled color so white text always clears contrast, then fade it out.
   const tint = rgb ? `${Math.round(rgb[0] * 0.55)}, ${Math.round(rgb[1] * 0.55)}, ${Math.round(rgb[2] * 0.55)}` : "18, 24, 38";
 
@@ -3231,7 +3305,7 @@ function PropertyGridCard({ p, ctx, onClick }) {
       {/* full-bleed photo — lazy-loaded so offscreen cards don't decode until near view */}
       {cover ? (
         cover.type === "image"
-          ? <img ref={imgRef} src={cover.url} alt="" loading="lazy" decoding="async" onLoad={(e) => { if (!domColorCache.has(url)) setRgb(sampleDominantColor(e.currentTarget, url)); }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          ? <MediaThumb item={cover} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onLoad={(e) => { if (url && !domColorCache.has(url)) setRgb(sampleDominantColor(e.currentTarget, url)); }} />
           : <video src={cover.url} muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: `linear-gradient(150deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
@@ -3298,7 +3372,7 @@ function PipelineBoard({ rows, ctx }) {
                   <div key={p.id} className="rounded-lg overflow-hidden" style={glass(c)}>
                     <button onClick={() => setDetail({ type: "property", id: p.id })} className="press w-full text-right">
                       <div className="w-full" style={{ height: 90, background: c.primarySoft }}>
-                        {cover ? (cover.type === "image" ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} /></div>}
+                        {cover ? (cover.type === "image" ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} /></div>}
                       </div>
                       <div className="p-2.5">
                         <p style={{ fontSize: 13, fontWeight: 700 }}>{p.title}</p>
@@ -3850,13 +3924,15 @@ function MoreTab({ ctx }) {
 }
 
 function AccountBackupCard({ ctx }) {
-  const { c, notify, session, signOut, cloudBackupNow, restoreFromCloud } = ctx;
+  const { c, notify, session, signOut, cloudBackupNow, restoreFromCloud, properties, setProperties } = ctx;
   const [profile, setProfile] = useState(null);
   const [history, setHistory] = useState(null); // null = loading
   const [emailInput, setEmailInput] = useState("");
   const [editingEmail, setEditingEmail] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(null); // storage_path pending confirmation
+  const [migrating, setMigrating] = useState(false);
+  const [migrateProgress, setMigrateProgress] = useState(null); // {done, total}
 
   const user = session?.user;
   const googleLinked = (user?.app_metadata?.providers || []).includes("google");
@@ -3902,6 +3978,36 @@ function AccountBackupCard({ ctx }) {
     setBusy(false);
   };
 
+  // One-time, explicit (never automatic) migration of old base64 photos to
+  // cloud storage — requirement #11. Runs property by property; any photo
+  // that fails to upload is simply left exactly as it was (still a working
+  // base64 photo, still shows up fine) — nothing is ever deleted here.
+  const legacyImageCount = properties.reduce((n, p) => n + (p.media || []).filter((m) => m.type === "image" && m.url && !m.storagePath && !m.external).length, 0);
+  const doMigratePhotos = async () => {
+    if (!user) return;
+    setMigrating(true);
+    const targets = properties.filter((p) => (p.media || []).some((m) => m.type === "image" && m.url && !m.storagePath && !m.external));
+    const total = targets.reduce((n, p) => n + p.media.filter((m) => m.type === "image" && m.url && !m.storagePath && !m.external).length, 0);
+    let done = 0;
+    setMigrateProgress({ done: 0, total });
+    for (const p of targets) {
+      let changed = false;
+      const newMedia = await Promise.all((p.media || []).map(async (m, i) => {
+        if (m.type === "image" && m.url && !m.storagePath && !m.external) {
+          const migrated = await migrateLegacyMediaItem({ userId: user.id, propertyId: p.id, item: m, sortOrder: i });
+          done++; setMigrateProgress({ done, total });
+          if (migrated !== m) changed = true;
+          return migrated;
+        }
+        return m;
+      }));
+      if (changed) setProperties((prev) => prev.map((x) => x.id === p.id ? { ...x, media: newMedia } : x));
+    }
+    setMigrating(false);
+    setMigrateProgress(null);
+    notify("انتقال عکس‌ها به فضای ابری تمام شد");
+  };
+
   return (
     <CollapsibleCard c={c} icon={UserCircle2} tint={c.primary} title="حساب کاربری و بکاپ ابری" subtitle={user?.email || user?.phone || ""}>
       {/* Account */}
@@ -3937,6 +4043,16 @@ function AccountBackupCard({ ctx }) {
       <button onClick={doBackupNow} disabled={busy} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-3" style={{ background: c.primary, opacity: busy ? 0.5 : 1 }}>
         <RefreshCw size={14} color="#fff" /><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{busy ? "در حال ذخیره..." : "ساخت بکاپ ابری الان"}</span>
       </button>
+
+      {/* Legacy base64 photos → cloud storage, one-time and explicit */}
+      {legacyImageCount > 0 && (
+        <button onClick={doMigratePhotos} disabled={migrating} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-3" style={{ ...glassSurface(c), opacity: migrating ? 0.6 : 1 }}>
+          <ImagePlus size={14} color={c.primary} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: c.ink }}>
+            {migrating ? `در حال انتقال عکس‌ها... ${migrateProgress ? `(${faDigits(migrateProgress.done)}/${faDigits(migrateProgress.total)})` : ""}` : `انتقال ${faDigits(legacyImageCount)} عکس قدیمی به فضای ابری`}
+          </span>
+        </button>
+      )}
 
       {/* History */}
       <p style={{ fontSize: 11, color: c.muted, marginBottom: 6 }}>تاریخچه بکاپ</p>
@@ -4723,7 +4839,7 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading, accept = "
       {media.map((m, mi) => (
         <div key={m.id} className="relative shrink-0 rounded-lg overflow-hidden" style={{ width: 84, height: 84 }}>
           <button onClick={() => onView({ media, index: mi })} className="w-full h-full">
-            {m.type === "image" ? <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : m.type === "video" ? (
+            {m.type === "image" ? <MediaThumb item={m} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : m.type === "video" ? (
               <div className="relative w-full h-full"><video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} /><div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={18} color="#fff" fill="#fff" /></div></div>
             ) : (
               <div className="flex flex-col items-center justify-center w-full h-full" style={{ background: c.surface2, padding: 8 }}>
@@ -4767,8 +4883,11 @@ function Lightbox({ item, onClose }) {
           if (Math.abs(dx) > 45) go(dx > 0 ? -1 : 1); // RTL: swipe right = previous
         }}
       >
+        {/* key={cur.id} forces a fresh mount per photo, so switching images
+            in the gallery re-triggers the fade+scale-in instead of one photo
+            silently replacing another mid-frame (MOTION SYSTEM item 5). */}
         {cur.type === "image"
-          ? <img src={cur.url} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14, objectFit: "contain" }} />
+          ? <div key={cur.id} className="flora-gallery-fade" style={{ maxWidth: "100%", maxHeight: "100%" }}><MediaFull item={cur} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14, objectFit: "contain" }} kenBurns /></div>
           : cur.type === "video"
           ? <video src={cur.url} controls autoPlay style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14 }} />
           : (
@@ -5031,7 +5150,7 @@ function PropertyHero({ c, p, media, onBack, onEdit, uploading, addMedia, setLig
       <div ref={imgWrapRef} style={{ position: "absolute", inset: 0, willChange: "transform, opacity" }}>
         {cover ? (
           cover.type === "image"
-            ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} kenBurns />
             : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center" style={{ background: `linear-gradient(150deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
@@ -5054,7 +5173,7 @@ function PropertyHero({ c, p, media, onBack, onEdit, uploading, addMedia, setLig
       <div className="absolute flex items-center flora-rise" style={{ left: 16, right: 16, bottom: 16, gap: 8, padding: 8, borderRadius: 22, background: "rgba(255,255,255,.14)", backdropFilter: "blur(18px) saturate(180%)", WebkitBackdropFilter: "blur(18px) saturate(180%)", border: "1px solid rgba(255,255,255,.2)", overflowX: "auto" }}>
         {media.slice(0, 4).map((m, i) => (
           <button key={m.id} onClick={() => setLightbox({ media, index: i })} className="press shrink-0" style={{ width: 46, height: 46, borderRadius: 14, overflow: "hidden", border: i === 0 ? "2px solid #fff" : "1px solid rgba(255,255,255,.3)" }}>
-            {m.type === "image" ? <img src={m.url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            {m.type === "image" ? <MediaThumb item={m} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
           </button>
         ))}
         {media.length > 4 && (
@@ -5142,7 +5261,7 @@ function ScheduleVisitCard({ ctx, property }) {
 // matching the same "never finalize without the advisor seeing it" rule
 // used everywhere else voice creates something.
 function PropertyDetail({ id, ctx, onBack }) {
-  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, setSheet } = ctx;
+  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, setSheet, session } = ctx;
   const p = properties.find((x) => x.id === id);
   const owner = owners.find((o) => o.id === p?.ownerId);
   const builder = builders.find((b) => b.id === p?.builderId);
@@ -5150,15 +5269,40 @@ function PropertyDetail({ id, ctx, onBack }) {
   const [valuationOpen, setValuationOpen] = useState(false);
   if (!p) return null;
 
-  const addMedia = async (fileList) => { setUploading(true); const items = await filesToMedia(fileList); setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: [...(x.media || []), ...items] } : x)); setUploading(false); };
-  const removeMedia = (mediaId) => setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: x.media.filter((m) => m.id !== mediaId) } : x));
+  const addMedia = async (fileList) => {
+    setUploading(true);
+    const files = Array.from(fileList);
+    const videosAndDocs = files.filter((f) => !f.type.startsWith("image"));
+    const images = files.filter((f) => f.type.startsWith("image"));
+    const startSortOrder = (p.media || []).length;
+    // Videos/documents keep the old base64-inline path for now — only
+    // photos move to Storage here. A failed image upload never corrupts
+    // the property: it's simply skipped and reported, everything else
+    // that succeeded is still appended.
+    const [legacyItems, { items: cloudItems, failed }] = await Promise.all([
+      videosAndDocs.length ? filesToMedia(videosAndDocs) : Promise.resolve([]),
+      images.length && session?.user
+        ? uploadPropertyImageBatch({ userId: session.user.id, propertyId: id, files: images, startSortOrder })
+        : (images.length ? filesToMedia(images).then((items) => ({ items, failed: [] })) : Promise.resolve({ items: [], failed: [] })),
+    ]);
+    if (cloudItems.length || legacyItems.length) {
+      setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: [...(x.media || []), ...cloudItems, ...legacyItems] } : x));
+    }
+    if (failed.length) notify(`${faDigits(failed.length)} عکس آپلود نشد — بقیه ذخیره شد`);
+    setUploading(false);
+  };
+  const removeMedia = (mediaId) => {
+    const target = (p.media || []).find((m) => m.id === mediaId);
+    setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: x.media.filter((m) => m.id !== mediaId) } : x));
+    if (target?.storagePath) deletePropertyPhotoPaths([target.storagePath, target.thumbnailPath]).catch(() => {});
+  };
   const propAppts = appointments.filter((a) => a.propertyId === id);
 
   return (
     <div>
       <PropertyHero c={c} p={p} media={p.media || []} onBack={onBack} onEdit={() => setSheet({ kind: "property", editId: id })} uploading={uploading} addMedia={addMedia} setLightbox={setLightbox} />
       <div className="flex justify-end" style={{ marginTop: SP.md, marginBottom: SP.md }}>
-        <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); onBack(); notify("فایل حذف شد"); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.danger }}><Trash2 size={12} color={c.danger} />حذف فایل</button>
+        <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); if (session?.user) deletePropertyFolder({ userId: session.user.id, propertyId: id }).catch(() => {}); onBack(); notify("فایل حذف شد"); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.danger }}><Trash2 size={12} color={c.danger} />حذف فایل</button>
       </div>
 
       <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c) }}>
@@ -7199,8 +7343,13 @@ function PreSaleFields({ c, f, setF, total }) {
 }
 
 function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
-  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate, setDetail, prefillNew, setPrefillNew } = ctx;
+  const { c, owners, setOwners, builders, properties, setProperties, notify, setMapPicker, celebrate, setDetail, prefillNew, setPrefillNew, session } = ctx;
   const editing = editId ? properties.find((x) => x.id === editId) : null;
+  // A new property has no id yet, but photo uploads need one to build their
+  // storage path — generated once up front and reused as the property's
+  // real id at submit time, so uploaded-during-the-form photos already sit
+  // under the same propertyId folder the saved property ends up with.
+  const [formPropertyId] = useState(() => editing?.id || uid());
   const editOwner = editing ? owners.find((o) => o.id === editing.ownerId) : null;
   const [f, setF] = useState(editing ? {
     title: editing.title, type: editing.type, deal: editing.deal, pricePerMeter: String(editing.pricePerMeter), area: String(editing.area),
@@ -7227,7 +7376,22 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
   const valid = f.title && f.pricePerMeter && f.area;
   const isPreSale = f.deal === "پیش‌فروش";
 
-  const addMedia = async (fileList) => { setUploading(true); const items = await filesToMedia(fileList); setMedia((prev) => [...prev, ...items]); setUploading(false); };
+  const addMedia = async (fileList) => {
+    setUploading(true);
+    const files = Array.from(fileList);
+    const videosAndDocs = files.filter((f) => !f.type.startsWith("image"));
+    const images = files.filter((f) => f.type.startsWith("image"));
+    const startSortOrder = media.length;
+    const [legacyItems, { items: cloudItems, failed }] = await Promise.all([
+      videosAndDocs.length ? filesToMedia(videosAndDocs) : Promise.resolve([]),
+      images.length && session?.user
+        ? uploadPropertyImageBatch({ userId: session.user.id, propertyId: formPropertyId, files: images, startSortOrder })
+        : (images.length ? filesToMedia(images).then((items) => ({ items, failed: [] })) : Promise.resolve({ items: [], failed: [] })),
+    ]);
+    if (cloudItems.length || legacyItems.length) setMedia((prev) => [...prev, ...cloudItems, ...legacyItems]);
+    if (failed.length) notify(`${faDigits(failed.length)} عکس آپلود نشد — بقیه ذخیره شد`);
+    setUploading(false);
+  };
   const openMapPicker = () => setMapPicker({
     initial: { lat: f.lat, lng: f.lng },
     onPick: ({ address, lat, lng }) => { setF((prev) => ({ ...prev, address, lat, lng })); setMapPicker(null); },
@@ -7344,15 +7508,23 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
 
   const setImportField = (key) => (e) => setImportData((prev) => ({ ...prev, [key]: e.target.value }));
 
-  const saveImportedProperty = () => {
+  const saveImportedProperty = async () => {
     const d = importData;
     const area = toNum(d.areaInput) || null;
     const rooms = d.roomsInput !== "" ? toNum(d.roomsInput) : null;
     const yearBuilt = toNum(d.yearBuiltInput) || null;
+    // Divar-imported photos arrive as base64 (downloaded + compressed
+    // server-side) — moved to cloud storage right here, same as any other
+    // upload, so an imported property never leaves the old inline-base64
+    // shape behind in the database.
+    let media = d.media || [];
+    if (media.length && session?.user) {
+      media = await Promise.all(media.map((m, i) => migrateLegacyMediaItem({ userId: session.user.id, propertyId: formPropertyId, item: m, sortOrder: i })));
+    }
     const payload = {
       title: d.title || "بدون عنوان", type: d.propertyType || "آپارتمان", deal: d.dealType === "رهن_و_اجاره" ? "فروش" : (d.dealType || "فروش"),
       pricePerMeter: area ? Math.round((d.price || 0) / area) : 0, area: area || 0, rooms: rooms || 0, floor: d.floor || 1,
-      furnished: "بدون لوازم", address: d.address || "", builderId: "", ownerId: "", media: d.media || [], lat: null, lng: null,
+      furnished: "بدون لوازم", address: d.address || "", builderId: "", ownerId: "", media, lat: null, lng: null,
       preDown: 0, preMonths: 0, preDelivery: 0, preDeed: 0, buildStage: BUILD_STAGES[0],
       desc: [d.description, d.totalFloors ? `تعداد طبقات: ${faDigits(d.totalFloors)}` : "", yearBuilt ? `سال ساخت: ${faDigits(yearBuilt)}` : (d.yearBuiltLabel ? d.yearBuiltLabel : ""),
         d.parking != null ? `پارکینگ: ${d.parking ? "دارد" : "ندارد"}` : "", d.elevator != null ? `آسانسور: ${d.elevator ? "دارد" : "ندارد"}` : "",
@@ -7365,7 +7537,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       // guessing after the fact.
       rawImportData: d.rawImportData || null,
     };
-    setProperties((prev) => [{ id: uid(), stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
+    setProperties((prev) => [{ id: formPropertyId, stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
     celebrate({ kind: "file", label: "فایل از دیوار اضافه شد" });
     onClose();
   };
@@ -7411,7 +7583,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       setProperties((prev) => prev.map((x) => x.id === editId ? { ...x, ...payload } : x));
       notify("تغییرات فایل ذخیره شد");
     } else {
-      setProperties((prev) => [{ id: uid(), stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
+      setProperties((prev) => [{ id: formPropertyId, stage: "فعال", createdAt: new Date().toISOString(), ...payload }, ...prev]);
       notify("فایل با موفقیت ثبت شد");
       celebrate({ kind: "file", label: "فایل جدید ثبت شد" });
     }
@@ -7565,7 +7737,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           )}
         </div>
       )}
-      <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => setMedia((p) => p.filter((m) => m.id !== mid))} onView={() => {}} /></Field>
+      <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => { const t = media.find((m) => m.id === mid); setMedia((p) => p.filter((m) => m.id !== mid)); if (t?.storagePath) deletePropertyPhotoPaths([t.storagePath, t.thumbnailPath]).catch(() => {}); }} onView={() => {}} /></Field>
       <Field c={c} label="عنوان فایل"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder="مثلاً آپارتمان ۹۰ متری تهرانپارس" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نوع ملک"><Select c={c} value={f.type} onChange={set("type")} placeholder="انتخاب کنید" options={["آپارتمان","ویلا","زمین","مغازه","اداری"].map(v=>({value:v,label:v}))} /></Field>

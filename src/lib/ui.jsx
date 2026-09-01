@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { CalendarDays, ChevronRight, ChevronLeft } from "lucide-react";
 import { SP, RAD, FS, glass } from "./theme.js";
 import { isoToJalali, jalaliMonthLength, jalaliFirstWeekday, jalaliToIso, fmtJalali, faDigits, MONTHS_FA, WEEK_FA } from "./format.js";
+import { getImageObjectUrl } from "./imageStore.js";
 
 const FLORA_GOLD = "#BA9358";
 
@@ -107,4 +108,71 @@ function JalaliDatePicker({ c, value, onChange }) {
   );
 }
 
-export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker };
+// ---------- Cloud-stored photos ----------
+// A property.media item is either legacy ({ url: base64DataUrl }) or cloud
+// ({ storagePath, thumbnailPath }) — every place in the app that renders a
+// photo goes through MediaThumb/MediaFull instead of touching `.url`
+// directly, so both shapes keep working side by side (old photos never
+// silently break) and there's exactly one place that knows how to read a
+// cloud photo, not one per call site.
+const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7";
+
+// Downloads (RLS-authenticated) only once this <img> actually enters the
+// viewport — requirement #7, "images outside the viewport are never
+// loaded" — via IntersectionObserver on the element itself. `eager` skips
+// that gate for the one context where the photo is already the reason the
+// component mounted at all (the fullscreen lightbox).
+function CloudImage({ path, alt = "", style, className, eager = false, kenBurns = false, onLoad }) {
+  const imgRef = useRef(null);
+  const [visible, setVisible] = useState(eager);
+  const [src, setSrc] = useState(null);
+
+  useEffect(() => {
+    if (eager || visible) return;
+    const el = imgRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) { setVisible(true); io.disconnect(); }
+    }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [eager]); // eslint-disable-line
+
+  useEffect(() => {
+    if (!visible || !path) return;
+    let cancelled = false;
+    getImageObjectUrl(path).then((url) => { if (!cancelled) setSrc(url); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [visible, path]); // eslint-disable-line
+
+  // While the photo is still downloading, its own box carries a quiet
+  // shimmer instead of a spinner; once it lands, it fades in — and only
+  // where a caller explicitly opts in (the property hero, the lightbox —
+  // never a scrolling grid of thumbnails) does it also get the barely-there
+  // Ken Burns drift. See MOTION SYSTEM items 4 & 6.
+  const classes = [className, "flora-img", src ? "flora-img-loaded" : "flora-skeleton", src && kenBurns ? "flora-kenburns" : ""].filter(Boolean).join(" ");
+  return <img ref={imgRef} src={src || TRANSPARENT_PIXEL} alt={alt} loading="lazy" decoding="async" style={style} className={classes} onLoad={src ? onLoad : undefined} />;
+}
+
+// Small/list contexts — resolves to the thumbnail (falls back to the full
+// image only if a legacy/partial item has no thumbnail yet).
+// Small/list contexts — resolves to the thumbnail (falls back to the full
+// image only if a legacy/partial item has no thumbnail yet). kenBurns
+// defaults off; only the property hero's single large cover opts in.
+function MediaThumb({ item, alt = "", style, className, onLoad, kenBurns = false }) {
+  if (!item) return null;
+  if (item.thumbnailPath || item.storagePath) return <CloudImage path={item.thumbnailPath || item.storagePath} alt={alt} style={style} className={className} onLoad={onLoad} kenBurns={kenBurns} />;
+  return <img src={item.url} alt={alt} loading="lazy" decoding="async" style={style} className={className} onLoad={onLoad} />;
+}
+// Fullscreen/lightbox contexts — always the full-resolution image, loaded
+// only once this component actually mounts (i.e. once the lightbox opens).
+// kenBurns is opt-in per call site (the property hero cover, the lightbox) —
+// never the default, so it's never accidentally applied somewhere it'd be
+// one of several drifting photos on screen at once.
+function MediaFull({ item, alt = "", style, className, kenBurns = false }) {
+  if (!item) return null;
+  if (item.storagePath) return <CloudImage path={item.storagePath} alt={alt} style={style} className={className} eager kenBurns={kenBurns} />;
+  return <img src={item.url} alt={alt} style={style} className={className} />;
+}
+
+export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker, MediaThumb, MediaFull, CloudImage };
