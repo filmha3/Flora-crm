@@ -102,9 +102,42 @@ export default function FloraCRM() {
   // undefined = still checking on load, null = signed out, object = signed in
   const [session, setSession] = useState(undefined);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setActiveUid(data.session?.user?.id || null); setSession(data.session); });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => { setActiveUid(s?.user?.id || null); setSession(s); });
-    return () => sub.subscription.unsubscribe();
+    let resolved = false;
+
+    supabase.auth.getSession().then(({ data }) => {
+      resolved = true;
+      setActiveUid(data.session?.user?.id || null);
+      setSession(data.session);
+    });
+
+    // getSession() refreshes an expiring token over the network before it
+    // resolves — with no timeout of its own, a network drop at exactly that
+    // moment (airplane mode toggled, wifi/cellular handoff) hangs it
+    // indefinitely, and since session stays `undefined` the whole app is
+    // stuck on the loading screen forever. After 5s with no real answer,
+    // fall back to whatever Supabase already persisted to localStorage on
+    // the last successful login — written synchronously, no network
+    // involved — so the app can proceed. This is provisional, not final:
+    // the real getSession() call above still overwrites it the moment the
+    // network actually answers, whether that confirms or invalidates it.
+    const fallbackTimer = setTimeout(() => {
+      if (resolved) return;
+      try {
+        const key = Object.keys(localStorage).find((k) => /^sb-.*-auth-token$/.test(k));
+        const raw = key ? JSON.parse(localStorage.getItem(key) || "null") : null;
+        const cached = raw?.currentSession || raw || null;
+        setActiveUid(cached?.user?.id || null);
+        setSession(cached);
+      } catch (e) { setSession(null); }
+    }, 5000);
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      resolved = true;
+      clearTimeout(fallbackTimer);
+      setActiveUid(s?.user?.id || null);
+      setSession(s);
+    });
+    return () => { clearTimeout(fallbackTimer); sub.subscription.unsubscribe(); };
   }, []);
 
   // A notification was tapped while the app was in the background/closed —
