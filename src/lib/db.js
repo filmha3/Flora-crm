@@ -19,7 +19,7 @@ const scopedKey = (key) => (ACTIVE_UID ? `${key}:${ACTIVE_UID}` : key);
 function withDbTimeout(promise, label) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), 4000)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), 3000)),
   ]);
 }
 

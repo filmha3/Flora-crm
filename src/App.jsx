@@ -108,13 +108,14 @@ export default function FloraCRM() {
       resolved = true;
       setActiveUid(data.session?.user?.id || null);
       setSession(data.session);
+      setBootProgress((p) => Math.max(p, 20));
     });
 
     // getSession() refreshes an expiring token over the network before it
     // resolves — with no timeout of its own, a network drop at exactly that
     // moment (airplane mode toggled, wifi/cellular handoff) hangs it
     // indefinitely, and since session stays `undefined` the whole app is
-    // stuck on the loading screen forever. After 5s with no real answer,
+    // stuck on the loading screen forever. After 3s with no real answer,
     // fall back to whatever Supabase already persisted to localStorage on
     // the last successful login — written synchronously, no network
     // involved — so the app can proceed. This is provisional, not final:
@@ -128,8 +129,9 @@ export default function FloraCRM() {
         const cached = raw?.currentSession || raw || null;
         setActiveUid(cached?.user?.id || null);
         setSession(cached);
+        setBootProgress((p) => Math.max(p, 20));
       } catch (e) { setSession(null); }
-    }, 5000);
+    }, 3000);
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       resolved = true;
@@ -261,6 +263,7 @@ export default function FloraCRM() {
   const [agencyName, setAgencyName] = useState("املاک گنجینه");
   const [agencyCity, setAgencyCity] = useState("سرعین");
   const [loaded, setLoaded] = useState(false);
+  const [bootProgress, setBootProgress] = useState(4);
 
   const [toast, setToast] = useState(null);
   // notify() is the one shared touchpoint every save/delete/error confirmation
@@ -286,7 +289,7 @@ export default function FloraCRM() {
   // handoff, airplane mode toggled) can otherwise hang with no timeout of
   // its own and leave the "Flora در حال آماده‌سازی..." screen up forever,
   // since setLoaded(true) below waits for this whole block to finish.
-  const withTimeout = (promise, ms = 6000) => Promise.race([
+  const withTimeout = (promise, ms = 3000) => Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
   ]);
@@ -318,6 +321,7 @@ export default function FloraCRM() {
         const saved = await dbGet(DATA_KEY);
         core = saved || null;
         applyCoreData(core);
+        setBootProgress((p) => Math.max(p, 45));
 
         // Cloud reconciliation: whichever side (this device's IndexedDB vs.
         // the flora_data row) has the newer updated_at wins and overwrites
@@ -344,6 +348,7 @@ export default function FloraCRM() {
           } catch (e) { console.warn("Flora: cloud sync unavailable, continuing offline-only", e); }
         }
         setCloudReady(true);
+        setBootProgress((p) => Math.max(p, 80));
 
         const settings = await dbGet(SETTINGS_KEY);
         setGeminiKey(settings?.geminiKey || "");
@@ -358,6 +363,7 @@ export default function FloraCRM() {
         if (settings?.splitShares) setSplitShares(settings.splitShares);
         setSimpleMode(typeof settings?.simpleMode === "boolean" ? settings.simpleMode : false);
       } catch (e) { console.error("Flora: load failed", e); }
+      setBootProgress(100);
       setLoaded(true);
     })();
     // Deliberately keyed on the identity, not the session object: Supabase
@@ -809,15 +815,7 @@ export default function FloraCRM() {
   };
 
   if (!loaded) {
-    return (
-      <div dir="rtl" style={{ background: c.bg, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex flex-col items-center justify-center gap-3">
-        <style>{`@keyframes floraFloat { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-6px);} }`}</style>
-        <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: c.primarySoft, animation: "floraFloat 1.8s ease-in-out infinite" }}>
-          <FloraMark size={40} color={c.primary} stroke={1.4} />
-        </div>
-        <p style={{ fontSize: 13, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
-      </div>
-    );
+    return <FerrofluidLoader c={c} progress={bootProgress} />;
   }
 
   return (
@@ -1249,6 +1247,87 @@ const FloraIcons = {
 // Safe lookup: falls back to the residential icon if a key is ever missing,
 // so a bad icon name degrades gracefully instead of crashing the whole screen.
 const floraIcon = (name, props) => (FloraIcons[name] || FloraIcons.residential)(props);
+
+// ---------- Boot loader ----------
+// A ferrofluid-style blob: several identical circles drift on independent,
+// slightly-off-period paths under an SVG "goo" filter (blur + a sharpened
+// alpha threshold), which is the standard trick for making separate shapes
+// visually merge and split like magnetic liquid instead of just overlapping
+// circles. Everything here is transform-only (translate/scale) plus one
+// shared static filter — no per-frame layout, no JS animation loop.
+// `progress` is real boot state (session → local data → cloud sync →
+// settings), not decorative — the ring and the number both track it exactly.
+function FerrofluidLoader({ c, progress }) {
+  const pct = Math.max(0, Math.min(100, Math.round(progress)));
+  const RING_R = 54;
+  const RING_C = 2 * Math.PI * RING_R;
+  const blobs = [
+    { size: 74, dur: 5.2, delay: 0, radius: 10 },
+    { size: 40, dur: 4.1, delay: -1.1, radius: 22 },
+    { size: 34, dur: 4.8, delay: -2.4, radius: 24 },
+    { size: 30, dur: 3.6, delay: -0.6, radius: 20 },
+    { size: 26, dur: 5.6, delay: -3.2, radius: 26 },
+    { size: 22, dur: 4.3, delay: -1.8, radius: 18 },
+  ];
+  return (
+    <div dir="rtl" style={{ background: c.bg, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex flex-col items-center justify-center gap-5">
+      <style>{`
+        @keyframes floraFerroDrift0 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(0,0) scale(1.06); } }
+        ${blobs.slice(1).map((b, i) => `
+        @keyframes floraFerroDrift${i + 1} {
+          0%   { transform: translate(0, 0); }
+          25%  { transform: translate(${b.radius}px, ${-b.radius * 0.6}px); }
+          50%  { transform: translate(${b.radius * 0.3}px, ${b.radius}px); }
+          75%  { transform: translate(${-b.radius}px, ${b.radius * 0.4}px); }
+          100% { transform: translate(0, 0); }
+        }`).join("\n")}
+        .flora-ferro-blob { position: absolute; top: 50%; left: 50%; border-radius: 50%; background: ${c.isDark ? "#0b1220" : "#111827"}; }
+        @media (prefers-reduced-motion: reduce) { .flora-ferro-blob { animation: none !important; } }
+      `}</style>
+
+      <div className="relative flex items-center justify-center" style={{ width: 128, height: 128 }}>
+        {/* Progress ring — real value, drawn independently of the goo blob so it stays crisp */}
+        <svg width={128} height={128} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
+          <circle cx={64} cy={64} r={RING_R} fill="none" stroke={c.border} strokeWidth={2} opacity={0.5} />
+          <circle
+            cx={64} cy={64} r={RING_R} fill="none" stroke={c.primary} strokeWidth={2.5} strokeLinecap="round"
+            strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - pct / 100)}
+            style={{ transition: "stroke-dashoffset .3s ease" }}
+          />
+        </svg>
+
+        {/* The ferrofluid blob itself, goo-merged */}
+        <div style={{ width: 96, height: 96, filter: "url(#flora-goo)" }} className="relative">
+          <svg width={0} height={0} style={{ position: "absolute" }}>
+            <filter id="flora-goo">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur" />
+              <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9" />
+            </filter>
+          </svg>
+          {blobs.map((b, i) => (
+            <div
+              key={i}
+              className="flora-ferro-blob"
+              style={{
+                width: b.size, height: b.size, marginTop: -b.size / 2, marginLeft: -b.size / 2,
+                animation: `floraFerroDrift${i} ${b.dur}s ease-in-out ${b.delay}s infinite`,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* A thin gold rim-light on top of the goo group, unaffected by the
+            blur filter, is what reads as "metallic liquid" instead of "dark
+            circle" — Flora's existing gold accent, not a new color. */}
+        <div style={{ position: "absolute", top: 16, left: 16, width: 96, height: 96, borderRadius: "50%", boxShadow: `inset 0 -6px 14px -4px ${FLORA_GOLD}55, inset 0 4px 10px -6px rgba(255,255,255,0.25)`, pointerEvents: "none" }} />
+
+        <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", fontSize: 22, fontWeight: FW.heavy, color: "#fff", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{faDigits(pct)}٪</span>
+      </div>
+
+      <p style={{ fontSize: 13, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
+    </div>
+  );
+}
 
 function StageBadge({ c, stage }) {
   const badge = (color, soft, label) => <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color, background: soft, padding: `3px ${SP.sm + 2}px`, borderRadius: RAD.pill }}>{label}</span>;
