@@ -20,9 +20,57 @@ function AuthPhoneField({ c, value, onChange }) {
         dir="ltr" inputMode="numeric" style={{ ...inputStyle(c), textAlign: "left", letterSpacing: 1, fontVariantNumeric: "tabular-nums" }}
         value={formatPhoneDisplay(value)}
         onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 11))}
-        placeholder="0912-000-0000"
+        placeholder="0912*******"
       />
     </Field>
+  );
+}
+
+function AuthEmailField({ c, value, onChange }) {
+  return (
+    <Field c={c} label="ایمیل">
+      <input
+        dir="ltr" type="email" inputMode="email" autoComplete="username" autoCapitalize="off" autoCorrect="off"
+        style={{ ...inputStyle(c), textAlign: "left" }}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="you@example.com"
+      />
+    </Field>
+  );
+}
+
+// Official Google "G" mark — the standard, brand-guideline icon for a
+// "Sign in with Google" button (not a reproduction of anything else).
+function GoogleIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.7-.4-3.5z"/>
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.6 3 24 3 16.3 3 9.6 7.3 6.3 14.7z"/>
+      <path fill="#4CAF50" d="M24 45c5.5 0 10.4-2.1 14.1-5.5l-6.5-5.5C29.6 35.7 27 36.7 24 36.7c-5.2 0-9.6-3.3-11.2-7.9l-6.5 5C9.5 40.6 16.2 45 24 45z"/>
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.5l6.5 5.5C41.4 35.6 45 30.4 45 24c0-1.4-.1-2.7-.4-3.5z"/>
+    </svg>
+  );
+}
+
+// Small pill segment — Email | Phone. Local to this screen only; nothing
+// else in the app needed a reusable version of it.
+function AuthMethodSegment({ c, value, onChange }) {
+  const options = [["email", "ایمیل"], ["phone", "موبایل"]];
+  return (
+    <div className="flex" style={{ padding: 3, borderRadius: RAD.md, background: c.surface2, marginBottom: SP.lg }}>
+      {options.map(([val, label]) => (
+        <button
+          key={val}
+          type="button"
+          onClick={() => onChange(val)}
+          className="press flex-1"
+          style={{ paddingBlock: 9, borderRadius: RAD.md - 2, fontSize: FS.caption, fontWeight: FW.bold, background: value === val ? c.gradientPrimary : "transparent", color: value === val ? "#fff" : c.muted, transition: "background .2s ease, color .2s ease" }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -36,21 +84,33 @@ function AuthLoadingScreen({ c }) {
 }
 
 // Six boxes instead of one masked field: each character auto-advances focus
-// and glows on fill, so typing a password reads as a small piece of
-// feedback rather than a wall of dots — the same trick used for OTP entry
-// elsewhere, just re-purposed here since this app has no SMS step at all.
+// and glows on fill, so typing a PIN reads as a small piece of feedback
+// rather than a wall of dots — the same trick used for OTP entry elsewhere.
+// Digit-only, exactly 6 — this is also what's sent to Supabase as the
+// account's real password, so the shape is enforced right at the source.
 function PasswordBoxes({ c, value, onChange, disabled }) {
   const refs = useRef([]);
   const chars = Array.from({ length: 6 }, (_, i) => value[i] || "");
   const commit = (next) => onChange(next.join(""));
-  const setChar = (i, ch) => {
+  const setChar = (i, raw) => {
+    const digit = raw.replace(/\D/g, "").slice(-1); // digits only — never a letter or symbol
     const next = chars.slice();
-    next[i] = ch;
+    next[i] = digit;
     commit(next);
-    if (ch && i < 5) refs.current[i + 1]?.focus();
+    if (digit && i < 5) refs.current[i + 1]?.focus();
   };
   const handleKeyDown = (i, e) => {
     if (e.key === "Backspace" && !chars[i] && i > 0) refs.current[i - 1]?.focus();
+  };
+  // A 6-digit code pasted or autofilled into any one box fills all six —
+  // covers both a password manager suggestion and a person pasting a code
+  // they copied from somewhere else.
+  const handlePaste = (e) => {
+    const digits = (e.clipboardData?.getData("text") || "").replace(/\D/g, "").slice(0, 6);
+    if (digits.length < 2) return; // a single-digit paste is just normal typing
+    e.preventDefault();
+    commit(Array.from({ length: 6 }, (_, i) => digits[i] || ""));
+    refs.current[Math.min(digits.length, 5)]?.focus();
   };
   return (
     <div dir="ltr" className="flex justify-center" style={{ gap: 6 }}>
@@ -63,10 +123,14 @@ function PasswordBoxes({ c, value, onChange, disabled }) {
           key={i}
           ref={(el) => (refs.current[i] = el)}
           type="password"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete={i === 0 ? "one-time-code" : "off"}
           value={ch}
           disabled={disabled}
-          onChange={(e) => setChar(i, e.target.value.slice(-1))}
+          onChange={(e) => setChar(i, e.target.value)}
           onKeyDown={(e) => handleKeyDown(i, e)}
+          onPaste={handlePaste}
           maxLength={1}
           autoFocus={i === 0}
           className={ch ? "pw-box-filled" : ""}
@@ -77,37 +141,60 @@ function PasswordBoxes({ c, value, onChange, disabled }) {
   );
 }
 
-// Phone + a 6-character password — no SMS, no email, no third-party sign-in.
-// The concentric glow rings behind the card are pure CSS (a repeating radial
-// gradient, gently breathing), so the screen feels alive without pulling in
-// an animation library just for one screen.
+// Google, Email, or Phone — one shared 6-digit PIN field for the latter two
+// (Google needs none, it's a full OAuth redirect). Same "try sign-in, fall
+// back to sign-up" pattern as before for email/phone, now shared across
+// both identifiers instead of hardcoded to phone. The concentric glow rings
+// behind the card are pure CSS (a repeating radial gradient, gently
+// breathing), so the screen feels alive without pulling in an animation
+// library just for one screen.
 function AuthScreen({ c, dark }) {
+  const [method, setMethod] = useState("phone"); // "email" | "phone" — Google is its own button below, not a third tab
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [msg, setMsg] = useState(null);
   const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
 
   const say = (text, error) => setMsg({ text, error: !!error });
   const phoneOk = /^09\d{9}$/.test(phone);
-  const passwordOk = password.length === 6;
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  // Exactly 6 digits, nothing else — enforced again here even though
+  // PasswordBoxes already filters keystrokes to digits, since validation
+  // has to hold regardless of how the value got into state (paste,
+  // autofill, a future caller).
+  const pinOk = /^\d{6}$/.test(pin);
 
-  // One field set, one button: try signing in first; if there's no account
-  // yet, Supabase's error is generic ("invalid credentials") on purpose for
-  // security, so a sign-up attempt right after is how we actually find out
-  // whether the number is new or the password was just wrong.
   const submit = async () => {
-    if (!phoneOk) { say("شماره را کامل وارد کن", true); return; }
-    if (!passwordOk) { say("رمز باید دقیقاً ۶ کاراکتر باشد", true); return; }
+    if (method === "phone" && !phone) { say("شماره موبایل را وارد کن", true); return; }
+    if (method === "phone" && !phoneOk) { say("شماره موبایل معتبر نیست", true); return; }
+    if (method === "email" && !email.trim()) { say("ایمیل را وارد کن", true); return; }
+    if (method === "email" && !emailOk) { say("ایمیل معتبر نیست", true); return; }
+    if (!pin) { say("رمز را وارد کن", true); return; }
+    if (!pinOk) { say("رمز باید دقیقاً ۶ رقم باشد", true); return; }
+
     setLoading(true); setMsg(null);
-    const phoneE164 = phoneToE164(phone);
+    // Whatever the identifier, the PIN goes straight into Supabase Auth's
+    // own password field — it's never written to any table Flora controls,
+    // Supabase hashes and stores it itself.
+    const credentials = method === "phone" ? { phone: phoneToE164(phone), password: pin } : { email: email.trim(), password: pin };
 
-    const { error: loginErr } = await supabase.auth.signInWithPassword({ phone: phoneE164, password });
-    if (!loginErr) { setLoading(false); return; } // signed in — the session listener above takes it from here
+    const { error: loginErr } = await supabase.auth.signInWithPassword(credentials);
+    if (!loginErr) { setLoading(false); return; } // signed in — the session listener elsewhere takes it from here
 
-    const { error: signupErr } = await supabase.auth.signUp({ phone: phoneE164, password });
+    const { error: signupErr } = await supabase.auth.signUp(credentials);
     setLoading(false);
     if (!signupErr) return; // brand-new account, signed in immediately
     say(/registered|exists/i.test(signupErr.message) ? "رمز اشتباه است" : signupErr.message, true);
+  };
+
+  const submitGoogle = async () => {
+    setGoogleLoading(true); setMsg(null);
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    // On success the browser is redirected away to Google immediately, so
+    // there's nothing to reset here — only a same-tab failure reaches this line.
+    if (error) { setGoogleLoading(false); say("ورود با Google ممکن نشد", true); }
   };
 
   return (
@@ -151,10 +238,31 @@ function AuthScreen({ c, dark }) {
           </div>
         )}
 
-        <AuthPhoneField c={c} value={phone} onChange={setPhone} />
+        {/* Google — its own button, deliberately outside the Email/Phone
+            segment since it needs no PIN and no tab of its own. */}
+        <button
+          onClick={submitGoogle}
+          disabled={googleLoading || loading}
+          className="press w-full flex items-center justify-center"
+          style={{ gap: 10, paddingBlock: SP.md, borderRadius: RAD.md, background: "#fff", color: "#1f1f1f", fontWeight: FW.bold, fontSize: FS.body, marginBottom: SP.lg, opacity: googleLoading ? 0.7 : 1, border: "1px solid rgba(0,0,0,0.08)" }}
+        >
+          {googleLoading ? <Loader2 size={17} className="animate-spin" /> : <GoogleIcon size={17} />}
+          ورود با Google
+        </button>
+
+        <div className="flex items-center" style={{ gap: SP.sm, marginBottom: SP.lg }}>
+          <div style={{ flex: 1, height: 1, background: c.border }} />
+          <span style={{ fontSize: 11, color: c.muted, fontWeight: 700 }}>یا</span>
+          <div style={{ flex: 1, height: 1, background: c.border }} />
+        </div>
+
+        <AuthMethodSegment c={c} value={method} onChange={(m) => { setMethod(m); setMsg(null); }} />
+
+        {method === "phone" ? <AuthPhoneField c={c} value={phone} onChange={setPhone} /> : <AuthEmailField c={c} value={email} onChange={setEmail} />}
+
         <div style={{ marginTop: SP.md, marginBottom: SP.lg }}>
-          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, textAlign: "center" }}>رمز عبور (۶ کاراکتر)</p>
-          <PasswordBoxes c={c} value={password} onChange={setPassword} disabled={loading} />
+          <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, textAlign: "center" }}>رمز عبور (۶ رقم)</p>
+          <PasswordBoxes c={c} value={pin} onChange={setPin} disabled={loading} />
         </div>
 
         <button
@@ -254,4 +362,4 @@ function OnboardingTour({ c, onDone }) {
   );
 }
 
-export { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 };
+export { AuthPhoneField, AuthEmailField, AuthLoadingScreen, PasswordBoxes, AuthMethodSegment, GoogleIcon, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 };
