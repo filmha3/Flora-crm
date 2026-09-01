@@ -248,6 +248,16 @@ export default function FloraCRM() {
   const cloudSyncedAtRef = useRef(0);
   const [cloudReady, setCloudReady] = useState(false);
 
+  // Any cloud call made during boot MUST resolve one way or another in
+  // bounded time — a fetch that stalls mid-reconnect (wifi/cellular
+  // handoff, airplane mode toggled) can otherwise hang with no timeout of
+  // its own and leave the "Flora در حال آماده‌سازی..." screen up forever,
+  // since setLoaded(true) below waits for this whole block to finish.
+  const withTimeout = (promise, ms = 6000) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+
   const applyCoreData = (d) => {
     setProperties(d?.properties || []);
     setOwners(d?.owners || []);
@@ -283,7 +293,7 @@ export default function FloraCRM() {
         // not the empty seed state.
         if (session?.user) {
           try {
-            const cloud = await pullCloudData(session.user.id);
+            const cloud = await withTimeout(pullCloudData(session.user.id));
             const localTs = core?.updatedAt || 0;
             const cloudTs = cloud?.updated_at ? new Date(cloud.updated_at).getTime() : 0;
             if (cloud && cloudTs > localTs) {
@@ -295,7 +305,7 @@ export default function FloraCRM() {
               // Local is newer (or cloud row doesn't exist yet) — push it up
               // now instead of waiting for the next edit, so a device that's
               // only ever been read from still ends up backed up in the cloud.
-              await pushCloudData(session.user.id, core);
+              await withTimeout(pushCloudData(session.user.id, core));
               cloudSyncedAtRef.current = Date.now();
             }
           } catch (e) { console.warn("Flora: cloud sync unavailable, continuing offline-only", e); }
