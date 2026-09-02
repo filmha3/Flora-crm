@@ -235,6 +235,7 @@ export default function FloraCRM() {
   // simple and avoids a storage-growth concern nobody asked to take on.
   const [constructionProjects, setConstructionProjects] = useState([]);
   const [constructionTransactions, setConstructionTransactions] = useState([]);
+  const [legalConversations, setLegalConversations] = useState([]);
   const [checks, setChecks] = useState([]); // Checks to pay — recipient, amount, due date, voice-capable
   const [tours, setTours] = useState([]); // Showing / Tour Mode
   const [tourBuilder, setTourBuilder] = useState(null); // { step, customerId, customerName, customerPhone, propertyIds, items }
@@ -311,6 +312,7 @@ export default function FloraCRM() {
     setConstructionProjects(d?.constructionProjects || []);
     setConstructionTransactions(d?.constructionTransactions || []);
     setTours(d?.tours || []);
+    setLegalConversations(d?.legalConversations || []);
   };
 
   useEffect(() => {
@@ -379,14 +381,14 @@ export default function FloraCRM() {
     if (!loaded) return;
     const t = setTimeout(() => {
       const now = Date.now();
-      const core = { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, updatedAt: now };
+      const core = { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, updatedAt: now };
       dbSet(DATA_KEY, core).catch(() => {});
       if (cloudReady && session?.user) {
         pushCloudData(session.user.id, core).then(() => { cloudSyncedAtRef.current = now; }).catch(() => {});
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions]);
+  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations]);
 
   // Live cross-device convergence: if a second signed-in device (or this
   // same account on the web) pushes a newer flora_data row while this tab
@@ -805,7 +807,7 @@ export default function FloraCRM() {
     c, dark, session, signOut: () => supabase.auth.signOut(),
     properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, splitShares, setSplitShares, simpleMode, setSimpleMode,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,

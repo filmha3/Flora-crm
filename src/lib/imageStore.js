@@ -32,7 +32,7 @@ function supportsWebp() {
 // Loads a File/Blob/base64-data-URL into an <img>, regardless of which of
 // those three shapes it arrived as — new uploads from an <input> are
 // File objects, legacy property.media items being migrated are data URLs.
-function loadImage(source) {
+export function loadImage(source) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -48,7 +48,7 @@ function loadImage(source) {
 // Canvas re-encode is also where EXIF/GPS metadata quietly disappears —
 // canvas.drawImage only ever copies pixels, never the source's metadata
 // blocks, so this step doubles as "strip unnecessary metadata" for free.
-function encodeCanvas(img, maxDim, quality) {
+export function encodeCanvas(img, maxDim, quality) {
   const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
   const width = Math.max(1, Math.round(img.width * scale));
   const height = Math.max(1, Math.round(img.height * scale));
@@ -62,7 +62,7 @@ function encodeCanvas(img, maxDim, quality) {
   });
 }
 
-function extFor(mime) { return mime === "image/webp" ? "webp" : "jpg"; }
+export function extFor(mime) { return mime === "image/webp" ? "webp" : "jpg"; }
 
 // Uploads one photo (File, Blob, or legacy base64 data URL) as a full-size +
 // thumbnail pair and returns the metadata row to store on the property —
