@@ -26,6 +26,7 @@ import { uploadPropertyImageBatch, migrateLegacyMediaItem, deletePropertyPhotoPa
 import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
+import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
 import { SAREIN_CENTER, DARK_TILE_URL, LIGHT_TILE_URL, DARK_TILE_FILTER, loadLeaflet, reverseGeocodeAddress } from "./lib/geo.js";
@@ -242,6 +243,7 @@ export default function FloraCRM() {
   const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
   const [divarSearchOpen, setDivarSearchOpen] = useState(false);
   const [legalOpen, setLegalOpen] = useState(false);
+  const [weeklyStatsOpen, setWeeklyStatsOpen] = useState(false);
   const [quickValuationOpen, setQuickValuationOpen] = useState(false);
   const [constructionOpen, setConstructionOpen] = useState(false);
   const [checksOpen, setChecksOpen] = useState(false);
@@ -809,7 +811,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
+    divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -1025,6 +1027,7 @@ export default function FloraCRM() {
             into the rail's own box instead of covering the screen. */}
         {divarSearchOpen && <DivarSearchSheet ctx={ctx} onClose={() => setDivarSearchOpen(false)} />}
         {legalOpen && <LegalHome ctx={ctx} />}
+        {weeklyStatsOpen && <WeeklyStatsHome ctx={ctx} />}
         {quickValuationOpen && <FloraValuationSheet ctx={ctx} onClose={() => setQuickValuationOpen(false)} />}
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
         {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
@@ -2911,6 +2914,7 @@ function HomeTab({ ctx }) {
         <div className="flex" style={{ gap: SP.md, overflowX: "auto", paddingBottom: SP.xs, scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch" }}>
           <VoiceAssistantTile ctx={ctx} />
           <LegalTile ctx={ctx} />
+          <WeeklyStatsTile ctx={ctx} />
           <DocumentsTile ctx={ctx} />
         </div>
       </div>

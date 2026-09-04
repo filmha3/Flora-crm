@@ -78,10 +78,16 @@ async function callOpenAiCompatible(baseUrl: string, key: string, model: string,
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method !== "POST") return new Response(JSON.stringify({ error: "method not allowed" }), { status: 405 });
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+
+  if (req.method !== "POST") return new Response(JSON.stringify({ error: "method not allowed" }), { status: 405, headers: cors });
 
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
+  if (!authHeader) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: cors });
 
   // The user's own JWT, forwarded — not the service role. Storage reads
   // below go through this client, so RLS (scoped to the caller's own uid
@@ -92,22 +98,22 @@ Deno.serve(async (req: Request) => {
     global: { headers: { Authorization: authHeader } },
   });
   const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
+  if (userErr || !userData?.user) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: cors });
 
   let body: {
     provider?: string; key?: string; model?: string;
     messages?: ChatMessage[]; attachmentPath?: string; attachmentType?: "image" | "pdf";
   };
-  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "invalid request body" }), { status: 400 }); }
+  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "invalid request body" }), { status: 400, headers: cors }); }
 
   const { provider, key, model, messages, attachmentPath, attachmentType } = body;
-  if (!provider || !key) return new Response(JSON.stringify({ error: "کلید هوش مصنوعی لازم است" }), { status: 400 });
-  if (!messages?.length) return new Response(JSON.stringify({ error: "پیام خالی است" }), { status: 400 });
+  if (!provider || !key) return new Response(JSON.stringify({ error: "کلید هوش مصنوعی لازم است" }), { status: 400, headers: cors });
+  if (!messages?.length) return new Response(JSON.stringify({ error: "پیام خالی است" }), { status: 400, headers: cors });
 
   let attachment: { mime: string; base64: string } | undefined;
   if (attachmentPath) {
     const { data: fileBlob, error: dlErr } = await supabase.storage.from("legal-attachments").download(attachmentPath);
-    if (dlErr || !fileBlob) return new Response(JSON.stringify({ error: "فایل پیوست پیدا نشد" }), { status: 404 });
+    if (dlErr || !fileBlob) return new Response(JSON.stringify({ error: "فایل پیوست پیدا نشد" }), { status: 404, headers: cors });
     const buf = new Uint8Array(await fileBlob.arrayBuffer());
     let binary = "";
     for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
@@ -123,12 +129,12 @@ Deno.serve(async (req: Request) => {
     if (provider === "gemini") text = await callGemini(key, model || "gemini-2.0-flash", trimmed, attachment);
     else if (provider === "avalai") text = await callOpenAiCompatible("https://api.avalai.ir/v1", key, model || "gpt-4o-mini", trimmed, attachment, "AvalAI");
     else if (provider === "perplexity") {
-      if (attachment) return new Response(JSON.stringify({ error: "Perplexity از تحلیل تصویر/PDF پشتیبانی نمی‌کند — از Gemini یا AvalAI استفاده کن." }), { status: 400 });
+      if (attachment) return new Response(JSON.stringify({ error: "Perplexity از تحلیل تصویر/PDF پشتیبانی نمی‌کند — از Gemini یا AvalAI استفاده کن." }), { status: 400, headers: cors });
       text = await callOpenAiCompatible("https://api.perplexity.ai", key, "sonar", trimmed, undefined, "Perplexity");
-    } else return new Response(JSON.stringify({ error: "ارائه‌دهنده‌ی هوش مصنوعی نامعتبر" }), { status: 400 });
+    } else return new Response(JSON.stringify({ error: "ارائه‌دهنده‌ی هوش مصنوعی نامعتبر" }), { status: 400, headers: cors });
 
-    return new Response(JSON.stringify({ text }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ text }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ error: (e as Error).message || "خطای نامشخص" }), { status: 502 });
+    return new Response(JSON.stringify({ error: (e as Error).message || "خطای نامشخص" }), { status: 502, headers: cors });
   }
 });
