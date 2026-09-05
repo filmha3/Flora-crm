@@ -74,15 +74,6 @@ function AuthMethodSegment({ c, value, onChange }) {
   );
 }
 
-function AuthLoadingScreen({ c }) {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: c.bg }}>
-      <style>{`@keyframes floraBreathe { 0%,100% { opacity:.25; transform:scale(.94); } 50% { opacity:.5; transform:scale(1); } }`}</style>
-      <div style={{ animation: "floraBreathe 1.8s ease-in-out infinite" }}><img src={floraBrandIcon} alt="" style={{ width: 56, height: "auto" }} /></div>
-    </div>
-  );
-}
-
 // Six boxes instead of one masked field: each character auto-advances focus
 // and glows on fill, so typing a PIN reads as a small piece of feedback
 // rather than a wall of dots — the same trick used for OTP entry elsewhere.
@@ -279,43 +270,6 @@ function AuthScreen({ c, dark }) {
   );
 }
 
-// Runs exactly once, right after the very first sign-in: how the app should
-// address this consultant, and which city's map to center on when they add
-// a new listing. Two taps and a text field — never shown again once saved.
-// A light popup over the already-usable home screen, not a blocking screen
-// before the app loads — city is nice-to-have for a couple of home-screen
-// insights, not a hard requirement to start using Flora.
-function CityPopup({ c, session, onDone }) {
-  const [city, setCity] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState(null);
-
-  const saveAndFinish = async () => {
-    if (!city.trim()) { setMsg("شهر را وارد کن"); return; }
-    setBusy(true);
-    // upsert, not update: a brand-new signup has no profiles row yet at
-    // all, so update() would silently touch zero rows (no error, but
-    // nothing saved) — the popup would then come back every single login
-    // since the city was never actually persisted.
-    const { error } = await supabase.from("profiles").upsert({ id: session.user.id, city: city.trim() });
-    setBusy(false);
-    if (error) { setMsg("ذخیره نشد، دوباره امتحان کن"); return; }
-    onDone();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[500] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", padding: SP.xl }}>
-      <div className="w-full" style={{ maxWidth: 320, ...glassSurface(c), borderRadius: RAD.lg, padding: SP.xl }}>
-        <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, textAlign: "center", marginBottom: SP.xs }}>خوش اومدی 👋</p>
-        <p style={{ fontSize: FS.caption, color: c.muted, textAlign: "center", marginBottom: SP.lg }}>تو کدوم شهر فعالیت می‌کنی؟</p>
-        {msg && <p style={{ color: c.danger, fontSize: FS.caption, textAlign: "center", marginBottom: SP.md }}>{msg}</p>}
-        <Field c={c} label="شهر"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً تهران" autoFocus /></Field>
-        <button onClick={saveAndFinish} disabled={busy || !city.trim()} className="press w-full" style={{ marginTop: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1, opacity: busy || !city.trim() ? 0.5 : 1 }}>{busy ? "..." : "ثبت"}</button>
-      </div>
-    </div>
-  );
-}
-
 const TOUR_SLIDES = [
   { icon: Sparkles, title: "خوش اومدی به Flora", body: "دستیار هوشمند دفتر املاکت — بیشتر کارها رو با صدا انجام می‌دی، نه فرم پرکردن." },
   { icon: Mic, title: "صدا مهم‌ترین ابزارته", body: "هرجا میکروفون دیدی، بگو چی شده — مشتری جدید، تماس، چک، هزینه‌ی پروژه. Flora خودش ثبتش می‌کنه." },
@@ -362,4 +316,4 @@ function OnboardingTour({ c, onDone }) {
   );
 }
 
-export { AuthPhoneField, AuthEmailField, AuthLoadingScreen, PasswordBoxes, AuthMethodSegment, GoogleIcon, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 };
+export { AuthPhoneField, AuthEmailField, PasswordBoxes, AuthMethodSegment, GoogleIcon, AuthScreen, OnboardingTour, formatPhoneDisplay, phoneToE164 };

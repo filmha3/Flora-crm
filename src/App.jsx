@@ -23,7 +23,7 @@ import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_O
 import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
 import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker, MediaThumb, MediaFull } from "./lib/ui.jsx";
 import { uploadPropertyImageBatch, migrateLegacyMediaItem, deletePropertyPhotoPaths, deletePropertyFolder } from "./lib/imageStore.js";
-import { AuthPhoneField, AuthLoadingScreen, PasswordBoxes, AuthScreen, CityPopup, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
+import { AuthPhoneField, PasswordBoxes, AuthScreen, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
@@ -162,33 +162,25 @@ export default function FloraCRM() {
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, []); // eslint-disable-line
 
-  // null = checking/not-yet-known, false = title+city missing (show onboarding),
-  // true = profile complete
-  const [profileReady, setProfileReady] = useState(null);
+  // Onboarding tour only — city is no longer a separate gated concept at
+  // all (see agencyCity, which now lives in the same cloud-synced settings
+  // as everything else and is edited inline from OfficeCard, never a
+  // popup). A brand-new signup has no `profiles` row yet, which is the
+  // normal case here, not a failure — it just means the tour hasn't been
+  // seen either.
   const [showTour, setShowTour] = useState(false);
   useEffect(() => {
-    if (!session) { setProfileReady(null); return; }
+    if (!session) return;
     let cancelled = false;
     (async () => {
       try {
-        // A brand-new signup has no `profiles` row yet at all (it's only
-        // created once onboarding is submitted) — .single() against zero
-        // rows returns an error (PGRST116), which is the expected, normal
-        // case here, not a failure. The race against a timeout is the real
-        // fix: any genuine problem (RLS hiccup, dropped connection) used to
-        // leave profileReady stuck at null forever, stranding the person on
-        // the loading screen with no way forward. Now it always resolves to
-        // a real boolean within 8s, worst case sending them to onboarding.
         const { data } = await Promise.race([
-          supabase.from("profiles").select("title, city, tour_seen").eq("id", session.user.id).single(),
+          supabase.from("profiles").select("tour_seen").eq("id", session.user.id).single(),
           new Promise((_, reject) => setTimeout(() => reject(new Error("profile check timed out")), 8000)),
         ]);
-        if (!cancelled) {
-          setProfileReady(!!data?.city);
-          if (data?.city && !data?.tour_seen) setShowTour(true);
-        }
+        if (!cancelled && !data?.tour_seen) setShowTour(true);
       } catch (e) {
-        if (!cancelled) setProfileReady(false);
+        if (!cancelled) setShowTour(true); // no row yet — still a first-time user
       }
     })();
     return () => { cancelled = true; };
@@ -315,6 +307,24 @@ export default function FloraCRM() {
     setConstructionTransactions(d?.constructionTransactions || []);
     setTours(d?.tours || []);
     setLegalConversations(d?.legalConversations || []);
+    // Profile/AI settings now ride the same cloud-synced blob as the rest of
+    // the data (previously local-only, under a separate key — see the
+    // removed per-field effect below) — but only touch a field when the
+    // source object actually carries it, so an older local record that
+    // predates this change, or a cloud row from another device that simply
+    // hasn't set a given field yet, never resets something already typed in
+    // this session back to empty.
+    if (d?.agentName !== undefined) setAgentName(d.agentName);
+    if (d?.agentPhoto !== undefined) setAgentPhoto(d.agentPhoto);
+    if (d?.agencyName !== undefined) setAgencyName(d.agencyName);
+    if (d?.agencyCity !== undefined) setAgencyCity(d.agencyCity);
+    if (d?.aiProvider !== undefined) setAiProvider(d.aiProvider);
+    if (d?.avalaiModel !== undefined) setAvalaiModel(d.avalaiModel);
+    if (d?.geminiKey !== undefined) setGeminiKey(d.geminiKey);
+    if (d?.avalaiKey !== undefined) setAvalaiKey(d.avalaiKey);
+    if (d?.perplexityKey !== undefined) setPerplexityKey(d.perplexityKey);
+    if (d?.splitShares !== undefined) setSplitShares(d.splitShares);
+    if (typeof d?.simpleMode === "boolean") setSimpleMode(d.simpleMode);
   };
 
   useEffect(() => {
@@ -354,18 +364,24 @@ export default function FloraCRM() {
         setCloudReady(true);
         setBootProgress((p) => Math.max(p, 80));
 
+        // One-time migration fallback only: applies a field from the old
+        // local-only settings record ONLY if the cloud/local core above
+        // didn't already set it — so a value that's already synced from
+        // another device via the cloud is never stomped by a stale local
+        // leftover on this one.
         const settings = await dbGet(SETTINGS_KEY);
-        setGeminiKey(settings?.geminiKey || "");
-        setPerplexityKey(settings?.perplexityKey || "");
-        setAvalaiKey(settings?.avalaiKey || "");
-        if (settings?.avalaiModel) setAvalaiModel(settings.avalaiModel);
-        if (settings?.aiProvider) setAiProvider(settings.aiProvider);
-        setAgentName(settings?.agentName || "");
-        setAgentPhoto(settings?.agentPhoto || "");
-        if (settings?.agencyName) setAgencyName(settings.agencyName);
-        if (settings?.agencyCity) setAgencyCity(settings.agencyCity);
-        if (settings?.splitShares) setSplitShares(settings.splitShares);
-        setSimpleMode(typeof settings?.simpleMode === "boolean" ? settings.simpleMode : false);
+        if (settings) {
+          setGeminiKey((v) => v || settings.geminiKey || "");
+          setPerplexityKey((v) => v || settings.perplexityKey || "");
+          setAvalaiKey((v) => v || settings.avalaiKey || "");
+          setAvalaiModel((v) => v || settings.avalaiModel);
+          setAiProvider((v) => v || settings.aiProvider);
+          setAgentName((v) => v || settings.agentName || "");
+          setAgentPhoto((v) => v || settings.agentPhoto || "");
+          setAgencyName((v) => v || settings.agencyName);
+          setAgencyCity((v) => v || settings.agencyCity);
+          setSplitShares((v) => v || settings.splitShares);
+        }
       } catch (e) { console.error("Flora: load failed", e); }
       setBootProgress(100);
       setLoaded(true);
@@ -383,14 +399,22 @@ export default function FloraCRM() {
     if (!loaded) return;
     const t = setTimeout(() => {
       const now = Date.now();
-      const core = { properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, updatedAt: now };
+      const core = {
+        properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations,
+        // Profile + AI settings — folded into the same cloud-synced blob as
+        // everything else (previously a separate, local-only key) so
+        // setting your name or AI key on one device actually shows up on
+        // another, the same as a new property does.
+        agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode,
+        updatedAt: now,
+      };
       dbSet(DATA_KEY, core).catch(() => {});
       if (cloudReady && session?.user) {
         pushCloudData(session.user.id, core).then(() => { cloudSyncedAtRef.current = now; }).catch(() => {});
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations]);
+  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode]);
 
   // Live cross-device convergence: if a second signed-in device (or this
   // same account on the web) pushes a newer flora_data row while this tab
@@ -408,7 +432,9 @@ export default function FloraCRM() {
     });
     return unsubscribe;
   }, [cloudReady, session?.user?.id]); // eslint-disable-line
-  useEffect(() => { if (loaded) dbSet(SETTINGS_KEY, { geminiKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode }).catch(() => {}); }, [loaded, geminiKey, perplexityKey, avalaiKey, avalaiModel, aiProvider, agentName, agentPhoto, agencyName, agencyCity, splitShares, simpleMode]);
+  // (Profile/AI settings are now written as part of the main cloud-synced
+  // `core` object above — see its comment — instead of a second, local-only
+  // effect writing a separate key.)
 
   // Appointments live only in this device's IndexedDB (local-first, like
   // everything else in Flora) — but a push notification still needs to fire
@@ -580,10 +606,14 @@ export default function FloraCRM() {
   // Everything below this line (ctx, the CRM itself) only matters once we
   // know who's signed in — checked last so every hook above still runs on
   // every render, auth state or not.
-  if (session === undefined) return <AuthLoadingScreen c={c} />;
+  // Same loader for the whole boot sequence (session check → local data →
+  // cloud sync → settings) — a person reopening the app used to see one
+  // loading screen flash into a visually different second one partway
+  // through, which read as the app stalling and restarting. bootProgress
+  // already starts low and only climbs, so showing this one component the
+  // entire time is a strict simplification, not a behavior change.
+  if (session === undefined) return <FerrofluidLoader c={c} progress={bootProgress} />;
   if (!session) return <AuthScreen c={c} dark={dark} />;
-  // profileReady === false no longer blocks the whole app — see the
-  // CityPopup rendered further down, alongside the other overlays.
 
   const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "perplexity" && perplexityKey);
   // Voice-to-text uses AvalAI's Whisper proxy specifically — the other providers
@@ -1032,12 +1062,8 @@ export default function FloraCRM() {
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
         {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
-        {/* City is no longer a blocking gate before the app loads — this is
-            a light popup that sits on top of the already-usable home
-            screen, per explicit request to reach home first and ask city
-            "like a popup" instead. */}
-        {profileReady === false && <CityPopup c={c} session={session} onDone={() => { setProfileReady(true); setShowTour(true); }} />}
-        {profileReady === true && showTour && session?.user && (
+        {/* City is edited inline in OfficeCard now — no more popup gate. */}
+        {showTour && session?.user && (
           <OnboardingTour c={c} onDone={() => {
             setShowTour(false);
             supabase.from("profiles").upsert({ id: session.user.id, tour_seen: true }).then(() => {});
@@ -3859,8 +3885,8 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
         <div style={{ position: "relative" }}>
           <div className="flex items-start justify-between">
             <div>
-              <p style={{ fontSize: 11, color: "rgba(255,255,255,.8)" }}>{agencyName}{agencyCity ? ` — ${agencyCity}` : ""}</p>
-              <p style={{ fontSize: 15, fontWeight: 800, color: "#fff", marginTop: 2 }}>مدیریت دفتر</p>
+              <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{agentName || "مشاور"}</p>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,.8)", marginTop: 2 }}>{agencyCity || "شهر ثبت نشده"}{agencyName ? ` — ${agencyName}` : ""}</p>
             </div>
             <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1 shrink-0" style={{ background: "rgba(255,255,255,.18)" }}>
               <Edit3 size={11} color="#fff" /><span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>ویرایش نام</span>
