@@ -259,6 +259,20 @@ export default function FloraCRM() {
   const [agencyCity, setAgencyCity] = useState("سرعین");
   const [loaded, setLoaded] = useState(false);
   const [bootProgress, setBootProgress] = useState(4);
+  // A safety net beyond the individual per-call timeouts (session check,
+  // IndexedDB, cloud sync each already cap at 3s): if `loaded` still isn't
+  // true after 12s — something none of those specific guards anticipated,
+  // e.g. iOS killing and half-restoring a backgrounded tab — this stops the
+  // loading screen from being able to hang forever with no way out. A
+  // fresh reload from here goes through the exact same 3s-guarded path
+  // again, so it isn't a workaround, just an exit if that path is somehow
+  // still stuck.
+  const [bootStuck, setBootStuck] = useState(false);
+  useEffect(() => {
+    if (loaded) { setBootStuck(false); return; }
+    const t = setTimeout(() => setBootStuck(true), 12000);
+    return () => clearTimeout(t);
+  }, [loaded]);
 
   const [toast, setToast] = useState(null);
   // notify() is the one shared touchpoint every save/delete/error confirmation
@@ -849,7 +863,7 @@ export default function FloraCRM() {
   };
 
   if (!loaded) {
-    return <FerrofluidLoader c={c} progress={bootProgress} />;
+    return <FerrofluidLoader c={c} progress={bootProgress} stuck={bootStuck} />;
   }
 
   return (
@@ -1288,7 +1302,7 @@ const floraIcon = (name, props) => (FloraIcons[name] || FloraIcons.residential)(
 // shared static filter — no per-frame layout, no JS animation loop.
 // `progress` is real boot state (session → local data → cloud sync →
 // settings), not decorative — the ring and the number both track it exactly.
-function FerrofluidLoader({ c, progress }) {
+function FerrofluidLoader({ c, progress, stuck = false }) {
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
   const RING_R = 54;
   const RING_C = 2 * Math.PI * RING_R;
@@ -1356,6 +1370,17 @@ function FerrofluidLoader({ c, progress }) {
       </div>
 
       <p style={{ fontSize: 13, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
+
+      {/* Escape hatch: only appears if the watchdog above actually trips —
+          normal loads never see this. */}
+      {stuck && (
+        <div className="flex flex-col items-center" style={{ gap: 8, marginTop: 4 }}>
+          <p style={{ fontSize: 12, color: c.muted, textAlign: "center", maxWidth: 260, lineHeight: 1.8 }}>این مرحله بیشتر از حد معمول طول کشید.</p>
+          <button onClick={() => window.location.reload()} className="press" style={{ padding: "10px 22px", borderRadius: RAD.pill, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: 13 }}>
+            تلاش دوباره
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -3917,21 +3942,68 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
   );
 }
 
+// ---------- iOS-style grouped list ----------
+// A titled section whose rows share one rounded container with hairline
+// separators between them — the standard iOS Settings shape. Replaces the
+// old "every row is its own floating card" layout, which made 13 unrelated
+// items all read as equally important.
+function ListSection({ c, title, children }) {
+  const rows = React.Children.toArray(children).filter(Boolean);
+  return (
+    <div style={{ marginBottom: SP.lg }}>
+      {title && (
+        <p style={{ fontSize: 11, fontWeight: FW.bold, color: c.muted, letterSpacing: "0.02em", marginBottom: 8, paddingInlineStart: 4 }}>{title}</p>
+      )}
+      <div className="rounded-2xl overflow-hidden" style={glass(c)}>
+        {rows.map((row, i) => (
+          <div key={i} style={{ borderTop: i > 0 ? `1px solid ${c.border}` : "none" }}>{row}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// One row. Monochrome icon by default — color is reserved for rows that
+// carry real state (a pending count), so a glance finds what needs
+// attention instead of five competing accent colors.
+function ListRow({ c, icon: Icon, label, value, badge, tint, onClick }) {
+  return (
+    <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: "13px 14px", background: "transparent" }}>
+      <div className="flex items-center justify-center shrink-0" style={{ width: 30, height: 30, borderRadius: 9, background: tint ? `${tint}1F` : c.surface2 }}>
+        <Icon size={16} color={tint || c.muted} />
+      </div>
+      <span style={{ flex: 1, fontSize: 14, fontWeight: FW.medium, color: c.ink, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      {badge != null && (
+        <span className="shrink-0" style={{ fontSize: 11, fontWeight: FW.bold, color: "#fff", background: c.attn, borderRadius: RAD.pill, padding: "2px 7px", minWidth: 20, textAlign: "center" }}>{faDigits(badge)}</span>
+      )}
+      {value != null && badge == null && (
+        <span className="shrink-0" style={{ fontSize: 13, color: c.muted, fontVariantNumeric: "tabular-nums" }}>{value}</span>
+      )}
+      <ChevronLeft size={16} color={c.muted} style={{ flexShrink: 0, opacity: 0.6 }} />
+    </button>
+  );
+}
+
 function MoreTab({ ctx }) {
-  const { c, owners, setOwners, builders, setBuilders, calls, setCalls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
+  const { c, owners, builders, calls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
+  const [contactsOpen, setContactsOpen] = useState(null); // "owners" | "builders" | null
+  const [backupOpen, setBackupOpen] = useState(false);
 
   return (
     <div className="pt-3">
-      {/* Simple / advanced mode switch — the master control for how busy the app feels */}
-      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={glass(c)}>
+      <OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} notify={notify} properties={properties} customers={customers} owners={owners} />
+
+      {/* Mode switch stays its own card — it's a toggle, not a navigation
+          row, and it changes what the rest of this screen even shows. */}
+      <div className="rounded-2xl p-4 mb-5 flex items-center gap-3" style={glass(c)}>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: simpleMode ? c.successSoft : c.primarySoft }}>
           {simpleMode ? <Sparkles size={18} color={c.success} /> : <LayoutGrid size={18} color={c.primary} />}
         </div>
         <div className="flex-1 min-w-0">
           <p style={{ fontSize: 13, fontWeight: 700 }}>{simpleMode ? "حالت ساده" : "حالت حرفه‌ای"}</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{simpleMode ? "فقط فایل‌ها و مشتری‌ها — تمیز و بی‌شلوغی" : "همه‌ی امکانات: مالی، کمیسیون، گزارش و AI"}</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{simpleMode ? "فقط فایل‌ها و مشتری‌ها" : "همه‌ی امکانات فعال است"}</p>
         </div>
         <button onClick={() => { setSimpleMode(!simpleMode); notify(simpleMode ? "حالت حرفه‌ای فعال شد" : "حالت ساده فعال شد"); }}
           className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: simpleMode ? c.border : c.primary, position: "relative", transition: "background .3s ease" }}>
@@ -3939,163 +4011,100 @@ function MoreTab({ ctx }) {
         </button>
       </div>
 
-      {/* Office management + editable agency identity, merged into one card */}
-      <OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} notify={notify} properties={properties} customers={customers} owners={owners} />
+      <ListSection c={c} title="ابزارها">
+        <ListRow c={c} icon={CalendarDays} label="تقویم بازدید" onClick={() => setTab("calendar")} />
+        {/* The one row that carries live state gets the accent + count —
+            everything else stays monochrome so this stands out. */}
+        <ListRow c={c} icon={PhoneCall} label="پیگیری تماس‌ها" tint={pending > 0 ? c.attn : undefined} badge={pending > 0 ? pending : undefined} onClick={() => setDetail({ type: "calls" })} />
+        <ListRow c={c} icon={ArrowUpRight} label="چک‌ها" onClick={() => ctx.setChecksOpen(true)} />
+        <ListRow c={c} icon={HardHat} label="ساخت‌وساز" onClick={() => ctx.setConstructionOpen(true)} />
+        <ListRow c={c} icon={TrendingUp} label="قیمت‌گذاری سریع" onClick={() => ctx.setQuickValuationOpen(true)} />
+        <ListRow c={c} icon={Sparkles} label="تحلیل آگهی دیوار" onClick={() => ctx.setDivarSearchOpen(true)} />
+        <ListRow c={c} icon={TrendingUp} label="سرمایه‌گذاری" onClick={() => setDetail({ type: "investment-center" })} />
+        <ListRow c={c} icon={MessageSquare} label="پیام‌های آماده" onClick={() => setSheet("messages")} />
+        {simpleMode && <ListRow c={c} icon={Wallet} label="مالی و کمیسیون" onClick={() => setTab("finance")} />}
+      </ListSection>
 
-      {/* Quick-launch grid — calendar, messages, and (when relevant) finance/investment,
-          all the same compact tile so this doesn't turn into a stack of mismatched rows */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <button onClick={() => setTab("calendar")} className="press text-right rounded-2xl p-4" style={glass(c)}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.primarySoft }}><CalendarDays size={18} color={c.primary} /></div>
-          <p style={{ fontSize: 13, fontWeight: 700 }}>تقویم بازدید</p>
-          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>قرارهای امروز و آینده</p>
-        </button>
-        <button onClick={() => setSheet("messages")} className="press text-right rounded-2xl p-4" style={glass(c)}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><MessageSquare size={18} color={c.purple} /></div>
-          <p style={{ fontSize: 13, fontWeight: 700 }}>پیام‌های آماده</p>
-          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>متن‌های جذب مشتری</p>
-        </button>
-        {simpleMode && (
-          <button onClick={() => setTab("finance")} className="press text-right rounded-2xl p-4" style={glass(c)}>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.successSoft }}><Wallet size={18} color={c.success} /></div>
-            <p style={{ fontSize: 13, fontWeight: 700 }}>مالی و کمیسیون</p>
-            <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>معاملات و پرداخت‌ها</p>
-          </button>
-        )}
-        <button onClick={() => setDetail({ type: "investment-center" })} className="press text-right rounded-2xl p-4" style={glass(c)}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: c.purpleSoft }}><TrendingUp size={18} color={c.purple} /></div>
-          <p style={{ fontSize: 13, fontWeight: 700 }}>سرمایه‌گذاری</p>
-          <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>پورتفولیو و سود شرکا</p>
-        </button>
-      </div>
+      <ListSection c={c} title="مخاطبین">
+        <ListRow c={c} icon={UserCircle2} label="مالکین" value={faDigits(owners.length)} onClick={() => setContactsOpen("owners")} />
+        <ListRow c={c} icon={Hammer} label="سازندگان" value={faDigits(builders.length)} onClick={() => setContactsOpen("builders")} />
+      </ListSection>
 
-      {/* Calls live in their own full screen (top-bar badge) — just a quick link here, not a second copy of the list */}
-      <button onClick={() => setDetail({ type: "calls" })} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><PhoneCall size={20} color={c.attn} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>پیگیری تماس‌ها</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{pending > 0 ? `${faDigits(pending)} تماس در انتظار` : "همه پیگیری شده"}</p>
-        </div>
-        <ChevronLeft size={17} color={c.muted} />
-      </button>
+      <ListSection c={c} title="حساب کاربری">
+        <ListRow c={c} icon={Bell} label="اعلان‌ها" onClick={() => ctx.setNotificationsOpen(true)} />
+        <ListRow c={c} icon={Sparkles} label="هوش مصنوعی" onClick={() => setSheet("ai-settings")} />
+        <ListRow c={c} icon={Download} label="پشتیبان‌گیری" onClick={() => setBackupOpen(true)} />
+      </ListSection>
 
-      <button onClick={() => ctx.setNotificationsOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Bell size={20} color={c.primary} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>اعلان‌ها</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>فعال‌سازی، دسته‌بندی، ساعات سکوت</p>
-        </div>
-        <ChevronLeft size={17} color={c.muted} />
-      </button>
-
-      <button onClick={() => ctx.setDivarSearchOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.purpleSoft }}><Sparkles size={20} color={c.purple} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>چرا آگهی‌ام زنگ نمی‌خوره؟</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>لینک آگهی دیوار رو بده، تحلیل کامل بگیر</p>
-        </div>
-        <ChevronLeft size={17} color={c.muted} />
-      </button>
-
-      <button onClick={() => ctx.setQuickValuationOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><TrendingUp size={20} color={c.primary} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>Flora Valuation — قیمت‌گذاری سریع</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>موقعیت رو روی نقشه بزن، فوری قیمت بگیر</p>
-        </div>
-        <ChevronLeft size={17} color={c.muted} />
-      </button>
-
-      <button onClick={() => ctx.setConstructionOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><HardHat size={20} color={c.attn} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>ساخت‌وساز و ساختمان</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>هزینه‌های پروژه رو با صدا ثبت کن</p>
-        </div>
-        <ChevronLeft size={17} color={c.muted} />
-      </button>
-
-      <button onClick={() => ctx.setChecksOpen(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><ArrowUpRight size={20} color={c.danger} /></div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>چک‌ها</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>دریافتی و پرداختی، دسته‌بندی بر اساس ماه</p>
-        </div>
-        <ChevronLeft size={17} color={c.muted} />
-      </button>
-
-      {/* Collapsible: owners */}
-      <CollapsibleCard c={c} icon={UserCircle2} tint={c.primary} title="مالکین" subtitle="لیست مالکین و تماس سریع" count={owners.length}>
-        <div className="flex flex-col gap-2">
-          {owners.map((o) => (
-            <div key={o.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
-              <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.primarySoft }}><UserCircle2 size={17} color={c.primary} /></div>
-              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11, color: c.muted }} dir="ltr">{o.phone}</p></div>
-              {o.phone && <a href={`tel:${o.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
-              <button onClick={() => setSheet({ kind: "owner", editId: o.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
-              <button onClick={() => { setOwners((prev) => prev.filter((x) => x.id !== o.id)); notify("مالک حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
-            </div>
-          ))}
-          {owners.length === 0 && <EmptyLine c={c} text="مالکی ثبت نشده" />}
-          <AddLink c={c} label="ثبت مالک جدید" onClick={() => setSheet("owner")} />
-        </div>
-      </CollapsibleCard>
-
-      {/* Collapsible: builders */}
-      <CollapsibleCard c={c} icon={Hammer} tint={c.attn} title="سازندگان" subtitle="شرکت‌ها و سازنده‌های همکار" count={builders.length}>
-        <div className="flex flex-col gap-2">
-          {builders.length > 0 && (
-            <button onClick={() => setSheet("builder-broadcast")} className="press w-full rounded-xl py-2.5 flex items-center justify-center gap-2 mb-1" style={{ background: c.primarySoft }}>
-              <Send size={14} color={c.primary} /><span style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>پیام تبریک گروهی به همه‌ی سازنده‌ها</span>
-            </button>
-          )}
-          {builders.map((b) => (
-            <div key={b.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
-              <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: c.attnSoft }}><Hammer size={15} color={c.attn} /></div>
-              <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600 }}>{b.name}</p><p style={{ fontSize: 11, color: c.muted }} dir="ltr">{b.phone}</p></div>
-              {b.phone && <a href={`tel:${b.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
-              <button onClick={() => setSheet({ kind: "builder", editId: b.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
-              <button onClick={() => { setBuilders((prev) => prev.filter((x) => x.id !== b.id)); notify("سازنده حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
-            </div>
-          ))}
-          {builders.length === 0 && <EmptyLine c={c} text="سازنده‌ای ثبت نشده" />}
-          <AddLink c={c} label="ثبت سازنده جدید" onClick={() => setSheet("builder")} />
-        </div>
-      </CollapsibleCard>
-
-      {/* Account + real cloud backup (Supabase) */}
+      {/* Account + cloud backup keeps its own richer card — it holds live
+          status (last backup, device list) that a plain row can't carry. */}
       <AccountBackupCard ctx={ctx} />
 
-      {/* Collapsible: settings & backup */}
-      <CollapsibleCard c={c} icon={Wallet} tint={c.purple} title="پشتیبان‌گیری و تنظیمات" subtitle="بکاپ داده‌ها و هوش مصنوعی">
-        <p style={{ fontSize: 11, color: c.muted, marginBottom: 8, lineHeight: 1.7 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. اگر فقط بخشی را می‌خواهی، از دکمه‌های جدا استفاده کن.</p>
-        <button onClick={shareBackupNow} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primary }}>
-          <Send size={14} color="#fff" /><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>ارسال بکاپ (تلگرام، واتساپ، ایمیل...)</span>
-        </button>
-        <button onClick={exportBackup} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primarySoft }}>
-          <Download size={14} color={c.primary} /><span style={{ fontSize: 11, fontWeight: 700, color: c.primary }}>دانلود بکاپ کامل</span>
-        </button>
-        <div className="flex gap-2 mb-2">
-          <button onClick={exportProperties} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
-            <Building2 size={13} color={c.ink} /><span style={{ fontSize: 11, fontWeight: 700, color: c.ink }}>فایل‌ها و مشتری‌ها</span>
-          </button>
-          <button onClick={exportFinance} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
-            <Wallet size={13} color={c.ink} /><span style={{ fontSize: 11, fontWeight: 700, color: c.ink }}>مالی</span>
-          </button>
-        </div>
-        <button onClick={() => importRef.current?.click()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.attnSoft }}>
-          <Upload size={14} color={c.attn} /><span style={{ fontSize: 11, fontWeight: 700, color: c.attn }}>بازیابی بکاپ (هر نوع)</span>
-        </button>
-        <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
-        <button onClick={() => setSheet("ai-settings")} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.purpleSoft }}>
-          <Sparkles size={14} color={c.purple} /><span style={{ fontSize: 11, fontWeight: 700, color: c.purple }}>تنظیمات هوش مصنوعی</span>
-        </button>
-        <OfflineMapButton c={c} notify={notify} />
-        <PhotoOptimizeButton ctx={ctx} />
-      </CollapsibleCard>
-
       <div style={{ height: 12 }} />
+
+      {contactsOpen && <ContactsSheet ctx={ctx} kind={contactsOpen} onClose={() => setContactsOpen(null)} />}
+      {backupOpen && (
+        <SheetShell c={c} title="پشتیبان‌گیری دستی" onClose={() => setBackupOpen(false)}>
+          <p style={{ fontSize: 12, color: c.muted, marginBottom: SP.md, lineHeight: 1.9 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. برای بخشی از داده‌ها از دکمه‌های جدا استفاده کن.</p>
+          <button onClick={shareBackupNow} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primary }}>
+            <Send size={14} color="#fff" /><span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>ارسال بکاپ</span>
+          </button>
+          <button onClick={exportBackup} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.primarySoft }}>
+            <Download size={14} color={c.primary} /><span style={{ fontSize: 12, fontWeight: 700, color: c.primary }}>دانلود بکاپ کامل</span>
+          </button>
+          <div className="flex gap-2 mb-2">
+            <button onClick={exportProperties} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
+              <Building2 size={13} color={c.ink} /><span style={{ fontSize: 11, fontWeight: 700, color: c.ink }}>فایل‌ها و مشتری‌ها</span>
+            </button>
+            <button onClick={exportFinance} className="press flex-1 rounded-xl py-3 flex items-center justify-center gap-1.5" style={{ background: c.surface2 }}>
+              <Wallet size={13} color={c.ink} /><span style={{ fontSize: 11, fontWeight: 700, color: c.ink }}>مالی</span>
+            </button>
+          </div>
+          <button onClick={() => importRef.current?.click()} className="press w-full rounded-xl py-3 flex items-center justify-center gap-1.5 mb-2" style={{ background: c.attnSoft }}>
+            <Upload size={14} color={c.attn} /><span style={{ fontSize: 12, fontWeight: 700, color: c.attn }}>بازیابی بکاپ</span>
+          </button>
+          <input ref={importRef} type="file" accept="application/json" hidden onChange={(e) => { if (e.target.files?.[0]) importBackup(e.target.files[0]); e.target.value = ""; }} />
+          <OfflineMapButton c={c} notify={notify} />
+          <PhotoOptimizeButton ctx={ctx} />
+        </SheetShell>
+      )}
     </div>
+  );
+}
+
+// Owners and builders moved out of inline accordions into their own sheet —
+// the accordions were what made this screen scroll forever. Same rows, same
+// actions, one tap away instead of expanding in place.
+function ContactsSheet({ ctx, kind, onClose }) {
+  const { c, owners, setOwners, builders, setBuilders, setSheet, notify } = ctx;
+  const isOwners = kind === "owners";
+  const list = isOwners ? owners : builders;
+  const setList = isOwners ? setOwners : setBuilders;
+  const Icon = isOwners ? UserCircle2 : Hammer;
+  const tint = isOwners ? c.primary : c.attn;
+  const tintSoft = isOwners ? c.primarySoft : c.attnSoft;
+
+  return (
+    <SheetShell c={c} title={isOwners ? "مالکین" : "سازندگان"} onClose={onClose}>
+      {!isOwners && builders.length > 0 && (
+        <button onClick={() => { onClose(); setSheet("builder-broadcast"); }} className="press w-full rounded-xl py-2.5 flex items-center justify-center gap-2 mb-3" style={{ background: c.primarySoft }}>
+          <Send size={14} color={c.primary} /><span style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>پیام گروهی به سازنده‌ها</span>
+        </button>
+      )}
+      <div className="flex flex-col gap-2">
+        {list.map((o) => (
+          <div key={o.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
+            <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: tintSoft }}><Icon size={16} color={tint} /></div>
+            <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11, color: c.muted }} dir="ltr">{o.phone}</p></div>
+            {o.phone && <a href={`tel:${o.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
+            <button onClick={() => { onClose(); setSheet({ kind: isOwners ? "owner" : "builder", editId: o.id }); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
+            <button onClick={() => { setList((prev) => prev.filter((x) => x.id !== o.id)); notify(isOwners ? "مالک حذف شد" : "سازنده حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
+          </div>
+        ))}
+        {list.length === 0 && <EmptyLine c={c} text={isOwners ? "مالکی ثبت نشده" : "سازنده‌ای ثبت نشده"} />}
+        <AddLink c={c} label={isOwners ? "ثبت مالک جدید" : "ثبت سازنده جدید"} onClick={() => { onClose(); setSheet(isOwners ? "owner" : "builder"); }} />
+      </div>
+    </SheetShell>
   );
 }
 
