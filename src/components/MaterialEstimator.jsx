@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { X, Settings2, Save, Copy, Check, Trash2, Layers } from "lucide-react";
+import { X, Settings2, Save, Copy, Check, Trash2, Layers, Calculator } from "lucide-react";
 import { SP, RAD, FS, FW, glass, glassLite, glassSurface } from "../lib/theme.js";
 import { BodyPortal, Field, inputStyle, EmptyLine } from "../lib/ui.jsx";
-import { uid, faDigits, fmtJalali, todayISO, toNum } from "../lib/format.js";
+import { uid, faDigits, fmtJalali, fmtToman, todayISO, toNum } from "../lib/format.js";
 import { computeMaterialEstimate, DEFAULT_MATERIAL_COEFFICIENTS } from "../lib/materialEstimate.js";
 
 // A material with no unit set (plaster/paint, by default — see
@@ -16,6 +16,8 @@ function UnitLabel({ c, unit, onFix }) {
 }
 
 function MaterialCard({ c, m, onFixUnit }) {
+  const qty = m.kind === "range" ? m.valueMax : m.value; // cost estimate uses the higher end for a range, so it reads as "at most"
+  const cost = m.unitPrice ? qty * Number(m.unitPrice) : null;
   return (
     <div className="rounded-2xl p-4" style={glassLite(c, RAD.lg)}>
       <p style={{ fontSize: 12, color: c.muted, fontWeight: 700 }}>{m.name}</p>
@@ -28,6 +30,7 @@ function MaterialCard({ c, m, onFixUnit }) {
         <UnitLabel c={c} unit={m.unit} onFix={() => onFixUnit(m.id)} />
         <span style={{ fontSize: 10.5, color: c.muted }}>ضریب: {faDigits(m.kind === "range" ? `${m.factorMin}–${m.factorMax}` : m.factor)}</span>
       </div>
+      {cost != null && <p style={{ fontSize: 12, fontWeight: 700, color: c.success, marginTop: 6 }}>{fmtToman(cost)}</p>}
       {m.note && <p style={{ fontSize: 10, color: c.muted, marginTop: 4, lineHeight: 1.7 }}>{m.note}</p>}
     </div>
   );
@@ -35,7 +38,11 @@ function MaterialCard({ c, m, onFixUnit }) {
 
 function MaterialEstimatorHome({ ctx, onClose }) {
   const { c, notify, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates } = ctx;
+  const [inputMode, setInputMode] = useState("direct"); // "direct" | "fromLand"
   const [area, setArea] = useState("");
+  const [landArea, setLandArea] = useState("");
+  const [buildPercent, setBuildPercent] = useState("");
+  const [floors, setFloors] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [focusMaterialId, setFocusMaterialId] = useState(null);
   const [savedOpen, setSavedOpen] = useState(false);
@@ -43,15 +50,34 @@ function MaterialEstimatorHome({ ctx, onClose }) {
   const [copied, setCopied] = useState(false);
 
   const coefficients = materialCoefficients?.length ? materialCoefficients : DEFAULT_MATERIAL_COEFFICIENTS;
-  const areaNum = toNum(area);
+
+  // "از متراژ زمین": مساحت ساخت = زمین × (درصد ساخت ÷ ۱۰۰) × تعداد طبقات —
+  // e.g. a 300m² lot, 60% build permit, 3 floors → 300 × 0.6 × 3 = 540m².
+  const derivedArea = useMemo(() => {
+    const land = toNum(landArea), pct = toNum(buildPercent), fl = toNum(floors);
+    if (!land || !pct || !fl) return 0;
+    return Math.round(land * (pct / 100) * fl * 100) / 100;
+  }, [landArea, buildPercent, floors]);
+
+  const areaNum = inputMode === "fromLand" ? derivedArea : toNum(area);
   // The only place area × coefficient actually happens — everything below
   // just renders whatever this returns.
   const results = useMemo(() => (areaNum > 0 ? computeMaterialEstimate(areaNum, coefficients) : null), [areaNum, coefficients]);
+  const totalCost = useMemo(() => {
+    if (!results) return 0;
+    return results.reduce((sum, m) => sum + (m.unitPrice ? (m.kind === "range" ? m.valueMax : m.value) * Number(m.unitPrice) : 0), 0);
+  }, [results]);
+  const anyPriced = results?.some((m) => m.unitPrice) || false;
 
   const resultsText = () => {
     if (!results) return "";
-    const lines = results.map((m) => `${m.name}: ${m.kind === "range" ? `${m.valueMin} تا ${m.valueMax}` : m.value}${m.unit ? " " + m.unit : ""}`);
-    return `برآورد مصالح — مساحت ${areaNum} مترمربع\n` + lines.join("\n") + "\n\n(برآورد اولیه است، مقدار قطعی خرید نیست)";
+    const lines = results.map((m) => {
+      const qty = m.kind === "range" ? `${m.valueMin} تا ${m.valueMax}` : m.value;
+      const cost = m.unitPrice ? ` (~${Math.round((m.kind === "range" ? m.valueMax : m.value) * Number(m.unitPrice)).toLocaleString("de-DE")} تومان)` : "";
+      return `${m.name}: ${qty}${m.unit ? " " + m.unit : ""}${cost}`;
+    });
+    const totalLine = anyPriced ? `\n\nهزینه‌ی تقریبی کل: ${fmtToman(totalCost)}` : "";
+    return `برآورد مصالح — مساحت ${areaNum} مترمربع\n` + lines.join("\n") + totalLine + "\n\n(برآورد اولیه است، مقدار قطعی خرید نیست)";
   };
 
   const copyResults = () => {
@@ -78,12 +104,37 @@ function MaterialEstimatorHome({ ctx, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-8">
-          <Field c={c} label="مساحت ساخت (مترمربع)">
-            <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 18, fontWeight: 800 }} value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۱۰۰۰" autoFocus />
-          </Field>
+          {/* Two ways to get an area: type it directly, or let Flora work
+              it out from the land — a lot of advisors think in lot size and
+              floor count, not straight build area. */}
+          <div className="flex" style={{ padding: 3, borderRadius: RAD.md, background: c.surface2, marginBottom: SP.lg }}>
+            {[["direct", "مساحت ساخت"], ["fromLand", "از متراژ زمین"]].map(([val, label]) => (
+              <button key={val} onClick={() => setInputMode(val)} className="press flex-1" style={{ paddingBlock: 9, borderRadius: RAD.md - 2, fontSize: 12, fontWeight: 700, background: inputMode === val ? c.gradientPrimary : "transparent", color: inputMode === val ? "#fff" : c.muted }}>{label}</button>
+            ))}
+          </div>
+
+          {inputMode === "direct" ? (
+            <Field c={c} label="مساحت ساخت (مترمربع)">
+              <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 18, fontWeight: 800 }} value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۱۰۰۰" autoFocus />
+            </Field>
+          ) : (
+            <>
+              <div className="grid grid-cols-3" style={{ gap: 8 }}>
+                <Field c={c} label="زمین (م²)"><input inputMode="decimal" style={inputStyle(c)} value={landArea} onChange={(e) => setLandArea(e.target.value.replace(/[^\d.]/g, ""))} placeholder="۳۰۰" /></Field>
+                <Field c={c} label="درصد ساخت"><input inputMode="decimal" style={inputStyle(c)} value={buildPercent} onChange={(e) => setBuildPercent(e.target.value.replace(/[^\d.]/g, ""))} placeholder="۶۰" /></Field>
+                <Field c={c} label="طبقات"><input inputMode="decimal" style={inputStyle(c)} value={floors} onChange={(e) => setFloors(e.target.value.replace(/[^\d.]/g, ""))} placeholder="۳" /></Field>
+              </div>
+              {derivedArea > 0 && (
+                <div className="rounded-xl p-3 mb-4 flex items-center justify-between" style={{ background: c.primarySoft }}>
+                  <span style={{ fontSize: 12, color: c.primary, fontWeight: 700 }}>مساحت ساخت محاسبه‌شده</span>
+                  <span style={{ fontSize: 15, color: c.primary, fontWeight: 800 }}>{faDigits(derivedArea)} مترمربع</span>
+                </div>
+              )}
+            </>
+          )}
 
           {!results ? (
-            <EmptyLine c={c} text="مساحت را وارد کن تا مصالح محاسبه شود" />
+            <EmptyLine c={c} text={inputMode === "direct" ? "مساحت را وارد کن تا مصالح محاسبه شود" : "هر سه مقدار را وارد کن تا مساحت ساخت و مصالح محاسبه شود"} />
           ) : (
             <>
               <div className="rounded-xl p-3 mb-4 flex items-start" style={{ gap: 6, background: c.attnSoft }}>
@@ -93,6 +144,13 @@ function MaterialEstimatorHome({ ctx, onClose }) {
               <div className="grid grid-cols-2" style={{ gap: SP.md, marginBottom: SP.lg }}>
                 {results.map((m) => <MaterialCard key={m.id} c={c} m={m} onFixUnit={(id) => { setFocusMaterialId(id); setSettingsOpen(true); }} />)}
               </div>
+
+              {anyPriced && (
+                <div className="rounded-xl p-3 mb-4 flex items-center justify-between" style={{ background: c.successSoft }}>
+                  <span style={{ fontSize: 12, color: c.success, fontWeight: 700 }}>هزینه‌ی تقریبی کل (با قیمت‌های واحدِ ثبت‌شده)</span>
+                  <span style={{ fontSize: 15, color: c.success, fontWeight: 800 }}>{fmtToman(totalCost)}</span>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 mb-3">
                 <input style={inputStyle(c)} value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="نام پروژه برای ذخیره (اختیاری)" />
@@ -158,7 +216,7 @@ function MaterialSettingsSheet({ c, coefficients, focusId, onSave, onClose }) {
       <div className="fixed inset-0 z-[270] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
         <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ ...glassSurface(c), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: 4 }}>ضرایب مصالح</p>
-          <p style={{ fontSize: 11, color: c.muted, marginBottom: SP.lg, lineHeight: 1.8 }}>ضریب × مساحت = مقدار. هر مقدار را می‌توانی مطابق تجربه‌ی خودت عوض کنی.</p>
+          <p style={{ fontSize: 11, color: c.muted, marginBottom: SP.lg, lineHeight: 1.8 }}>ضریب × مساحت = مقدار. قیمت واحد رو خودت طبق قیمت روز بازار وارد کن — قیمت مصالح روزانه و بین شهرها فرق زیادی داره، Flora نمی‌تونه حدس بزنه.</p>
           <div className="flex-1 overflow-y-auto flex flex-col gap-3">
             {rows.map((m) => (
               <div key={m.id} className="rounded-xl p-3" style={{ background: focusId === m.id ? c.attnSoft : c.surface2 }}>
@@ -172,6 +230,7 @@ function MaterialSettingsSheet({ c, coefficients, focusId, onSave, onClose }) {
                   <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13, marginBottom: 8 }} value={m.factor} onChange={(e) => update(m.id, { factor: e.target.value.replace(/[^\d.]/g, "") })} placeholder="ضریب" />
                 )}
                 <input style={{ ...inputStyle(c), fontSize: 13 }} value={m.unit} onChange={(e) => update(m.id, { unit: e.target.value })} placeholder="واحد (مثلاً کیسه، کیلوگرم...)" />
+                <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13, marginTop: 8 }} value={m.unitPrice || ""} onChange={(e) => update(m.id, { unitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="قیمت واحد امروز (تومان) — اختیاری" />
                 {m.note && <p style={{ fontSize: 10, color: c.muted, marginTop: 6 }}>{m.note}</p>}
               </div>
             ))}
