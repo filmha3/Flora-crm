@@ -27,6 +27,7 @@ import { AuthPhoneField, PasswordBoxes, AuthScreen, OnboardingTour, formatPhoneD
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
+import { DEFAULT_MATERIAL_COEFFICIENTS } from "./lib/materialEstimate.js";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
 import { SAREIN_CENTER, DARK_TILE_URL, LIGHT_TILE_URL, DARK_TILE_FILTER, loadLeaflet, reverseGeocodeAddress } from "./lib/geo.js";
@@ -229,6 +230,8 @@ export default function FloraCRM() {
   const [constructionProjects, setConstructionProjects] = useState([]);
   const [constructionTransactions, setConstructionTransactions] = useState([]);
   const [legalConversations, setLegalConversations] = useState([]);
+  const [materialCoefficients, setMaterialCoefficients] = useState(DEFAULT_MATERIAL_COEFFICIENTS);
+  const [materialEstimates, setMaterialEstimates] = useState([]);
   const [checks, setChecks] = useState([]); // Checks to pay — recipient, amount, due date, voice-capable
   const [tours, setTours] = useState([]); // Showing / Tour Mode
   const [tourBuilder, setTourBuilder] = useState(null); // { step, customerId, customerName, customerPhone, propertyIds, items }
@@ -321,6 +324,8 @@ export default function FloraCRM() {
     setConstructionTransactions(d?.constructionTransactions || []);
     setTours(d?.tours || []);
     setLegalConversations(d?.legalConversations || []);
+    if (d?.materialCoefficients !== undefined) setMaterialCoefficients(d.materialCoefficients);
+    if (d?.materialEstimates !== undefined) setMaterialEstimates(d.materialEstimates);
     // Profile/AI settings now ride the same cloud-synced blob as the rest of
     // the data (previously local-only, under a separate key — see the
     // removed per-field effect below) — but only touch a field when the
@@ -414,7 +419,7 @@ export default function FloraCRM() {
     const t = setTimeout(() => {
       const now = Date.now();
       const core = {
-        properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations,
+        properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates,
         // Profile + AI settings — folded into the same cloud-synced blob as
         // everything else (previously a separate, local-only key) so
         // setting your name or AI key on one device actually shows up on
@@ -428,7 +433,7 @@ export default function FloraCRM() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode]);
+  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode]);
 
   // Live cross-device convergence: if a second signed-in device (or this
   // same account on the web) pushes a newer flora_data row while this tab
@@ -853,7 +858,7 @@ export default function FloraCRM() {
     c, dark, session, signOut: () => supabase.auth.signOut(),
     properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, splitShares, setSplitShares, simpleMode, setSimpleMode,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates, splitShares, setSplitShares, simpleMode, setSimpleMode,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
