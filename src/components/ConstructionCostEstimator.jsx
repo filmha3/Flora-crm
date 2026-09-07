@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { X, ChevronDown, Wifi, Loader2, Plus, Trash2, Save, Layers, Settings2, AlertTriangle } from "lucide-react";
 import { SP, RAD, FS, FW, glass, glassSurface } from "../lib/theme.js";
-import { BodyPortal, Field, inputStyle, EmptyLine } from "../lib/ui.jsx";
+import { BodyPortal, Field, inputStyle, EmptyLine, MoneyField } from "../lib/ui.jsx";
 import { uid, faDigits, fmtToman, fmtJalali, toNum, todayISO } from "../lib/format.js";
-import { DEFAULT_MATERIAL_COEFFICIENTS } from "../lib/materialEstimate.js";
+import { mergeWithDefaults } from "../lib/materialEstimate.js";
 import { computePhaseBreakdown, makeDefaultSundryRows } from "../lib/constructionCostEstimate.js";
 import { MaterialSettingsSheet } from "./MaterialEstimator.jsx";
 
@@ -37,6 +37,7 @@ function PriceBadge({ c, internet }) {
 }
 
 function MaterialRow({ c, m, onChange, onFetchPrice, fetching, canFetch }) {
+  const [showLabor, setShowLabor] = useState(!!m.laborUnitPrice);
   const cost = (m.materialCost || 0) + (m.laborCost || 0);
   return (
     <div className="rounded-xl p-3 mb-2" style={{ background: c.surface2 }}>
@@ -44,11 +45,17 @@ function MaterialRow({ c, m, onChange, onFetchPrice, fetching, canFetch }) {
         <p style={{ fontSize: 13, fontWeight: 700 }}>{m.name}</p>
         <span style={{ fontSize: 11, color: c.muted }}>{faDigits(m.qty)} {m.unit || "—"}</span>
       </div>
-      <div className="grid grid-cols-2" style={{ gap: 8 }}>
-        <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 12 }} value={m.unitPrice || ""} onChange={(e) => onChange({ unitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="قیمت مصالح" />
-        <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 12 }} value={m.laborUnitPrice || ""} onChange={(e) => onChange({ laborUnitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="دستمزد واحد" />
-      </div>
-      {m.unitPriceInternet && !m.unitPrice && <div style={{ marginTop: 6 }}><PriceBadge c={c} internet={m.unitPriceInternet} /></div>}
+      <MoneyField c={c} value={m.unitPrice || ""} onChange={(v) => onChange({ unitPrice: v })} placeholder="قیمت مصالح (تومان)" style={{ fontSize: 12 }} />
+      {m.unitPriceInternet && !m.unitPrice && <div style={{ marginTop: 4 }}><PriceBadge c={c} internet={m.unitPriceInternet} /></div>}
+
+      {!showLabor ? (
+        <button onClick={() => setShowLabor(true)} className="press" style={{ fontSize: 10.5, color: c.primary, fontWeight: 700, marginTop: 6 }}>+ دستمزد جدا</button>
+      ) : (
+        <div style={{ marginTop: 6 }}>
+          <MoneyField c={c} value={m.laborUnitPrice || ""} onChange={(v) => onChange({ laborUnitPrice: v })} placeholder="دستمزد واحد (تومان)" style={{ fontSize: 12 }} />
+        </div>
+      )}
+
       <div className="flex items-center justify-between" style={{ marginTop: 8 }}>
         <button onClick={onFetchPrice} disabled={!canFetch || fetching} className="press flex items-center" style={{ gap: 4, fontSize: 10, color: canFetch ? c.primary : c.muted, fontWeight: 700, opacity: canFetch || fetching ? 1 : 0.5 }}>
           {fetching ? <Loader2 size={11} className="animate-spin" /> : <Wifi size={11} />} قیمت اینترنتی
@@ -61,9 +68,9 @@ function MaterialRow({ c, m, onChange, onFetchPrice, fetching, canFetch }) {
 
 function SundryRow({ c, row, onChange, onRemove }) {
   return (
-    <div className="flex items-center gap-2 mb-2">
+    <div className="flex items-start gap-2 mb-2">
       <input style={{ ...inputStyle(c), fontSize: 12, flex: 1.4 }} value={row.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="نام هزینه" />
-      <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 12, flex: 1 }} value={row.amount} onChange={(e) => onChange({ amount: e.target.value.replace(/[^\d.]/g, "") })} placeholder="مبلغ (تومان)" />
+      <div style={{ flex: 1 }}><MoneyField c={c} value={row.amount} onChange={(v) => onChange({ amount: v })} placeholder="مبلغ" style={{ fontSize: 12 }} /></div>
       <button onClick={onRemove} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
     </div>
   );
@@ -110,17 +117,27 @@ function PhaseCard({ c, phase, open, onToggle, onChangeMaterial, onFetchMaterial
 
 function ConstructionCostEstimatorHome({ ctx, onClose }) {
   const { c, notify, materialCoefficients, setMaterialCoefficients, constructionCostEstimates, setConstructionCostEstimates, aiProvider, hasAiKey, callAI } = ctx;
-  const coefficients = materialCoefficients?.length ? materialCoefficients : DEFAULT_MATERIAL_COEFFICIENTS;
+  const baseCoefficients = mergeWithDefaults(materialCoefficients);
 
+  const [inputMode, setInputMode] = useState("direct"); // "direct" | "fromLand"
   const [area, setArea] = useState("");
+  const [landArea, setLandArea] = useState("");
+  const [buildPercent, setBuildPercent] = useState("");
   const [showMore, setShowMore] = useState(false);
   const [units, setUnits] = useState("");
   const [floors, setFloors] = useState("");
-  const [structureType, setStructureType] = useState("");
-  const [qualityLevel, setQualityLevel] = useState("");
   const [city, setCity] = useState("");
-  const [roofType, setRoofType] = useState("");
-  const [facadeType, setFacadeType] = useState("");
+  const [projectNote, setProjectNote] = useState(""); // free-form: structure type, quality level, roof, facade — one field instead of four
+
+  // Prices are edited here as a LOCAL, per-estimate draft — never written
+  // straight to the shared ctx.materialCoefficients on every keystroke.
+  // Committing each price change to app-wide state immediately (the first
+  // version of this screen did that) re-renders the entire app on every
+  // digit typed, which on a real phone is exactly what makes the on-screen
+  // keyboard appear to "close" mid-typing. Structural edits (factor/unit)
+  // still go through the shared settings sheet, unaffected.
+  const [priceOverrides, setPriceOverrides] = useState({}); // { [materialId]: { unitPrice, laborUnitPrice, unitPriceInternet } }
+  const coefficients = useMemo(() => baseCoefficients.map((m) => ({ ...m, ...priceOverrides[m.id] })), [baseCoefficients, priceOverrides]);
 
   const [sundryByPhase, setSundryByPhase] = useState(() => makeDefaultSundryRows());
   const [openPhaseId, setOpenPhaseId] = useState(1);
@@ -129,12 +146,20 @@ function ConstructionCostEstimatorHome({ ctx, onClose }) {
   const [savedOpen, setSavedOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
 
-  const areaNum = toNum(area);
+  // Same "از متراژ زمین" derivation as the simple Material Estimator —
+  // مساحت ساخت = زمین × (درصد ساخت ÷ ۱۰۰) × تعداد طبقات.
+  const derivedArea = useMemo(() => {
+    const land = toNum(landArea), pct = toNum(buildPercent), fl = toNum(floors);
+    if (!land || !pct || !fl) return 0;
+    return Math.round(land * (pct / 100) * fl * 100) / 100;
+  }, [landArea, buildPercent, floors]);
+
+  const areaNum = inputMode === "fromLand" ? derivedArea : toNum(area);
   const canFetchPrice = hasAiKey && aiProvider === "perplexity";
 
   const breakdown = useMemo(() => (areaNum > 0 ? computePhaseBreakdown(areaNum, coefficients, sundryByPhase) : null), [areaNum, coefficients, sundryByPhase]);
 
-  const updateMaterial = (id, patch) => setMaterialCoefficients((prev) => (prev?.length ? prev : DEFAULT_MATERIAL_COEFFICIENTS).map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  const updateMaterial = (id, patch) => setPriceOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
   const fetchMaterialPrice = async (phaseId, m) => {
     if (!canFetchPrice) { notify("قیمت اینترنتی فقط با ارائه‌دهنده‌ی Perplexity کار می‌کند — از تنظیمات هوش مصنوعی عوضش کن."); return; }
@@ -161,8 +186,7 @@ function ConstructionCostEstimatorHome({ ctx, onClose }) {
     setConstructionCostEstimates((prev) => [{
       id: uid(),
       name: saveName.trim() || `پروژه ${faDigits(prev.length + 1)}`,
-      area: areaNum, units: unitsNum || null, floors: toNum(floors) || null,
-      structureType: structureType || null, qualityLevel: qualityLevel || null, city: city || null, roofType: roofType || null, facadeType: facadeType || null,
+      area: areaNum, units: unitsNum || null, floors: toNum(floors) || null, city: city || null, note: projectNote || null,
       phases: breakdown.phases, grandTotal: breakdown.grandTotal, totalMaterial: breakdown.totalMaterial, totalLabor: breakdown.totalLabor, totalSundry: breakdown.totalSundry,
       costPerArea: breakdown.costPerArea, costPerUnit,
       createdAt: new Date().toISOString(),
@@ -184,27 +208,51 @@ function ConstructionCostEstimatorHome({ ctx, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-8">
-          <Field c={c} label="مساحت کل ساخت (مترمربع)">
-            <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 18, fontWeight: 800 }} value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۱۰۰۰" autoFocus />
-          </Field>
+          <div className="flex" style={{ padding: 3, borderRadius: RAD.md, background: c.surface2, marginBottom: SP.lg }}>
+            {[["direct", "مساحت ساخت"], ["fromLand", "از متراژ زمین"]].map(([val, label]) => (
+              <button key={val} onClick={() => setInputMode(val)} className="press flex-1" style={{ paddingBlock: 9, borderRadius: RAD.md - 2, fontSize: 12, fontWeight: 700, background: inputMode === val ? c.gradientPrimary : "transparent", color: inputMode === val ? "#fff" : c.muted }}>{label}</button>
+            ))}
+          </div>
 
+          {inputMode === "direct" ? (
+            <Field c={c} label="مساحت کل ساخت (مترمربع)">
+              <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 18, fontWeight: 800 }} value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۱۰۰۰" autoFocus />
+            </Field>
+          ) : (
+            <>
+              <div className="grid grid-cols-3" style={{ gap: 8 }}>
+                <Field c={c} label="زمین (م²)"><input inputMode="decimal" style={inputStyle(c)} value={landArea} onChange={(e) => setLandArea(e.target.value.replace(/[^\d.]/g, ""))} placeholder="۳۰۰" /></Field>
+                <Field c={c} label="درصد ساخت"><input inputMode="decimal" style={inputStyle(c)} value={buildPercent} onChange={(e) => setBuildPercent(e.target.value.replace(/[^\d.]/g, ""))} placeholder="۶۰" /></Field>
+                <Field c={c} label="طبقات"><input inputMode="decimal" style={inputStyle(c)} value={floors} onChange={(e) => setFloors(e.target.value.replace(/[^\d.]/g, ""))} placeholder="۳" /></Field>
+              </div>
+              {derivedArea > 0 && (
+                <div className="rounded-xl p-3 mb-4 flex items-center justify-between" style={{ background: c.primarySoft }}>
+                  <span style={{ fontSize: 12, color: c.primary, fontWeight: 700 }}>مساحت ساخت محاسبه‌شده</span>
+                  <span style={{ fontSize: 15, color: c.primary, fontWeight: 800 }}>{faDigits(derivedArea)} مترمربع</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Trimmed from 7 optional fields to 3 + one free-text note —
+              the four label-only fields (structure type, quality, roof,
+              facade) don't feed any calculation, so they don't need their
+              own inputs. */}
           {!showMore ? (
             <button onClick={() => setShowMore(true)} className="press" style={{ fontSize: 12, color: c.primary, fontWeight: 700, marginBottom: SP.lg }}>+ اطلاعات تکمیلی (اختیاری)</button>
           ) : (
-            <div className="grid grid-cols-2" style={{ gap: 8, marginBottom: SP.lg }}>
-              <Field c={c} label="تعداد واحد"><input inputMode="decimal" style={inputStyle(c)} value={units} onChange={(e) => setUnits(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۵" /></Field>
-              <Field c={c} label="تعداد طبقات"><input inputMode="decimal" style={inputStyle(c)} value={floors} onChange={(e) => setFloors(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۴" /></Field>
-              <Field c={c} label="نوع سازه"><input style={inputStyle(c)} value={structureType} onChange={(e) => setStructureType(e.target.value)} placeholder="اسکلت فلزی/بتنی" /></Field>
-              <Field c={c} label="سطح کیفیت ساخت"><input style={inputStyle(c)} value={qualityLevel} onChange={(e) => setQualityLevel(e.target.value)} placeholder="اقتصادی/متوسط/لوکس" /></Field>
-              <Field c={c} label="شهر / منطقه"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً سرعین" /></Field>
-              <Field c={c} label="نوع سقف"><input style={inputStyle(c)} value={roofType} onChange={(e) => setRoofType(e.target.value)} placeholder="تیرچه‌بلوک/وافل" /></Field>
-              <Field c={c} label="نوع نما"><input style={inputStyle(c)} value={facadeType} onChange={(e) => setFacadeType(e.target.value)} placeholder="سنگ/کامپوزیت" /></Field>
-              <p style={{ fontSize: 10, color: c.muted, gridColumn: "1 / -1", lineHeight: 1.7 }}>این‌ها فقط برچسب پروژه‌اند و در ذخیره ثبت می‌شوند — برای عوض‌کردن ضرایب محاسبه، از تنظیمات (⚙️) استفاده کن.</p>
+            <div style={{ marginBottom: SP.lg }}>
+              <div className="grid grid-cols-2" style={{ gap: 8, marginBottom: 8 }}>
+                {inputMode === "direct" && <Field c={c} label="تعداد طبقات"><input inputMode="decimal" style={inputStyle(c)} value={floors} onChange={(e) => setFloors(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۴" /></Field>}
+                <Field c={c} label="تعداد واحد"><input inputMode="decimal" style={inputStyle(c)} value={units} onChange={(e) => setUnits(e.target.value.replace(/[^\d.]/g, ""))} placeholder="مثلاً ۵" /></Field>
+                <Field c={c} label="شهر / منطقه"><input style={inputStyle(c)} value={city} onChange={(e) => setCity(e.target.value)} placeholder="مثلاً سرعین" /></Field>
+              </div>
+              <Field c={c} label="توضیحات (نوع سازه، کیفیت، سقف، نما...)"><input style={inputStyle(c)} value={projectNote} onChange={(e) => setProjectNote(e.target.value)} placeholder="اختیاری، فقط برای یادداشت" /></Field>
             </div>
           )}
 
           {!breakdown ? (
-            <EmptyLine c={c} text="مساحت را وارد کن تا برآورد اولیه نمایش داده شود" />
+            <EmptyLine c={c} text={inputMode === "direct" ? "مساحت را وارد کن تا برآورد اولیه نمایش داده شود" : "زمین، درصد ساخت و طبقات را وارد کن"} />
           ) : (
             <>
               <div className="rounded-xl p-3 mb-4 flex items-start" style={{ gap: 6, background: c.attnSoft }}>

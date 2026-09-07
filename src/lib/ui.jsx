@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CalendarDays, ChevronRight, ChevronLeft } from "lucide-react";
 import { SP, RAD, FS, glass } from "./theme.js";
-import { isoToJalali, jalaliMonthLength, jalaliFirstWeekday, jalaliToIso, fmtJalali, faDigits, MONTHS_FA, WEEK_FA } from "./format.js";
+import { isoToJalali, jalaliMonthLength, jalaliFirstWeekday, jalaliToIso, fmtJalali, faDigits, MONTHS_FA, WEEK_FA, humanizeToman } from "./format.js";
 import { getImageObjectUrl } from "./imageStore.js";
 
 const FLORA_GOLD = "#BA9358";
@@ -175,4 +175,18 @@ function MediaFull({ item, alt = "", style, className, kenBurns = false }) {
   return <img src={item.url} alt={alt} style={style} className={className} />;
 }
 
-export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker, MediaThumb, MediaFull, CloudImage };
+// A plain numeric field that grows a live "۱۰ میلیارد تومان"-style hint
+// underneath as you type — reused anywhere money is entered instead of a
+// bare digit box, so a person can tell at a glance they didn't fat-finger
+// an extra zero. Purely presentational: the value it reports back is still
+// just digits, same as any other numeric field.
+function MoneyField({ c, value, onChange, placeholder, style }) {
+  return (
+    <div>
+      <input inputMode="decimal" style={{ ...inputStyle(c), ...style }} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ""))} placeholder={placeholder} />
+      {value ? <p style={{ fontSize: 10.5, color: c.muted, marginTop: 4 }}>{humanizeToman(value)}</p> : null}
+    </div>
+  );
+}
+
+export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, MoneyField, JalaliDatePicker, MediaThumb, MediaFull, CloudImage };

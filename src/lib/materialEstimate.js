@@ -16,11 +16,23 @@ export const DEFAULT_MATERIAL_COEFFICIENTS = [
   { id: "cable25", name: "کابل ۲.۵", kind: "single", factor: 3, unit: "متر", note: "" },
   { id: "plaster", name: "گچ", kind: "single", factor: 15, unit: "", note: "ضخامت ۲ سانتی‌متر" },
   { id: "wall", name: "دیوارچینی", kind: "single", factor: 1.7, unit: "مترمربع", note: "" },
+  { id: "cement", name: "سیمان (ملات دیوارچینی)", kind: "single", factor: 0.68, unit: "کیسه", note: "برآورد تقریبی ملات دیوارچینی — قابل تغییر" },
   { id: "block", name: "بلوک", kind: "single", factor: 12.5, unit: "عدد", note: "" },
   { id: "paint", name: "رنگ", kind: "single", factor: 0.5, unit: "", note: "معادل مساحت ÷ ۲" },
 ];
 
 const round = (n) => Math.round(n * 100) / 100;
+
+// If someone already has a saved coefficients array from before a new
+// default (like cement) was added, this appends whatever's missing by id
+// instead of leaving it silently absent — used everywhere a saved
+// coefficients array is read, not just on first-ever load.
+export function mergeWithDefaults(coefficients) {
+  if (!coefficients?.length) return DEFAULT_MATERIAL_COEFFICIENTS;
+  const have = new Set(coefficients.map((m) => m.id));
+  const missing = DEFAULT_MATERIAL_COEFFICIENTS.filter((m) => !have.has(m.id));
+  return missing.length ? [...coefficients, ...missing] : coefficients;
+}
 
 // coefficients defaults to the shipped list, but always accepts whatever
 // the person has edited in settings — this is the only function that reads

@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { X, Settings2, Save, Copy, Check, Trash2, Layers, Calculator } from "lucide-react";
 import { SP, RAD, FS, FW, glass, glassLite, glassSurface } from "../lib/theme.js";
-import { BodyPortal, Field, inputStyle, EmptyLine } from "../lib/ui.jsx";
+import { BodyPortal, Field, inputStyle, EmptyLine, MoneyField } from "../lib/ui.jsx";
 import { uid, faDigits, fmtJalali, fmtToman, todayISO, toNum } from "../lib/format.js";
-import { computeMaterialEstimate, DEFAULT_MATERIAL_COEFFICIENTS } from "../lib/materialEstimate.js";
+import { computeMaterialEstimate, mergeWithDefaults } from "../lib/materialEstimate.js";
 
 // A material with no unit set (plaster/paint, by default — see
 // materialEstimate.js) shows this instead of a blank space, and taps
@@ -49,7 +49,7 @@ function MaterialEstimatorHome({ ctx, onClose }) {
   const [saveName, setSaveName] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const coefficients = materialCoefficients?.length ? materialCoefficients : DEFAULT_MATERIAL_COEFFICIENTS;
+  const coefficients = mergeWithDefaults(materialCoefficients);
 
   // "از متراژ زمین": مساحت ساخت = زمین × (درصد ساخت ÷ ۱۰۰) × تعداد طبقات —
   // e.g. a 300m² lot, 60% build permit, 3 floors → 300 × 0.6 × 3 = 540m².
@@ -231,8 +231,8 @@ function MaterialSettingsSheet({ c, coefficients, focusId, onSave, onClose }) {
                 )}
                 <input style={{ ...inputStyle(c), fontSize: 13 }} value={m.unit} onChange={(e) => update(m.id, { unit: e.target.value })} placeholder="واحد (مثلاً کیسه، کیلوگرم...)" />
                 <div className="flex gap-2" style={{ marginTop: 8 }}>
-                  <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13 }} value={m.unitPrice || ""} onChange={(e) => update(m.id, { unitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="قیمت مصالح (تومان)" />
-                  <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13 }} value={m.laborUnitPrice || ""} onChange={(e) => update(m.id, { laborUnitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="دستمزد واحد (تومان)" />
+                  <div style={{ flex: 1 }}><MoneyField c={c} value={m.unitPrice || ""} onChange={(v) => update(m.id, { unitPrice: v })} placeholder="قیمت مصالح" style={{ fontSize: 13 }} /></div>
+                  <div style={{ flex: 1 }}><MoneyField c={c} value={m.laborUnitPrice || ""} onChange={(v) => update(m.id, { laborUnitPrice: v })} placeholder="دستمزد واحد" style={{ fontSize: 13 }} /></div>
                 </div>
                 {m.note && <p style={{ fontSize: 10, color: c.muted, marginTop: 6 }}>{m.note}</p>}
               </div>

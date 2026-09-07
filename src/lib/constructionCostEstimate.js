@@ -11,7 +11,7 @@ import { computeMaterialEstimate } from "./materialEstimate.js";
 // plaster materials, phase 3 = finishing materials).
 export const PHASE_DEFS = [
   { id: 1, name: "فاز ۱ — فونداسیون و اسکلت", materialIds: ["concrete", "rebar", "joist", "foam"] },
-  { id: 2, name: "فاز ۲ — دیوارچینی تا سفیدکاری", materialIds: ["wall", "block", "cable25", "plaster"] },
+  { id: 2, name: "فاز ۲ — دیوارچینی تا سفیدکاری", materialIds: ["wall", "cement", "block", "cable25", "plaster"] },
   { id: 3, name: "فاز ۳ — نازک‌کاری تا تحویل", materialIds: ["ceramic", "paint"] },
 ];
 

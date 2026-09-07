@@ -75,6 +75,20 @@ function parseDivarText(raw) {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const fmtToman = (n) => (n ? Math.round(n).toLocaleString("de-DE") : "0") + " تومان";
+
+// The live "۱۰ میلیارد تومان" hint that shows under a money field while
+// typing — one decimal place, never more, so "10500000000" reads as
+// "۱۰.۵ میلیارد تومان" instead of a wall of exact-but-unreadable digits.
+function humanizeToman(n) {
+  const num = Number(n) || 0;
+  if (!num) return "";
+  const abs = Math.abs(num);
+  const round1 = (v) => { const r = Math.round(v * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
+  if (abs >= 1_000_000_000) return `${faDigits(round1(num / 1_000_000_000))} میلیارد تومان`;
+  if (abs >= 1_000_000) return `${faDigits(round1(num / 1_000_000))} میلیون تومان`;
+  if (abs >= 1_000) return `${faDigits(round1(num / 1_000))} هزار تومان`;
+  return `${faDigits(Math.round(num))} تومان`;
+}
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-export { div, faDigits, MONTHS_FA, WEEK_FA, LEAP_CYCLE, isLeapJalali, gregorianToJalali, jalaliToGregorian, isoToJalali, jalaliToIso, fmtJalali, jalaliMonthLength, jalaliFirstWeekday, toEnDigits, toDecimal, toNum, parseDivarText, uid, fmtToman, todayISO };
+export { div, faDigits, MONTHS_FA, WEEK_FA, LEAP_CYCLE, isLeapJalali, gregorianToJalali, jalaliToGregorian, isoToJalali, jalaliToIso, fmtJalali, jalaliMonthLength, jalaliFirstWeekday, toEnDigits, toDecimal, toNum, parseDivarText, uid, fmtToman, humanizeToman, todayISO };
