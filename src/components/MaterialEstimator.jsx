@@ -216,7 +216,7 @@ function MaterialSettingsSheet({ c, coefficients, focusId, onSave, onClose }) {
       <div className="fixed inset-0 z-[270] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
         <div onClick={(e) => e.stopPropagation()} className="w-full" style={{ ...glassSurface(c), borderRadius: `${RAD.lg}px ${RAD.lg}px 0 0`, padding: SP.xl, maxWidth: 390, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
           <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: 4 }}>ضرایب مصالح</p>
-          <p style={{ fontSize: 11, color: c.muted, marginBottom: SP.lg, lineHeight: 1.8 }}>ضریب × مساحت = مقدار. قیمت واحد رو خودت طبق قیمت روز بازار وارد کن — قیمت مصالح روزانه و بین شهرها فرق زیادی داره، Flora نمی‌تونه حدس بزنه.</p>
+          <p style={{ fontSize: 11, color: c.muted, marginBottom: SP.lg, lineHeight: 1.8 }}>ضریب × مساحت = مقدار. قیمت مصالح و دستمزد رو خودت طبق قیمت روز وارد کن — قیمت‌ها روزانه و بین شهرها فرق زیادی داره، Flora نمی‌تونه حدس بزنه.</p>
           <div className="flex-1 overflow-y-auto flex flex-col gap-3">
             {rows.map((m) => (
               <div key={m.id} className="rounded-xl p-3" style={{ background: focusId === m.id ? c.attnSoft : c.surface2 }}>
@@ -230,7 +230,10 @@ function MaterialSettingsSheet({ c, coefficients, focusId, onSave, onClose }) {
                   <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13, marginBottom: 8 }} value={m.factor} onChange={(e) => update(m.id, { factor: e.target.value.replace(/[^\d.]/g, "") })} placeholder="ضریب" />
                 )}
                 <input style={{ ...inputStyle(c), fontSize: 13 }} value={m.unit} onChange={(e) => update(m.id, { unit: e.target.value })} placeholder="واحد (مثلاً کیسه، کیلوگرم...)" />
-                <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13, marginTop: 8 }} value={m.unitPrice || ""} onChange={(e) => update(m.id, { unitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="قیمت واحد امروز (تومان) — اختیاری" />
+                <div className="flex gap-2" style={{ marginTop: 8 }}>
+                  <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13 }} value={m.unitPrice || ""} onChange={(e) => update(m.id, { unitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="قیمت مصالح (تومان)" />
+                  <input inputMode="decimal" style={{ ...inputStyle(c), fontSize: 13 }} value={m.laborUnitPrice || ""} onChange={(e) => update(m.id, { laborUnitPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="دستمزد واحد (تومان)" />
+                </div>
                 {m.note && <p style={{ fontSize: 10, color: c.muted, marginTop: 6 }}>{m.note}</p>}
               </div>
             ))}
@@ -242,4 +245,4 @@ function MaterialSettingsSheet({ c, coefficients, focusId, onSave, onClose }) {
   );
 }
 
-export { MaterialEstimatorHome };
+export { MaterialEstimatorHome, MaterialSettingsSheet };

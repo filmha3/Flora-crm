@@ -6,6 +6,7 @@ import { toNum, uid, fmtToman, faDigits, fmtJalali, todayISO, toEnDigits, isoToJ
 import { CONSTRUCTION_CATEGORIES, fmtBudgetShort } from "../lib/constants.js";
 import { computeProjectStats, computeMonthlyReport } from "../lib/construction.js";
 import { MaterialEstimatorHome } from "./MaterialEstimator.jsx";
+import { ConstructionCostEstimatorHome } from "./ConstructionCostEstimator.jsx";
 
 // Construction & Building — a deliberately separate workspace from general
 // Finance (per explicit instruction: "این حسابداری عمومی نیست"). Voice/text
@@ -18,6 +19,7 @@ function ConstructionHome({ ctx, onClose }) {
   const [openProjectId, setOpenProjectId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showEstimator, setShowEstimator] = useState(false);
+  const [showCostEstimator, setShowCostEstimator] = useState(false);
 
   const project = openProjectId ? constructionProjects.find((p) => p.id === openProjectId) : null;
   if (project) {
@@ -33,11 +35,20 @@ function ConstructionHome({ ctx, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-8">
-          <button onClick={() => setShowEstimator(true)} className="press w-full text-right rounded-2xl p-4 mb-4 flex items-center gap-3" style={glass(c)}>
+          <button onClick={() => setShowEstimator(true)} className="press w-full text-right rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
             <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><Calculator size={20} color={c.attn} /></div>
             <div className="flex-1 min-w-0">
               <p style={{ fontSize: 13, fontWeight: 700 }}>برآورد مصالح</p>
               <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>فقط مساحت را بده، مقدار تقریبی مصالح را بگیر</p>
+            </div>
+            <ChevronRight size={17} color={c.muted} style={{ transform: "scaleX(-1)" }} />
+          </button>
+
+          <button onClick={() => setShowCostEstimator(true)} className="press w-full text-right rounded-2xl p-4 mb-4 flex items-center gap-3" style={glass(c)}>
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><HardHat size={20} color={c.primary} /></div>
+            <div className="flex-1 min-w-0">
+              <p style={{ fontSize: 13, fontWeight: 700 }}>برآورد هزینه کامل ساخت</p>
+              <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>فازبندی، مصالح، دستمزد و هزینه هر مترمربع</p>
             </div>
             <ChevronRight size={17} color={c.muted} style={{ transform: "scaleX(-1)" }} />
           </button>
@@ -89,6 +100,7 @@ function ConstructionHome({ ctx, onClose }) {
         />
       )}
       {showEstimator && <MaterialEstimatorHome ctx={ctx} onClose={() => setShowEstimator(false)} />}
+      {showCostEstimator && <ConstructionCostEstimatorHome ctx={ctx} onClose={() => setShowCostEstimator(false)} />}
     </BodyPortal>
   );
 }
