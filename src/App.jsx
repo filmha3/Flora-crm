@@ -110,7 +110,6 @@ export default function FloraCRM() {
       resolved = true;
       setActiveUid(data.session?.user?.id || null);
       setSession(data.session);
-      setBootProgress((p) => Math.max(p, 20));
     });
 
     // getSession() refreshes an expiring token over the network before it
@@ -131,7 +130,6 @@ export default function FloraCRM() {
         const cached = raw?.currentSession || raw || null;
         setActiveUid(cached?.user?.id || null);
         setSession(cached);
-        setBootProgress((p) => Math.max(p, 20));
       } catch (e) { setSession(null); }
     }, 3000);
 
@@ -262,7 +260,6 @@ export default function FloraCRM() {
   const [agencyName, setAgencyName] = useState("املاک گنجینه");
   const [agencyCity, setAgencyCity] = useState("سرعین");
   const [loaded, setLoaded] = useState(false);
-  const [bootProgress, setBootProgress] = useState(4);
   // A safety net beyond the individual per-call timeouts (session check,
   // IndexedDB, cloud sync each already cap at 3s): if `loaded` still isn't
   // true after 12s — something none of those specific guards anticipated,
@@ -273,7 +270,7 @@ export default function FloraCRM() {
   // still stuck.
   const [bootStuck, setBootStuck] = useState(false);
   useEffect(() => {
-    if (loaded) { setBootStuck(false); return; }
+    if (loaded) { setBootStuck(false); window.dispatchEvent(new Event("flora:ready")); return; }
     const t = setTimeout(() => setBootStuck(true), 12000);
     return () => clearTimeout(t);
   }, [loaded]);
@@ -356,7 +353,6 @@ export default function FloraCRM() {
         const saved = await dbGet(DATA_KEY);
         core = saved || null;
         applyCoreData(core);
-        setBootProgress((p) => Math.max(p, 45));
 
         // Cloud reconciliation: whichever side (this device's IndexedDB vs.
         // the flora_data row) has the newer updated_at wins and overwrites
@@ -383,7 +379,6 @@ export default function FloraCRM() {
           } catch (e) { console.warn("Flora: cloud sync unavailable, continuing offline-only", e); }
         }
         setCloudReady(true);
-        setBootProgress((p) => Math.max(p, 80));
 
         // One-time migration fallback only: applies a field from the old
         // local-only settings record ONLY if the cloud/local core above
@@ -404,7 +399,6 @@ export default function FloraCRM() {
           setSplitShares((v) => v || settings.splitShares);
         }
       } catch (e) { console.error("Flora: load failed", e); }
-      setBootProgress(100);
       setLoaded(true);
     })();
     // Deliberately keyed on the identity, not the session object: Supabase
@@ -627,13 +621,13 @@ export default function FloraCRM() {
   // Everything below this line (ctx, the CRM itself) only matters once we
   // know who's signed in — checked last so every hook above still runs on
   // every render, auth state or not.
-  // Same loader for the whole boot sequence (session check → local data →
-  // cloud sync → settings) — a person reopening the app used to see one
-  // loading screen flash into a visually different second one partway
-  // through, which read as the app stalling and restarting. bootProgress
-  // already starts low and only climbs, so showing this one component the
-  // entire time is a strict simplification, not a behavior change.
-  if (session === undefined) return <FerrofluidLoader c={c} progress={bootProgress} />;
+  // The splash video (index.html/main.jsx) covers this whole boot sequence
+  // now — session check, local data, cloud sync, settings — so there's
+  // nothing to paint here but a matching-color background. main.jsx only
+  // lifts the splash once this component has actually finished loading
+  // (see the "flora:ready" dispatch below), so this is never visible
+  // except for a rare slow-network moment after the video's own reveal ends.
+  if (session === undefined) return <div style={{ position: "fixed", inset: 0, background: c.bg }} />;
   if (!session) return <AuthScreen c={c} dark={dark} />;
 
   // Whether THIS user typed their own key in settings. Only this decides
@@ -891,7 +885,23 @@ export default function FloraCRM() {
   };
 
   if (!loaded) {
-    return <FerrofluidLoader c={c} progress={bootProgress} stuck={bootStuck} />;
+    // Same matching-background placeholder as the session-check branch
+    // above — the splash video is still covering the screen at this point
+    // in the normal case. bootStuck only ever flips true after 12s, which
+    // the video's own ~5s reveal is nowhere near, so this retry button is a
+    // genuine last-resort path, not something a normal load ever shows.
+    return (
+      <div style={{ position: "fixed", inset: 0, background: c.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+        {bootStuck && (
+          <>
+            <p style={{ fontSize: 12, color: c.muted, textAlign: "center", maxWidth: 260, lineHeight: 1.8 }}>این مرحله بیشتر از حد معمول طول کشید.</p>
+            <button onClick={() => window.location.reload()} className="press" style={{ padding: "10px 22px", borderRadius: RAD.pill, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: 13 }}>
+              تلاش دوباره
+            </button>
+          </>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -1330,88 +1340,6 @@ const floraIcon = (name, props) => (FloraIcons[name] || FloraIcons.residential)(
 // shared static filter — no per-frame layout, no JS animation loop.
 // `progress` is real boot state (session → local data → cloud sync →
 // settings), not decorative — the ring and the number both track it exactly.
-function FerrofluidLoader({ c, progress, stuck = false }) {
-  const pct = Math.max(0, Math.min(100, Math.round(progress)));
-  const RING_R = 54;
-  const RING_C = 2 * Math.PI * RING_R;
-  const blobs = [
-    { size: 74, dur: 5.2, delay: 0, radius: 10 },
-    { size: 40, dur: 4.1, delay: -1.1, radius: 22 },
-    { size: 34, dur: 4.8, delay: -2.4, radius: 24 },
-    { size: 30, dur: 3.6, delay: -0.6, radius: 20 },
-    { size: 26, dur: 5.6, delay: -3.2, radius: 26 },
-    { size: 22, dur: 4.3, delay: -1.8, radius: 18 },
-  ];
-  return (
-    <div dir="rtl" style={{ background: c.bg, fontFamily: "'Vazirmatn', sans-serif" }} className="min-h-screen w-full flex flex-col items-center justify-center gap-5">
-      <style>{`
-        @keyframes floraFerroDrift0 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(0,0) scale(1.06); } }
-        ${blobs.slice(1).map((b, i) => `
-        @keyframes floraFerroDrift${i + 1} {
-          0%   { transform: translate(0, 0); }
-          25%  { transform: translate(${b.radius}px, ${-b.radius * 0.6}px); }
-          50%  { transform: translate(${b.radius * 0.3}px, ${b.radius}px); }
-          75%  { transform: translate(${-b.radius}px, ${b.radius * 0.4}px); }
-          100% { transform: translate(0, 0); }
-        }`).join("\n")}
-        .flora-ferro-blob { position: absolute; top: 50%; left: 50%; border-radius: 50%; background: ${c.isDark ? "#0b1220" : "#111827"}; }
-        @media (prefers-reduced-motion: reduce) { .flora-ferro-blob { animation: none !important; } }
-      `}</style>
-
-      <div className="relative flex items-center justify-center" style={{ width: 128, height: 128 }}>
-        {/* Progress ring — real value, drawn independently of the goo blob so it stays crisp */}
-        <svg width={128} height={128} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
-          <circle cx={64} cy={64} r={RING_R} fill="none" stroke={c.border} strokeWidth={2} opacity={0.5} />
-          <circle
-            cx={64} cy={64} r={RING_R} fill="none" stroke={c.primary} strokeWidth={2.5} strokeLinecap="round"
-            strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - pct / 100)}
-            style={{ transition: "stroke-dashoffset .3s ease" }}
-          />
-        </svg>
-
-        {/* The ferrofluid blob itself, goo-merged */}
-        <div style={{ width: 96, height: 96, filter: "url(#flora-goo)" }} className="relative">
-          <svg width={0} height={0} style={{ position: "absolute" }}>
-            <filter id="flora-goo">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur" />
-              <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9" />
-            </filter>
-          </svg>
-          {blobs.map((b, i) => (
-            <div
-              key={i}
-              className="flora-ferro-blob"
-              style={{
-                width: b.size, height: b.size, marginTop: -b.size / 2, marginLeft: -b.size / 2,
-                animation: `floraFerroDrift${i} ${b.dur}s ease-in-out ${b.delay}s infinite`,
-              }}
-            />
-          ))}
-        </div>
-
-        {/* A thin gold rim-light on top of the goo group, unaffected by the
-            blur filter, is what reads as "metallic liquid" instead of "dark
-            circle" — Flora's existing gold accent, not a new color. */}
-        <div style={{ position: "absolute", top: 16, left: 16, width: 96, height: 96, borderRadius: "50%", boxShadow: `inset 0 -6px 14px -4px ${FLORA_GOLD}55, inset 0 4px 10px -6px rgba(255,255,255,0.25)`, pointerEvents: "none" }} />
-
-        <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", fontSize: 22, fontWeight: FW.heavy, color: "#fff", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{faDigits(pct)}٪</span>
-      </div>
-
-      <p style={{ fontSize: 13, color: c.muted, fontWeight: 600 }}>Flora در حال آماده‌سازی...</p>
-
-      {/* Escape hatch: only appears if the watchdog above actually trips —
-          normal loads never see this. */}
-      {stuck && (
-        <div className="flex flex-col items-center" style={{ gap: 8, marginTop: 4 }}>
-          <p style={{ fontSize: 12, color: c.muted, textAlign: "center", maxWidth: 260, lineHeight: 1.8 }}>این مرحله بیشتر از حد معمول طول کشید.</p>
-          <button onClick={() => window.location.reload()} className="press" style={{ padding: "10px 22px", borderRadius: RAD.pill, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: 13 }}>
-            تلاش دوباره
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function StageBadge({ c, stage }) {
   const badge = (color, soft, label) => <span style={{ fontSize: FS.caption, fontWeight: FW.bold, color, background: soft, padding: `3px ${SP.sm + 2}px`, borderRadius: RAD.pill }}>{label}</span>;
@@ -4436,7 +4364,7 @@ function DocumentCenterView({ ctx, onBack }) {
       const prompt = `یک «${draft.title}» کامل و حرفه‌ای به فارسی بنویس، مطابق عرف قراردادهای املاک در ایران.
 اطلاعات واقعی موجود (حتماً در متن استفاده کن):
 ${facts || "— اطلاعاتی انتخاب نشده —"}
-
+${draft.extraNotes?.trim() ? `\nاطلاعات و شرایط اضافی که مشاور مستقیم وارد کرده (این‌ها هم باید در قرارداد لحاظ شوند):\n${draft.extraNotes.trim()}\n` : ""}
 قوانین:
 - ساختار ماده‌بندی‌شده (ماده ۱، ماده ۲، ...) با عنوان هر ماده.
 - برای هر اطلاعاتی که در بالا داده نشده، به‌جای حدس‌زدن، نقطه‌چین بگذار (مثل: ............) تا دستی پر شود. هرگز اطلاعات ساختگی ننویس.
@@ -4459,9 +4387,11 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
     const shotPages = (draft.shots || []).map((s) => `<div class="shot"><img src="${s.url}" /></div>`).join("");
     w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>${draft.title}</title>
       <style>@page{size:A4;margin:2cm}body{font-family:Vazirmatn,Tahoma,sans-serif;line-height:2.1;font-size:12pt;color:#111}
-      h1{font-size:15pt;text-align:center;margin-bottom:1.5em}pre{white-space:pre-wrap;font-family:inherit;font-size:inherit}
+      h1{font-size:15pt;text-align:center;margin-bottom:1.5em}
+      .contract-box{border:1.5px solid #222;border-radius:6px;padding:1.6em 1.4em}
+      pre{white-space:pre-wrap;font-family:inherit;font-size:inherit;margin:0}
       .shot{page-break-before:always;text-align:center}.shot img{max-width:100%;max-height:25cm;object-fit:contain}</style>
-      </head><body><h1>${draft.title}</h1><pre>${(draft.text || "").replace(/</g, "&lt;")}</pre>${shotPages}</body></html>`);
+      </head><body><h1>${draft.title}</h1><div class="contract-box"><pre>${(draft.text || "").replace(/</g, "&lt;")}</pre></div>${shotPages}</body></html>`);
     w.document.close();
     setTimeout(() => w.print(), 500);
   };
@@ -4482,6 +4412,19 @@ ${facts || "— اطلاعاتی انتخاب نشده —"}
           <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>فایل و مشتری را انتخاب کن تا اطلاعات خودکار در قرارداد بنشیند.</p>
           <Field c={c} label="فایل ملک"><Select c={c} value={draft.propertyId} onChange={(e) => setDraft({ ...draft, propertyId: e.target.value })} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
           <Field c={c} label="مشتری"><Select c={c} value={draft.customerId} onChange={(e) => setDraft({ ...draft, customerId: e.target.value })} placeholder="انتخاب مشتری" options={customers.map((x) => ({ value: x.id, label: x.name }))} /></Field>
+          {/* Anything not covered by the file/customer selection — a special
+              condition, an agreed date, a clause the agent wants included —
+              goes straight into the same prompt as the file/customer facts
+              below, not a separate pass the model might ignore. */}
+          <Field c={c} label="اطلاعات یا شرایط اضافی برای هوش مصنوعی (اختیاری)">
+            <textarea
+              value={draft.extraNotes || ""}
+              onChange={(e) => setDraft({ ...draft, extraNotes: e.target.value })}
+              placeholder="مثلاً: تحویل دو ماه دیگه، پیش‌پرداخت ۲۰۰ میلیون، یا هر نکته‌ی دیگه‌ای که باید توی قرارداد باشه..."
+              rows={3}
+              style={{ ...inputStyle(c), resize: "vertical", lineHeight: 1.8 }}
+            />
+          </Field>
           <button onClick={generate} disabled={draft.loading} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
             {draft.loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{draft.loading ? "در حال نوشتن..." : draft.text ? "نوشتن دوباره" : "تنظیم قرارداد با AI"}
           </button>

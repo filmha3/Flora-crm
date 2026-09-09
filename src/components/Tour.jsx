@@ -5,8 +5,8 @@ import {
   StickyNote, CheckCircle2,
 } from "lucide-react";
 import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
-import { Field, inputStyle, EmptyLine, BodyPortal } from "../lib/ui.jsx";
-import { faDigits, fmtToman, uid, todayISO } from "../lib/format.js";
+import { Field, inputStyle, EmptyLine, BodyPortal, MediaThumb } from "../lib/ui.jsx";
+import { faDigits, fmtToman, uid, todayISO, toNum } from "../lib/format.js";
 import { typeIcon } from "../lib/constants.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "../lib/tourMeta.js";
 
@@ -113,7 +113,7 @@ function TourStepCustomer({ ctx, b, patch }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const filtered = customers.filter((cu) => !q || cu.name.includes(q) || (cu.phone || "").includes(q));
+  const filtered = customers.filter((cu) => !q || (cu.name || "").includes(q) || (cu.phone || "").includes(q));
   const pick = (cu) => patch({ customerId: cu.id, customerName: cu.name, customerPhone: cu.phone || "", step: "properties" });
   const addNew = () => { if (!name.trim()) return; const cu = { id: uid(), name: name.trim(), phone: phone.trim(), need: "", budget: 0 }; setCustomers((prev) => [cu, ...prev]); pick(cu); };
 
@@ -160,7 +160,12 @@ function TourStepProperties({ ctx, b, patch }) {
   const [adding, setAdding] = useState(false);
   const [qa, setQa] = useState({ title: "", address: "", price: "", ownerPhone: "" });
   const selectable = properties.filter((p) => p.stage !== "فروخته شد");
-  const filtered = selectable.filter((p) => !q || p.title.includes(q) || (p.address || "").includes(q));
+  // (p.title || "") — a property missing a title (a malformed/legacy
+  // record) used to throw right here (.includes on undefined), and with no
+  // error boundary anywhere in the app, that crashed the entire screen to
+  // black the instant this step tried to render — right after picking a
+  // customer, since this is the very next step.
+  const filtered = selectable.filter((p) => !q || (p.title || "").includes(q) || (p.address || "").includes(q));
   const selected = b.propertyIds || [];
   const toggle = (id) => { if (selected.includes(id)) { patch({ propertyIds: selected.filter((x) => x !== id) }); return; } if (selected.length >= 6) return; patch({ propertyIds: [...selected, id] }); };
 
@@ -193,7 +198,7 @@ function TourStepProperties({ ctx, b, patch }) {
           return (
             <button key={p.id} onClick={() => toggle(p.id)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: isSel ? c.purpleSoft : c.surface2, border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
               <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 44, height: 44, borderRadius: RAD.sm, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-                {cover ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Icon size={18} color={c.primary} />}
+                {cover ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Icon size={18} color={c.primary} />}
               </div>
               <div className="flex-1 min-w-0">
                 <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p>
@@ -363,7 +368,7 @@ function TourFocusMode({ ctx, tour }) {
 
         <div className="flex-1 overflow-y-auto px-4 pb-6">
           <div className="rounded-2xl overflow-hidden mb-3" style={{ height: 180, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-            {cover ? <img src={cover.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div className="w-full h-full flex items-center justify-center">{React.createElement(typeIcon(p.type), { size: 44, color: c.primary })}</div>}
+            {cover ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div className="w-full h-full flex items-center justify-center">{React.createElement(typeIcon(p.type), { size: 44, color: c.primary })}</div>}
           </div>
 
           <h1 style={{ fontSize: FS.title, fontWeight: FW.heavy, lineHeight: 1.4 }}>{p.title}</h1>
