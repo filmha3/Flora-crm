@@ -636,7 +636,13 @@ export default function FloraCRM() {
   if (session === undefined) return <FerrofluidLoader c={c} progress={bootProgress} />;
   if (!session) return <AuthScreen c={c} dark={dark} />;
 
-  const hasAiKey = (aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "perplexity" && perplexityKey);
+  // Whether THIS user typed their own key in settings. Only this decides
+  // which path callAI takes (personal key direct vs. server proxy).
+  const hasPersonalAiKey = !!((aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "perplexity" && perplexityKey));
+  // What the UI gates on. Now always true: with no personal key the server
+  // proxy answers instead, so AI features are never dead on arrival for
+  // someone who just installed the app.
+  const hasAiKey = true;
   // Voice-to-text uses AvalAI's Whisper proxy specifically — the other providers
   // aren't wired for audio, so voice notes need an AvalAI key regardless of which
   // provider is chosen for text (only real Whisper gets Persian numbers/names right).
@@ -671,6 +677,21 @@ export default function FloraCRM() {
   // reuses it too, even after AI Virtual Staging itself was removed.
   const canStage = !!avalaiKey;
   const callAI = async (prompt) => {
+    // No personal key set → go through the server proxy, which holds the
+    // app owner's shared key in Supabase secrets. This is what makes the
+    // AI features work out of the box for a normal user who has never
+    // heard of Gemini; entering a personal key in settings is now an
+    // optional upgrade (own quota, own model choice), not a prerequisite.
+    if (!hasPersonalAiKey) {
+      const { data, error } = await supabase.functions.invoke("ai-proxy", { body: { prompt } });
+      if (error) {
+        let msg = error.message;
+        try { const b = await error.context?.json?.(); if (b?.error) msg = b.error; } catch (e) { /* ignore */ }
+        throw new Error(msg);
+      }
+      if (data?.error) throw new Error(data.error);
+      return data.text;
+    }
     // AvalAI — an Iranian gateway that's OpenAI-compatible and reachable from Iran
     // without a VPN, so it sidesteps the Gemini/OpenAI regional blocks.
     if (aiProvider === "avalai") {
