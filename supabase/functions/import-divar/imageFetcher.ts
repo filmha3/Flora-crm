@@ -96,18 +96,27 @@ async function downloadOne(sourceUrl: string, position: number, referer: string)
   }
 }
 
-export async function downloadImages(sourceUrls: { sourceUrl: string; position: number }[], listingUrl: string): Promise<DownloadedImage[]> {
+export async function downloadImages(sourceUrls: { sourceUrl: string; candidates?: string[]; position: number }[], listingUrl: string): Promise<DownloadedImage[]> {
   const results: DownloadedImage[] = [];
   let totalBytes = 0;
   // Sequential, not Promise.all: keeps a hard cap on total response size
   // predictable, and keeps this function from opening a dozen outbound
   // connections at once for a single import click.
-  for (const { sourceUrl, position } of sourceUrls) {
+  for (const { sourceUrl, candidates, position } of sourceUrls) {
     if (totalBytes >= MAX_TOTAL_BYTES) {
       results.push({ sourceUrl, position, base64: null, contentType: null });
       continue;
     }
-    const img = await downloadOne(sourceUrl, position, listingUrl);
+    // Walk the ranked variants best-first and keep the first one that
+    // actually comes back as a real image. Without this, a highest-quality
+    // URL that 404s (or is hotlink-blocked at that size) would leave the
+    // slot empty even though a perfectly good smaller variant was known.
+    const tryUrls = candidates?.length ? candidates : [sourceUrl];
+    let img: DownloadedImage = { sourceUrl, position, base64: null, contentType: null };
+    for (const candidate of tryUrls) {
+      const attempt = await downloadOne(candidate, position, listingUrl);
+      if (attempt.base64) { img = attempt; break; }
+    }
     if (img.base64) totalBytes += img.base64.length * 0.75; // rough decoded-byte estimate
     results.push(img);
   }

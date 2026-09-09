@@ -17,6 +17,11 @@ export type Confidence = "high" | "medium" | "low";
 
 export interface ExtractedImage {
   sourceUrl: string;
+  // Every known URL variant of this same photo, best-quality first. The
+  // fetcher walks these in order until one actually downloads, so a
+  // higher-resolution variant that turns out not to exist falls back to a
+  // real one instead of leaving a broken slot.
+  candidates: string[];
   position: number;
 }
 
