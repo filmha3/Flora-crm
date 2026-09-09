@@ -4379,19 +4379,79 @@ ${draft.extraNotes?.trim() ? `\nاطلاعات و شرایط اضافی که م�
     }
   };
 
+  // Turns the AI's plain text into a structured document instead of one
+  // flat <pre> block — "ماده N" lines become real headings (bold, spaced,
+  // separated by a rule) instead of just another line of body text, which
+  // is what actually makes a printed contract read as a contract and not a
+  // wall of text. Sub-items (الف/ب/ج, تبصره) get their own indent; the
+  // closing "این متن پیش‌نویس است..." line gets set apart, not lost in the
+  // paragraph above it.
+  const formatContractBlocks = (text) => {
+    const lines = (text || "").split("\n").map((l) => l.trim());
+    const blocks = [];
+    let para = [];
+    const flush = () => { if (para.length) { blocks.push({ type: "p", text: para.join(" ") }); para = []; } };
+    for (const line of lines) {
+      if (!line) { flush(); continue; }
+      const madde = line.match(/^ماده\s+([۰-۹0-9]+)\s*[-:–—]?\s*(.*)$/);
+      const sub = line.match(/^(تبصره[۰-۹0-9]*\s*[-:.]?|[الفبجدهوزحطی]\s*[-)]|[۰-۹0-9]+[-.)])\s*/);
+      if (madde) { flush(); blocks.push({ type: "madde", num: madde[1], title: madde[2] }); }
+      else if (/^این متن پیش‌نویس است/.test(line)) { flush(); blocks.push({ type: "disclaimer", text: line }); }
+      else if (sub) { flush(); blocks.push({ type: "sub", text: line }); }
+      else para.push(line);
+    }
+    flush();
+    return blocks;
+  };
+
   const printDoc = () => {
     const w = window.open("", "_blank");
     if (!w) { notify("مرورگر پنجره‌ی چاپ را مسدود کرد"); return; }
+    const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const p = properties.find((x) => x.id === draft.propertyId);
+    const owner = p ? owners.find((o) => o.id === p.ownerId) : null;
+    const cu = customers.find((x) => x.id === draft.customerId);
+    const bodyHtml = formatContractBlocks(draft.text).map((b) => {
+      if (b.type === "madde") return `<h3 class="madde">ماده ${esc(b.num)}${b.title ? " — " + esc(b.title) : ""}</h3>`;
+      if (b.type === "disclaimer") return `<p class="disclaimer">${esc(b.text)}</p>`;
+      if (b.type === "sub") return `<p class="sub">${esc(b.text)}</p>`;
+      return `<p class="body-p">${esc(b.text)}</p>`;
+    }).join("\n");
     // Attached photos print on their own pages after the text — a signed copy
     // is what makes the printout a real record rather than just a draft.
     const shotPages = (draft.shots || []).map((s) => `<div class="shot"><img src="${s.url}" /></div>`).join("");
-    w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>${draft.title}</title>
-      <style>@page{size:A4;margin:2cm}body{font-family:Vazirmatn,Tahoma,sans-serif;line-height:2.1;font-size:12pt;color:#111}
-      h1{font-size:15pt;text-align:center;margin-bottom:1.5em}
-      .contract-box{border:1.5px solid #222;border-radius:6px;padding:1.6em 1.4em}
-      pre{white-space:pre-wrap;font-family:inherit;font-size:inherit;margin:0}
-      .shot{page-break-before:always;text-align:center}.shot img{max-width:100%;max-height:25cm;object-fit:contain}</style>
-      </head><body><h1>${draft.title}</h1><div class="contract-box"><pre>${(draft.text || "").replace(/</g, "&lt;")}</pre></div>${shotPages}</body></html>`);
+    w.document.write(`<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${esc(draft.title)}</title>
+      <style>
+      @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap');
+      @page { size: A4; margin: 2.5cm; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Vazirmatn', Tahoma, sans-serif; color: #161616; font-size: 12pt; margin: 0; }
+      h1.doc-title { font-size: 16pt; font-weight: 700; text-align: center; margin: 0 0 0.3em; }
+      .doc-meta { text-align: center; font-size: 10pt; color: #666; margin-bottom: 1.8em; }
+      .contract-box { border: 1.5px solid #222; border-radius: 4px; padding: 2em 1.8em; }
+      .body-p { text-align: justify; line-height: 2; margin: 0 0 1em; }
+      .madde { font-size: 13pt; font-weight: 700; margin: 1.6em 0 0.7em; padding-top: 0.9em; border-top: 1px solid #ccc; }
+      .madde:first-of-type { border-top: none; padding-top: 0; margin-top: 0.3em; }
+      .sub { margin: 0 1.7em 0.8em; line-height: 1.9; text-align: justify; }
+      .disclaimer { margin-top: 2em; font-size: 10pt; color: #555; font-style: italic; border-top: 1px dashed #999; padding-top: 1em; text-align: center; }
+      .sign-row { display: flex; justify-content: space-between; gap: 2.5em; margin-top: 3.5em; page-break-inside: avoid; }
+      .sign-box { flex: 1; text-align: center; font-size: 10.5pt; }
+      .sign-box .role { font-weight: 700; margin-bottom: 0.3em; }
+      .sign-box .who { color: #444; margin-bottom: 2.8em; }
+      .sign-box .line { border-top: 1px solid #333; padding-top: 0.5em; }
+      .shot { page-break-before: always; text-align: center; }
+      .shot img { max-width: 100%; max-height: 25cm; object-fit: contain; }
+      </style>
+      </head><body>
+      <h1 class="doc-title">${esc(draft.title)}</h1>
+      <p class="doc-meta">${esc(agencyName || "")}${agencyCity ? ` — ${esc(agencyCity)}` : ""} · تاریخ تنظیم: ${esc(fmtJalali(todayISO()))}</p>
+      <div class="contract-box">${bodyHtml}</div>
+      <div class="sign-row">
+        <div class="sign-box"><p class="role">امضای طرف اول</p><p class="who">${esc(owner?.name || "................................")}</p><p class="line">امضا و اثر انگشت</p></div>
+        <div class="sign-box"><p class="role">امضای طرف دوم</p><p class="who">${esc(cu?.name || "................................")}</p><p class="line">امضا و اثر انگشت</p></div>
+      </div>
+      ${shotPages}
+      </body></html>`);
     w.document.close();
     setTimeout(() => w.print(), 500);
   };
