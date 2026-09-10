@@ -169,6 +169,22 @@ function TourStepProperties({ ctx, b, patch }) {
   const selected = b.propertyIds || [];
   const toggle = (id) => { if (selected.includes(id)) { patch({ propertyIds: selected.filter((x) => x !== id) }); return; } if (selected.length >= 6) return; patch({ propertyIds: [...selected, id] }); };
 
+  // Grouped by area instead of one long flat list — a search result of 20+
+  // files all in the same weight of card is what actually reads as
+  // "cluttered," not the number of files itself. A quiet section label
+  // gives the eye somewhere to skip to; the rows underneath stay exactly
+  // the same otherwise.
+  const AREA_BUCKETS = [
+    { key: "u100", label: "زیر ۱۰۰ متر", test: (a) => a > 0 && a < 100 },
+    { key: "100-150", label: "۱۰۰ تا ۱۵۰ متر", test: (a) => a >= 100 && a < 150 },
+    { key: "150-200", label: "۱۵۰ تا ۲۰۰ متر", test: (a) => a >= 150 && a < 200 },
+    { key: "200+", label: "بالای ۲۰۰ متر", test: (a) => a >= 200 },
+    { key: "unknown", label: "بدون متراژ ثبت‌شده", test: (a) => !a },
+  ];
+  const grouped = AREA_BUCKETS
+    .map((bucket) => ({ ...bucket, items: filtered.filter((p) => bucket.test(Number(p.area) || 0)) }))
+    .filter((bucket) => bucket.items.length > 0);
+
   const addQuick = () => {
     if (!qa.title.trim()) return;
     let ownerId = "";
@@ -184,6 +200,24 @@ function TourStepProperties({ ctx, b, patch }) {
     patch({ items, step: "review" });
   };
 
+  const PropertyRow = ({ p }) => {
+    const isSel = selected.includes(p.id); const cover = p.media && p.media[0]; const Icon = typeIcon(p.type);
+    return (
+      <button onClick={() => toggle(p.id)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: isSel ? c.purpleSoft : c.surface2, border: isSel ? `1.5px solid ${c.purple}` : "1.5px solid transparent" }}>
+        <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 44, height: 44, borderRadius: RAD.sm, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
+          {cover ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Icon size={18} color={c.primary} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title || "بدون عنوان"}</p>
+          <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{fmtToman(p.price)}</p>
+        </div>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 22, height: 22, borderRadius: "50%", background: isSel ? c.purple : "transparent", border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
+          {isSel && <Check size={13} color="#fff" />}
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div className="pt-2">
       <div className="flex items-center justify-between" style={{ marginBottom: SP.sm }}>
@@ -192,24 +226,17 @@ function TourStepProperties({ ctx, b, patch }) {
       </div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی فایل..." style={inputStyle(c)} />
       <div style={{ height: SP.md }} />
-      <div className="flex flex-col" style={{ gap: SP.sm }}>
-        {filtered.map((p) => {
-          const isSel = selected.includes(p.id); const cover = p.media && p.media[0]; const Icon = typeIcon(p.type);
-          return (
-            <button key={p.id} onClick={() => toggle(p.id)} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, background: isSel ? c.purpleSoft : c.surface2, border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
-              <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 44, height: 44, borderRadius: RAD.sm, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-                {cover ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Icon size={18} color={c.primary} />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p>
-                <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{fmtToman(p.price)}</p>
-              </div>
-              <div className="flex items-center justify-center shrink-0" style={{ width: 22, height: 22, borderRadius: "50%", background: isSel ? c.purple : "transparent", border: `1.5px solid ${isSel ? c.purple : c.border}` }}>
-                {isSel && <Check size={13} color="#fff" />}
-              </div>
-            </button>
-          );
-        })}
+      <div className="flex flex-col" style={{ gap: SP.lg }}>
+        {grouped.map((bucket) => (
+          <div key={bucket.key}>
+            <p style={{ fontSize: 11, fontWeight: FW.bold, color: c.muted, letterSpacing: "0.02em", marginBottom: 8, paddingInlineStart: 2 }}>
+              {bucket.label} <span style={{ opacity: 0.7 }}>({faDigits(bucket.items.length)})</span>
+            </p>
+            <div className="flex flex-col" style={{ gap: SP.sm }}>
+              {bucket.items.map((p) => <PropertyRow key={p.id} p={p} />)}
+            </div>
+          </div>
+        ))}
         {filtered.length === 0 && <EmptyLine c={c} text="فایلی پیدا نشد" />}
       </div>
       <div style={{ marginTop: SP.lg }}>

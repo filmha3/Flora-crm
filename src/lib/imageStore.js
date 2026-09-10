@@ -71,6 +71,7 @@ export function extFor(mime) { return mime === "image/webp" ? "webp" : "jpg"; }
 // doesn't take the rest of the upload down with it (requirement: a failed
 // upload must not corrupt the property).
 export async function uploadPropertyImage({ userId, propertyId, source, name, sortOrder }) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("برای آپلود عکس به اینترنت نیاز داری — دوباره وصل شو و امتحان کن.");
   if (!userId) throw new Error("uploadPropertyImage: missing userId");
   if (!propertyId) throw new Error("uploadPropertyImage: missing propertyId");
   const img = await loadImage(source);

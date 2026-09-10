@@ -48,35 +48,26 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
-// The splash video IS the loading screen now — no separate 0–100 progress
-// UI layered on top of it. It plays once while the real app (session →
-// local data → cloud sync → settings) loads underneath in parallel. The
-// splash is removed only once BOTH sides are done — the video has reached
-// its natural end AND App.jsx has dispatched "flora:ready" (fired once
-// `loaded` becomes true) — whichever finishes last, so a fast load never
-// cuts the reveal short and a slow one never sits on a frozen last frame
-// for long. Each side also has its own hard cap so a blocked autoplay or a
-// missing ready event can never hold the splash up forever.
+// The splash is now a still logo + CSS entrance/glow, not a video — nothing
+// to wait on an "ended" event for. It stays up for a minimum presentation
+// time (so the entrance animation always gets to finish, even on a fast
+// load) and is removed once BOTH that minimum has passed AND the app has
+// dispatched "flora:ready" (fired once `loaded` becomes true) — whichever
+// finishes last. The 12s ceiling still guarantees the splash can never
+// outlive a stalled load.
+const MIN_SPLASH_MS = 1400;
 const splash = document.getElementById("flora-splash");
-const video = document.getElementById("flora-splash-video");
 
 if (splash) {
-  let videoDone = false, appReady = false;
+  let minTimeDone = false, appReady = false;
   const hideSplash = () => {
     splash.style.transition = "opacity 250ms ease";
     splash.style.opacity = "0";
     setTimeout(() => splash.remove(), 260);
   };
-  const tryHide = () => { if (videoDone && appReady) hideSplash(); };
+  const tryHide = () => { if (minTimeDone && appReady) hideSplash(); };
 
-  if (video) {
-    video.addEventListener("ended", () => { videoDone = true; tryHide(); });
-    video.addEventListener("error", () => { videoDone = true; tryHide(); });
-    setTimeout(() => { videoDone = true; tryHide(); }, 8000);
-  } else {
-    videoDone = true;
-  }
-
+  setTimeout(() => { minTimeDone = true; tryHide(); }, MIN_SPLASH_MS);
   window.addEventListener("flora:ready", () => { appReady = true; tryHide(); }, { once: true });
   setTimeout(() => { appReady = true; tryHide(); }, 12000);
 }

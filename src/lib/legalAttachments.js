@@ -12,6 +12,7 @@ const MAX_DIM = 1400, QUALITY = 0.8;
 const MAX_PDF_BYTES = 12 * 1024 * 1024; // bucket allows 15MB; this leaves headroom
 
 export async function uploadLegalImage({ userId, conversationId, file }) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("برای آپلود عکس به اینترنت نیاز داری — دوباره وصل شو و امتحان کن.");
   const img = await loadImage(file);
   const { blob, width, height, mime } = await encodeCanvas(img, MAX_DIM, QUALITY);
   const path = `${userId}/${conversationId}/${uid()}.${extFor(mime)}`;
@@ -21,6 +22,7 @@ export async function uploadLegalImage({ userId, conversationId, file }) {
 }
 
 export async function uploadLegalPdf({ userId, conversationId, file }) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("برای آپلود PDF به اینترنت نیاز داری — دوباره وصل شو و امتحان کن.");
   if (file.size > MAX_PDF_BYTES) throw new Error("حجم PDF بیشتر از حد مجاز است (حداکثر ۱۲ مگابایت)");
   const path = `${userId}/${conversationId}/${uid()}.pdf`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: "application/pdf", upsert: false });

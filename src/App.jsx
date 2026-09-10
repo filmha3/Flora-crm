@@ -9,6 +9,7 @@ import {
   MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, HardHat, ArrowUpRight, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
   CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
   Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
+  DollarSign, Coins, WifiOff,
 } from "lucide-react";
 
 // ---------- Extracted modules (kept App.jsx from becoming a single
@@ -103,6 +104,19 @@ export default function FloraCRM() {
 
   // undefined = still checking on load, null = signed out, object = signed in
   const [session, setSession] = useState(undefined);
+  // Every write already lands in IndexedDB first regardless of network (see
+  // the cloud-sync effects below) — this is purely so the PERSON knows why
+  // something that genuinely needs a live connection (an upload, an AI
+  // call, Divar import) isn't going through, instead of it just silently
+  // failing or showing a generic error.
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, []);
   useEffect(() => {
     let resolved = false;
 
@@ -656,6 +670,7 @@ export default function FloraCRM() {
     return data.text;
   };
   const transcribeAudio = async (blob) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("برای تبدیل صدا به متن به اینترنت نیاز داری.");
     if (!avalaiKey) throw new Error("برای یادداشت صوتی، کلید AvalAI را در تنظیمات وارد کن");
     // gpt-4o-transcribe has a meaningfully lower word-error-rate than the
     // older whisper-1, especially on accents and lower-quality audio — the
@@ -671,6 +686,7 @@ export default function FloraCRM() {
   // reuses it too, even after AI Virtual Staging itself was removed.
   const canStage = !!avalaiKey;
   const callAI = async (prompt) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("برای استفاده از هوش مصنوعی به اینترنت نیاز داری.");
     // No personal key set → go through the server proxy, which holds the
     // app owner's shared key in Supabase secrets. This is what makes the
     // AI features work out of the box for a normal user who has never
@@ -872,7 +888,7 @@ export default function FloraCRM() {
   const goProperties = (stageHint) => { setPropStageHint(stageHint || "همه"); setTab("properties"); };
 
   const ctx = {
-    c, dark, session, signOut: () => supabase.auth.signOut(),
+    c, dark, session, signOut: () => supabase.auth.signOut(), isOnline,
     properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates, constructionCostEstimates, setConstructionCostEstimates, splitShares, setSplitShares, simpleMode, setSimpleMode,
@@ -1047,7 +1063,20 @@ export default function FloraCRM() {
         .flora-bounce { animation: floraBounceIn var(--flora-normal) var(--flora-ease) backwards; }
 
         select { -webkit-appearance: none; appearance: none; }
+        @keyframes floraOfflineSlide { from { transform: translateY(-100%); } to { transform: translateY(0); } }
       `}</style>
+
+      {!isOnline && (
+        <div
+          className="fixed left-0 right-0 flex items-center justify-center"
+          style={{ top: 0, paddingTop: "env(safe-area-inset-top, 0px)", zIndex: 60, background: c.attn, animation: "floraOfflineSlide 250ms ease" }}
+        >
+          <div className="flex items-center" style={{ gap: 6, padding: "7px 14px" }}>
+            <WifiOff size={12} color="#fff" />
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>بدون اینترنت — کارت همینجا ذخیره می‌شه، وقتی وصل بشی خودش سینک می‌شه</span>
+          </div>
+        </div>
+      )}
 
       {c.isDark && (
         <>
@@ -1352,24 +1381,79 @@ function StageBadge({ c, stage }) {
 // Live dollar + gold-gram, shown by the greeting because both drive property prices.
 // Browsers often block cross-origin finance APIs (CORS), so this fails softly: if it
 // can't fetch, it shows a tidy button to open chand.app instead of an error.
+// A tiny real sparkline from the price history this device has actually
+// observed (localStorage, appended on every successful fetch) — not a
+// decorative fake curve. With fewer than 2 points yet (a brand-new
+// install) it just doesn't draw one, rather than fabricate a trend that
+// isn't real.
+function Sparkline({ points, color }) {
+  if (!points || points.length < 2) return null;
+  const vals = points.map((p) => p.v);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = Math.max(1, max - min);
+  const W = 84, H = 34;
+  const d = points.map((p, i) => {
+    const x = (i / (points.length - 1)) * W;
+    const y = H - ((p.v - min) / span) * H;
+    return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return (
+    <svg width={W} height={H} style={{ position: "absolute", left: 10, bottom: 10, opacity: 0.85 }}>
+      <path d={d} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MarketCard({ c, icon: Icon, label, value, pctChange, color, tint, sparkPoints, onClick, stale }) {
+  const up = pctChange != null && pctChange >= 0;
+  return (
+    <button onClick={onClick} className="press relative overflow-hidden text-right flex-1" style={{ borderRadius: RAD.lg, padding: SP.md, minHeight: 92, ...glass(c) }}>
+      <div className="relative flex items-center" style={{ gap: 8, zIndex: 1 }}>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 34, height: 34, borderRadius: "50%", background: tint }}>
+          <Icon size={16} color={color} />
+        </div>
+        <span style={{ fontSize: 11, color: c.muted, fontWeight: FW.medium }}>{label}</span>
+      </div>
+      <p className="relative" style={{ zIndex: 1, fontSize: 19, fontWeight: FW.heavy, marginTop: 8, direction: "ltr", textAlign: "right" }}>
+        {value ? Number(value).toLocaleString("de-DE") : "—"}
+      </p>
+      <div className="relative flex items-center" style={{ zIndex: 1, gap: 4, marginTop: 4 }}>
+        {pctChange != null && (
+          <span className="flex items-center" style={{ gap: 2, fontSize: 11, fontWeight: FW.bold, color: up ? c.success : c.danger }}>
+            {up ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+            {faDigits(Math.abs(pctChange).toFixed(1))}٪
+          </span>
+        )}
+        {stale && <span style={{ fontSize: 10, color: c.muted }}>{pctChange != null ? "· " : ""}آخرین قیمت ثبت‌شده</span>}
+      </div>
+      <Sparkline points={sparkPoints} color={color} />
+    </button>
+  );
+}
+
 function MarketWidget({ c }) {
-  const [data, setData] = useState(null);
-  const [failed, setFailed] = useState(false);
+  const [data, setData] = useState(null); // { usd, gold, at }
+  const [prevData, setPrevData] = useState(null); // point immediately before the latest, for % change
+  const [history, setHistory] = useState({ usd: [], gold: [] });
+  const [live, setLive] = useState(false); // did THIS load actually reach the network
 
   useEffect(() => {
     let cancelled = false;
     const CACHE = "flora-market";
-    // show last known values instantly while refreshing
-    try {
-      const cached = JSON.parse(localStorage.getItem(CACHE) || "null");
-      if (cached && Date.now() - cached.at < 6 * 3600 * 1000) setData(cached);
-    } catch (e) {}
+    const HIST = "flora-market-history";
+    // Show whatever was last saved immediately, no matter how old — a
+    // stale price is still far more useful than a blank card, especially
+    // with no internet. Age is only ever used to label it "آخرین قیمت
+    // ثبت‌شده" below, never to hide it.
+    try { const cached = JSON.parse(localStorage.getItem(CACHE) || "null"); if (cached) setData(cached); } catch (e) { /* ignore */ }
+    let hist = { usd: [], gold: [] };
+    try { hist = JSON.parse(localStorage.getItem(HIST) || "null") || hist; } catch (e) { /* ignore */ }
+    setHistory(hist);
+    setPrevData({ usd: hist.usd?.length ? hist.usd[hist.usd.length - 1].v : undefined, gold: hist.gold?.length ? hist.gold[hist.gold.length - 1].v : undefined });
 
     (async () => {
       try {
         // BrsApi free endpoint returns { gold:[...], currency:[...] } as JSON.
-        // Field names are matched defensively (symbol/name/name_en/title, price/value)
-        // since the exact sample response couldn't be fetched here (site blocks bots).
         const res = await fetch("https://api.brsapi.ir/Market/Gold_Currency.php?key=BVjuQ6mYZMzT9usLPTVArBTNYbFegq8B", { signal: AbortSignal.timeout?.(6000) });
         if (!res.ok) throw new Error("bad status");
         const json = await res.json();
@@ -1383,47 +1467,41 @@ function MarketWidget({ c }) {
           at: Date.now(),
         };
         if (!parsed.usd && !parsed.gold) { console.warn("Flora market widget: response shape unrecognized", json); throw new Error("no fields"); }
-        if (!cancelled) { setData(parsed); try { localStorage.setItem(CACHE, JSON.stringify(parsed)); } catch (e) {} }
+        if (cancelled) return;
+        setData(parsed);
+        setLive(true);
+        try { localStorage.setItem(CACHE, JSON.stringify(parsed)); } catch (e) { /* ignore */ }
+        // Real history, capped to the last ~30 observations (a few weeks of
+        // once-a-day-ish app opens) — this is what the sparkline draws from.
+        const nextHist = {
+          usd: parsed.usd ? [...(hist.usd || []), { v: parsed.usd, t: parsed.at }].slice(-30) : hist.usd || [],
+          gold: parsed.gold ? [...(hist.gold || []), { v: parsed.gold, t: parsed.at }].slice(-30) : hist.gold || [],
+        };
+        setHistory(nextHist);
+        try { localStorage.setItem(HIST, JSON.stringify(nextHist)); } catch (e) { /* ignore */ }
       } catch (e) {
-        if (!cancelled && !data) setFailed(true);
+        // No network (or the endpoint failed) — data/history from cache
+        // above are left exactly as they were; nothing to do here.
       }
     })();
     return () => { cancelled = true; };
   }, []); // eslint-disable-line
 
   const openChand = () => window.open("https://chand.app", "_blank");
+  const pct = (key) => {
+    const prev = prevData?.[key];
+    const cur = data?.[key];
+    if (!prev || !cur) return null;
+    return ((cur - prev) / prev) * 100;
+  };
 
-  if (failed && !data) {
-    return (
-      <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c) }}>
-        <div className="flex items-center" style={{ gap: SP.sm }}>
-          <TrendingUp size={16} color={c.primary} />
-          <span style={{ fontSize: FS.caption, color: c.muted, fontWeight: FW.medium }}>قیمت لحظه‌ای دلار و طلا</span>
-        </div>
-        <span style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>chand.app ›</span>
-      </button>
-    );
-  }
-
-  const Cell = ({ label, value, color }) => (
-    <div className="flex items-center" style={{ gap: SP.sm }}>
-      <span style={{ fontSize: FS.caption, color: c.muted }}>{label}</span>
-      <span style={{ fontSize: FS.body, fontWeight: FW.heavy, color, direction: "ltr" }}>{value ? Number(value).toLocaleString("de-DE") : "—"}</span>
-    </div>
-  );
+  if (!data) return null; // nothing cached yet and nothing fetched — no card at all, not an empty shell
 
   return (
-    <button onClick={openChand} className="press w-full flex items-center justify-between" style={{ padding: `${SP.md}px ${SP.lg}px`, borderRadius: RAD.md, ...glass(c) }}>
-      <div className="flex items-center" style={{ gap: SP.xl }}>
-        <Cell label="دلار" value={data?.usd} color={c.primary} />
-        <span style={{ width: 1, height: 16, background: c.border }} />
-        <Cell label="طلا" value={data?.gold} color={c.attn} />
-      </div>
-      <div className="flex items-center" style={{ gap: SP.xs }}>
-        <span style={{ width: 5, height: 5, borderRadius: RAD.pill, background: data ? c.success : c.muted }} className={data ? "flora-pulse" : ""} />
-        <span style={{ fontSize: 10, color: c.muted }}>تومان</span>
-      </div>
-    </button>
+    <div className="flex" style={{ gap: SP.md }}>
+      <MarketCard c={c} icon={Coins} label="طلا" value={data.gold} pctChange={pct("gold")} color={c.attn} tint={c.attnSoft} sparkPoints={history.gold} onClick={openChand} stale={!live} />
+      <MarketCard c={c} icon={DollarSign} label="دلار" value={data.usd} pctChange={pct("usd")} color={c.primary} tint={c.primarySoft} sparkPoints={history.usd} onClick={openChand} stale={!live} />
+    </div>
   );
 }
 
@@ -2508,7 +2586,6 @@ function NextBestActionCard({ ctx }) {
   }, [ctx.focusQueue]); // reload whenever focus mode closes, to reflect what was just logged
 
   if (actions.length === 0) return null;
-  const accent = c.primary;
 
   return (
     <div>
@@ -2517,27 +2594,52 @@ function NextBestActionCard({ ctx }) {
         <span style={{ fontSize: FS.caption, color: c.muted }}>{faDigits(actions.length)} پیشنهاد</span>
       </div>
       <div className="relative overflow-hidden" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-        <span className="nba-blob" style={{ background: `radial-gradient(circle, #22d3ee, transparent)` }} />
+        {/* Brand gradient at low opacity — the same blue/purple used
+            everywhere else, not an orphan accent color no other card uses. */}
+        <span className="nba-blob" style={{ background: c.gradientPrimary, opacity: 0.14 }} />
         <div className="flex flex-col relative" style={{ gap: SP.md }}>
           {actions.map((a, i) => {
             const Icon = ICONS[a.icon] || Sparkles;
             const oc = outcomes[a.key];
+            const primary = i === 0;
             return (
-              <div key={a.key} style={{ paddingTop: i === 0 ? 0 : SP.md, borderTop: i === 0 ? "none" : `1px solid ${c.border}` }}>
-                <div className="flex items-center" style={{ gap: SP.md }}>
-                  <div className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: RAD.md, background: oc?.result ? c.successSoft : c.primarySoft }}>
-                    {oc?.result ? <CheckCircle2 size={19} color={c.success} /> : <Icon size={19} color={accent} />}
+              <div key={a.key}>
+                {primary ? (
+                  // The one thing to actually look at first — its own
+                  // tinted surface, a bigger icon, a bolder title. Items
+                  // below stay fully visible, just quieter, so the eye has
+                  // one clear place to land without anything being hidden.
+                  <div className="rounded-2xl" style={{ padding: SP.md, background: oc?.result ? c.successSoft : c.primarySoft }}>
+                    <div className="flex items-center" style={{ gap: SP.md }}>
+                      <div className="flex items-center justify-center shrink-0" style={{ width: 46, height: 46, borderRadius: RAD.md, background: oc?.result ? c.success : c.primary }}>
+                        {oc?.result ? <CheckCircle2 size={22} color="#fff" /> : <Icon size={22} color="#fff" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p style={{ fontSize: FS.body + 3, fontWeight: FW.heavy, lineHeight: 1.35, textDecoration: oc?.result ? "line-through" : "none", opacity: oc?.result ? 0.6 : 1 }}>{a.title}</p>
+                        <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 3, lineHeight: 1.7 }}>{oc?.result || a.reason}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setFocusQueue({ actions, index: i })} className="press w-full" style={{ marginTop: SP.md, paddingBlock: 10, borderRadius: RAD.md, background: oc?.result ? c.surface2 : (c.isDark ? "#fff" : c.ink), color: oc?.result ? c.muted : (c.isDark ? c.ink : "#fff"), fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "دوباره" : "اجرا"}</button>
+                    {oc?.next && (
+                      <div className="flex items-start" style={{ gap: SP.sm, marginTop: SP.sm }}>
+                        <Sparkles size={13} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
+                        <p style={{ fontSize: FS.caption, color: c.ink, lineHeight: 1.8 }}>{oc.next}</p>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, lineHeight: 1.4, textDecoration: oc?.result ? "line-through" : "none", opacity: oc?.result ? 0.5 : 1 }}>{a.title}</p>
-                    <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.7 }}>{oc?.result || a.reason}</p>
-                  </div>
-                  <button onClick={() => setFocusQueue({ actions, index: i })} className="press shrink-0" style={{ paddingInline: SP.lg, paddingBlock: 8, borderRadius: RAD.md, background: oc?.result ? c.surface2 : accent, color: oc?.result ? c.muted : "#fff", fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "دوباره" : "اجرا"}</button>
-                </div>
-                {oc?.next && (
-                  <div className="flex items-start" style={{ gap: SP.sm, marginTop: SP.sm, marginRight: 52 }}>
-                    <Sparkles size={13} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
-                    <p style={{ fontSize: FS.caption, color: c.ink, lineHeight: 1.8 }}>{oc.next}</p>
+                ) : (
+                  // Same information, calmer presentation — neutral icon,
+                  // smaller type, an outline button instead of a filled
+                  // one. Nothing here is hidden or collapsed, it's just not
+                  // shouting at the same volume as the top pick.
+                  <div className="flex items-center" style={{ gap: SP.sm + 2 }}>
+                    <div className="flex items-center justify-center shrink-0" style={{ width: 28, height: 28, borderRadius: RAD.sm, background: c.surface2 }}>
+                      {oc?.result ? <CheckCircle2 size={14} color={c.success} /> : <Icon size={14} color={c.muted} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p style={{ fontSize: FS.caption + 1, fontWeight: FW.medium, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: oc?.result ? "line-through" : "none", opacity: oc?.result ? 0.5 : 1 }}>{a.title}</p>
+                    </div>
+                    <button onClick={() => setFocusQueue({ actions, index: i })} className="press shrink-0" style={{ paddingInline: SP.md, paddingBlock: 6, borderRadius: RAD.pill, background: "transparent", border: `1px solid ${c.border}`, color: c.muted, fontSize: 11, fontWeight: FW.bold }}>{oc?.result ? "دوباره" : "اجرا"}</button>
                   </div>
                 )}
               </div>
@@ -7650,6 +7752,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
     const link = (linkOverride || divarLink).trim();
     if (!link) { notify("اول لینک آگهی دیوار را وارد کن"); return; }
     if (!/^https?:\/\/(www\.)?divar\.ir\/v\//i.test(link)) { setImportState("error"); setImportError({ message: IMPORT_ERROR_MESSAGES.LINK_INVALID }); return; }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) { setImportState("error"); setImportError({ message: "برای دریافت آگهی از دیوار به اینترنت نیاز داری." }); return; }
     setImportError(null); setDupMatch(null); setImportData(null);
     setImportState("extracting");
     try {
