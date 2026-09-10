@@ -2821,7 +2821,7 @@ function BuildingScrollHero({ ctx }) {
   const on = seen ? " flora-sky-go" : "";
 
   return (
-    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 212, borderRadius: RAD.lg, border: `1px solid ${c.border}`, background: c.surface }}>
+    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 212 }}>
       {/* dusk gradient */}
       <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${c.purple}26 0%, ${c.primary}16 46%, transparent 78%)` }} />
 
@@ -2857,7 +2857,6 @@ function BuildingScrollHero({ ctx }) {
 
       {/* reflection: a soft wash of the skyline's own colour on the ground */}
       <div className={"flora-sky-glow absolute" + on} style={{ left: SP.lg, right: SP.lg, bottom: 0, height: 26, background: `linear-gradient(0deg, ${c.primary}1f, transparent)` }} />
-      <div className="absolute" style={{ left: SP.lg, right: SP.lg, bottom: 0, height: 1, background: c.border }} />
 
       {/* caption then figures — real HTML, so Persian shapes and joins correctly */}
       <div className={"flora-sky-caption absolute" + on} style={{ top: SP.lg, right: SP.lg }}>
@@ -3025,19 +3024,25 @@ function HomeTab({ ctx }) {
         </button>
       )}
 
-      {/* Portfolio — the skyline and the latest-files list are both "your
-          files," so they're now one visual section (skyline leads into the
-          list it's a picture of) instead of the skyline sitting between two
-          unrelated blocks. */}
-      <div style={{ marginTop: SP.xxl }}><BuildingScrollHero ctx={ctx} /></div>
-      <div className="flex items-baseline justify-between" style={{ marginTop: SP.lg, marginBottom: SP.lg, paddingRight: 2 }}>
-        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>جدیدترین فایل‌ها</h2>
-        <button onClick={() => setTab("properties")} style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>همه ›</button>
+      {/* Portfolio — one card, one roof: the skyline and the latest-files
+          list are both "your files," so they now share a single bordered
+          surface with a quiet divider between them, instead of the skyline
+          being its own floating card followed by a second, separately
+          headed section right under it. */}
+      <div className="overflow-hidden" style={{ marginTop: SP.xxl, borderRadius: RAD.lg, border: `1px solid ${c.border}`, background: c.surface }}>
+        <BuildingScrollHero ctx={ctx} />
+        <div style={{ borderTop: `1px solid ${c.border}`, padding: SP.lg }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: SP.md }}>
+            <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>جدیدترین فایل‌ها</h2>
+            <button onClick={() => setTab("properties")} style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>همه ›</button>
+          </div>
+          <div className="flex flex-col" style={{ gap: SP.md }}>
+            {properties.slice(0, simpleMode ? 3 : 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
+            {properties.length === 0 && <EmptyLine c={c} text="هنوز فایلی ثبت نکردی — از تب «فایل‌ها» یا با صدات اضافه کن" />}
+          </div>
+        </div>
       </div>
-      <div className="flex flex-col" style={{ gap: SP.md, marginBottom: SP.xxl }}>
-        {properties.slice(0, simpleMode ? 3 : 2).map((p) => <PropertyMiniCard key={p.id} p={p} c={c} onClick={() => setDetail({ type: "property", id: p.id })} />)}
-        {properties.length === 0 && <EmptyLine c={c} text="هنوز فایلی ثبت نکردی — از تب «فایل‌ها» یا با صدات اضافه کن" />}
-      </div>
+      <div style={{ height: SP.xxl }} />
     </div>
   );
 }

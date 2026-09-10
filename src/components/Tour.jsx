@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Car, ChevronLeft, Plus, UserCircle2, Check, ArrowUp, ArrowDown, ArrowRight, AlertTriangle,
-  X, ChevronRight, MapPin, Ruler, Home, PhoneCall, Navigation as NavigationIcon,
+  X, ChevronRight, ChevronDown, MapPin, Ruler, Home, PhoneCall, Navigation as NavigationIcon,
   StickyNote, CheckCircle2, Key,
 } from "lucide-react";
 import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
@@ -169,21 +169,19 @@ function TourStepProperties({ ctx, b, patch }) {
   const selected = b.propertyIds || [];
   const toggle = (id) => { if (selected.includes(id)) { patch({ propertyIds: selected.filter((x) => x !== id) }); return; } if (selected.length >= 6) return; patch({ propertyIds: [...selected, id] }); };
 
-  // Grouped by area instead of one long flat list — a search result of 20+
-  // files all in the same weight of card is what actually reads as
-  // "cluttered," not the number of files itself. A quiet section label
-  // gives the eye somewhere to skip to; the rows underneath stay exactly
-  // the same otherwise.
+  // Exactly 4 drawers, always present even when a bucket is empty — a
+  // fixed, predictable shape instead of a variable list of section labels.
+  // A property with no area recorded falls into the first drawer rather
+  // than getting its own 5th "نامشخص" bucket, which is what was explicitly
+  // asked for here: four drawers, not five.
   const AREA_BUCKETS = [
-    { key: "u100", label: "زیر ۱۰۰ متر", test: (a) => a > 0 && a < 100 },
+    { key: "u100", label: "زیر ۱۰۰ متر", test: (a) => a < 100 },
     { key: "100-150", label: "۱۰۰ تا ۱۵۰ متر", test: (a) => a >= 100 && a < 150 },
-    { key: "150-200", label: "۱۵۰ تا ۲۰۰ متر", test: (a) => a >= 150 && a < 200 },
-    { key: "200+", label: "بالای ۲۰۰ متر", test: (a) => a >= 200 },
-    { key: "unknown", label: "بدون متراژ ثبت‌شده", test: (a) => !a },
+    { key: "150-250", label: "۱۵۰ تا ۲۵۰ متر", test: (a) => a >= 150 && a < 250 },
+    { key: "250+", label: "بالای ۲۵۰ متر", test: (a) => a >= 250 },
   ];
-  const grouped = AREA_BUCKETS
-    .map((bucket) => ({ ...bucket, items: filtered.filter((p) => bucket.test(Number(p.area) || 0)) }))
-    .filter((bucket) => bucket.items.length > 0);
+  const grouped = AREA_BUCKETS.map((bucket) => ({ ...bucket, items: filtered.filter((p) => bucket.test(Number(p.area) || 0)) }));
+  const [openKey, setOpenKey] = useState(null);
 
   const addQuick = () => {
     if (!qa.title.trim()) return;
@@ -226,17 +224,35 @@ function TourStepProperties({ ctx, b, patch }) {
       </div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی فایل..." style={inputStyle(c)} />
       <div style={{ height: SP.md }} />
-      <div className="flex flex-col" style={{ gap: SP.lg }}>
-        {grouped.map((bucket) => (
-          <div key={bucket.key}>
-            <p style={{ fontSize: 11, fontWeight: FW.bold, color: c.muted, letterSpacing: "0.02em", marginBottom: 8, paddingInlineStart: 2 }}>
-              {bucket.label} <span style={{ opacity: 0.7 }}>({faDigits(bucket.items.length)})</span>
-            </p>
-            <div className="flex flex-col" style={{ gap: SP.sm }}>
-              {bucket.items.map((p) => <PropertyRow key={p.id} p={p} />)}
+      <div className="flex flex-col" style={{ gap: SP.sm }}>
+        {grouped.map((bucket) => {
+          const open = openKey === bucket.key;
+          const selCount = bucket.items.filter((p) => selected.includes(p.id)).length;
+          return (
+            <div key={bucket.key} className="rounded-2xl overflow-hidden" style={glassLite(c, RAD.lg)}>
+              <button
+                onClick={() => setOpenKey(open ? null : bucket.key)}
+                disabled={bucket.items.length === 0}
+                className="press w-full flex items-center justify-between"
+                style={{ padding: SP.md, opacity: bucket.items.length === 0 ? 0.45 : 1 }}
+              >
+                <span className="flex items-center" style={{ gap: 8 }}>
+                  <span style={{ fontSize: FS.body, fontWeight: FW.bold }}>{bucket.label}</span>
+                  <span style={{ fontSize: 11, color: c.muted }}>({faDigits(bucket.items.length)})</span>
+                  {selCount > 0 && (
+                    <span style={{ fontSize: 10, fontWeight: FW.bold, color: c.purple, background: c.purpleSoft, borderRadius: RAD.pill, padding: "2px 7px" }}>{faDigits(selCount)} انتخاب</span>
+                  )}
+                </span>
+                {bucket.items.length > 0 && <ChevronDown size={16} color={c.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s ease" }} />}
+              </button>
+              {open && bucket.items.length > 0 && (
+                <div className="flex flex-col" style={{ gap: SP.sm, padding: SP.md, paddingTop: 0 }}>
+                  {bucket.items.map((p) => <PropertyRow key={p.id} p={p} />)}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
         {filtered.length === 0 && <EmptyLine c={c} text="فایلی پیدا نشد" />}
       </div>
       <div style={{ marginTop: SP.lg }}>
