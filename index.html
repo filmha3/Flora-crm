@@ -17,6 +17,7 @@
     <meta name="description" content="مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب دفتر املاک" />
 
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@600;800&display=swap');
       @font-face {
         font-family: 'Dana';
         src: url('https://cdn.karlancer.com/assets/fonts/Dana-Pro/variable%20fonts/variable2%20webfont/DanaVF.woff2') format('woff2');
@@ -25,20 +26,71 @@
       }
       #flora-splash {
         position: fixed; inset: 0; z-index: 9999;
-        display: flex; align-items: center; justify-content: center;
-        background: #070B18;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: #0A0E1A;
         overflow: hidden;
       }
-      #flora-splash video {
-        width: 100%; height: 100%; object-fit: cover;
+      /* A still, high-res PNG instead of a compressed video — crisp at any
+         screen density, no re-encode softness, and lighter to load. The
+         "premium" motion comes from CSS (glow, entrance, one light sweep),
+         not from the asset itself. */
+      #flora-splash .glow {
+        position: absolute;
+        width: 260px; height: 260px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(200,163,110,0.32) 0%, rgba(200,163,110,0) 70%);
+        animation: floraGlowPulse 2.8s ease-in-out infinite;
+      }
+      #flora-splash .logo-wrap {
+        position: relative;
+        width: 132px; height: 132px;
+        border-radius: 30px;
+        overflow: hidden;
+        animation: floraLogoIn 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+        filter: drop-shadow(0 10px 34px rgba(200,163,110,0.28));
+      }
+      #flora-splash .logo-wrap img { width: 100%; height: 100%; display: block; }
+      #flora-splash .logo-wrap::after {
+        content: "";
+        position: absolute; top: 0; left: -160%; width: 55%; height: 100%;
+        background: linear-gradient(115deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
+        transform: skewX(-20deg);
+        animation: floraShine 1.6s ease-in-out 0.55s 1;
+      }
+      #flora-splash .word {
+        margin-top: 20px;
+        font-family: 'Vazirmatn', 'Dana', sans-serif;
+        font-size: 15px; font-weight: 700; letter-spacing: 3px;
+        color: #C8A36E;
+        opacity: 0;
+        animation: floraWordIn 0.6s ease 0.5s both;
+      }
+      @keyframes floraGlowPulse {
+        0%, 100% { opacity: 0.55; transform: scale(0.92); }
+        50% { opacity: 1; transform: scale(1.08); }
+      }
+      @keyframes floraLogoIn {
+        from { opacity: 0; transform: scale(0.7); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      @keyframes floraShine {
+        from { left: -160%; }
+        to { left: 220%; }
+      }
+      @keyframes floraWordIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #flora-splash .glow { animation: none; opacity: 0.8; }
+        #flora-splash .logo-wrap, #flora-splash .logo-wrap::after, #flora-splash .word { animation: none !important; opacity: 1 !important; }
       }
     </style>
   </head>
   <body>
     <div id="flora-splash">
-      <video id="flora-splash-video" autoplay muted playsinline webkit-playsinline="true" preload="auto">
-        <source src="/splash.mp4" type="video/mp4" />
-      </video>
+      <div class="glow"></div>
+      <div class="logo-wrap"><img src="/icon-512.png" alt="Flora" /></div>
+      <div class="word">FLORA</div>
     </div>
 
     <div id="root"></div>
