@@ -11,10 +11,9 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 function WeeklyStatsTile({ ctx }) {
   const { c, setWeeklyStatsOpen } = ctx;
   return (
-    <button onClick={() => setWeeklyStatsOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-      <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: `${FLORA_GOLD}22`, marginBottom: SP.md }}><BarChart3 size={20} color={FLORA_GOLD} /></div>
-      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>آمار هفته</p>
-      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>یک نگاه به این هفته</p>
+    <button onClick={() => setWeeklyStatsOpen(true)} className="press flex flex-col items-center" style={{ gap: 7, flex: 1 }}>
+      <div className="flex items-center justify-center" style={{ width: 54, height: 54, borderRadius: 18, background: `${FLORA_GOLD}22` }}><BarChart3 size={22} color={FLORA_GOLD} /></div>
+      <p style={{ fontSize: 11, fontWeight: FW.medium, color: c.muted, textAlign: "center" }}>آمار هفته</p>
     </button>
   );
 }

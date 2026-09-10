@@ -1391,15 +1391,15 @@ function Sparkline({ points, color }) {
   const vals = points.map((p) => p.v);
   const min = Math.min(...vals), max = Math.max(...vals);
   const span = Math.max(1, max - min);
-  const W = 84, H = 34;
+  const W = 70, H = 26;
   const d = points.map((p, i) => {
     const x = (i / (points.length - 1)) * W;
     const y = H - ((p.v - min) / span) * H;
     return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
   return (
-    <svg width={W} height={H} style={{ position: "absolute", left: 10, bottom: 10, opacity: 0.85 }}>
-      <path d={d} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={W} height={H} style={{ position: "absolute", left: 8, bottom: 8, opacity: 0.85 }}>
+      <path d={d} fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -1407,24 +1407,24 @@ function Sparkline({ points, color }) {
 function MarketCard({ c, icon: Icon, label, value, pctChange, color, tint, sparkPoints, onClick, stale }) {
   const up = pctChange != null && pctChange >= 0;
   return (
-    <button onClick={onClick} className="press relative overflow-hidden text-right flex-1" style={{ borderRadius: RAD.lg, padding: SP.md, minHeight: 92, ...glass(c) }}>
-      <div className="relative flex items-center" style={{ gap: 8, zIndex: 1 }}>
-        <div className="flex items-center justify-center shrink-0" style={{ width: 34, height: 34, borderRadius: "50%", background: tint }}>
-          <Icon size={16} color={color} />
+    <button onClick={onClick} className="press relative overflow-hidden text-right flex-1" style={{ borderRadius: RAD.lg, padding: "10px 12px", minHeight: 72, ...glass(c) }}>
+      <div className="relative flex items-center" style={{ gap: 6, zIndex: 1 }}>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: "50%", background: tint }}>
+          <Icon size={13} color={color} />
         </div>
-        <span style={{ fontSize: 11, color: c.muted, fontWeight: FW.medium }}>{label}</span>
+        <span style={{ fontSize: 10, color: c.muted, fontWeight: FW.medium }}>{label}</span>
       </div>
-      <p className="relative" style={{ zIndex: 1, fontSize: 19, fontWeight: FW.heavy, marginTop: 8, direction: "ltr", textAlign: "right" }}>
+      <p className="relative" style={{ zIndex: 1, fontSize: 16, fontWeight: FW.heavy, marginTop: 5, direction: "ltr", textAlign: "right" }}>
         {value ? Number(value).toLocaleString("de-DE") : "—"}
       </p>
-      <div className="relative flex items-center" style={{ zIndex: 1, gap: 4, marginTop: 4 }}>
+      <div className="relative flex items-center" style={{ zIndex: 1, gap: 4, marginTop: 2 }}>
         {pctChange != null && (
-          <span className="flex items-center" style={{ gap: 2, fontSize: 11, fontWeight: FW.bold, color: up ? c.success : c.danger }}>
-            {up ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+          <span className="flex items-center" style={{ gap: 2, fontSize: 10, fontWeight: FW.bold, color: up ? c.success : c.danger }}>
+            {up ? <ArrowUp size={10} /> : <ArrowDown size={10} />}
             {faDigits(Math.abs(pctChange).toFixed(1))}٪
           </span>
         )}
-        {stale && <span style={{ fontSize: 10, color: c.muted }}>{pctChange != null ? "· " : ""}آخرین قیمت ثبت‌شده</span>}
+        {stale && <span style={{ fontSize: 9, color: c.muted }}>{pctChange != null ? "· " : ""}آخرین قیمت</span>}
       </div>
       <Sparkline points={sparkPoints} color={color} />
     </button>
@@ -1741,13 +1741,12 @@ function FocusMode({ ctx }) {
 function VoiceAssistantTile({ ctx }) {
   const { c, setSheet } = ctx;
   return (
-    <button onClick={() => setSheet("voice-note")} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-      <div className="relative flex items-center justify-center" style={{ width: 42, height: 42, marginBottom: SP.md }}>
-        <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: c.primarySoft }} />
-        <div className="flex items-center justify-center" style={{ position: "relative", width: 42, height: 42, borderRadius: "50%", background: c.primarySoft, border: `1px solid ${c.primary}33` }}><Mic size={19} color={c.primary} /></div>
+    <button onClick={() => setSheet("voice-note")} className="press flex flex-col items-center" style={{ gap: 7, flex: 1 }}>
+      <div className="relative flex items-center justify-center" style={{ width: 54, height: 54 }}>
+        <span className="flora-pulse" style={{ position: "absolute", inset: 0, borderRadius: 18, background: c.primarySoft }} />
+        <div className="flex items-center justify-center" style={{ position: "relative", width: 54, height: 54, borderRadius: 18, background: c.primarySoft }}><Mic size={22} color={c.primary} /></div>
       </div>
-      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>یادداشت صوتی</p>
-      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>فقط حرف بزن</p>
+      <p style={{ fontSize: 11, fontWeight: FW.medium, color: c.muted, textAlign: "center" }}>یادداشت صوتی</p>
     </button>
   );
 }
@@ -1781,31 +1780,16 @@ const DOC_CATEGORIES = [
   { id: "pay", label: "پرداخت", icon: Wallet, tone: "attn", docs: ["برنامه اقساط", "تسویه حساب", "صورت‌حساب", "رسید پرداخت", "رسید چک"] },
 ];
 
-// Entry tile. The stacked-paper effect isn't decoration for its own sake — it
-// says "a pile of paperwork" at a glance, and the sheets lift apart on press.
+// Entry tile. Same compact dock treatment as the rest of the rail — the
+// stacked-paper fan animation this used to have doesn't read at 54px, so
+// craft here means one clean icon, consistent with its neighbors, not a
+// shrunk-down version of a bigger card's decoration.
 function DocumentsTile({ ctx }) {
   const { c, setDetail } = ctx;
-  const total = DOC_CATEGORIES.reduce((s, g) => s + g.docs.length, 0);
   return (
-    <button onClick={() => setDetail({ type: "documents" })} className="press text-right relative overflow-hidden flora-docs-tile flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-      <div className="relative" style={{ width: 42, height: 42, marginBottom: SP.md }}>
-        <span className="flora-doc-sheet flora-doc-3" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.surface2, border: `1px solid ${c.border}` }} />
-        <span className="flora-doc-sheet flora-doc-2" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.primarySoft, border: `1px solid ${c.primary}33` }} />
-        <span className="flora-doc-sheet flora-doc-1 flex items-center justify-center" style={{ position: "absolute", inset: 0, borderRadius: RAD.sm, background: c.primarySoft, border: `1px solid ${c.primary}55` }}>
-          <FileText size={19} color={c.primary} />
-        </span>
-      </div>
-      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>اسناد و قراردادها</p>
-      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>{faDigits(total)} فرم آماده</p>
-      <style>{`
-        @keyframes floraDocFan1 { from { transform: translate(0,0) rotate(0deg); } to { transform: translate(0,-2px) rotate(0deg); } }
-        .flora-doc-sheet { transition: transform .35s cubic-bezier(.34,1.4,.64,1); }
-        .flora-doc-3 { transform: translate(5px, 5px) rotate(7deg); }
-        .flora-doc-2 { transform: translate(2.5px, 2.5px) rotate(3.5deg); }
-        .flora-docs-tile:active .flora-doc-3 { transform: translate(9px, 8px) rotate(12deg); }
-        .flora-docs-tile:active .flora-doc-2 { transform: translate(4px, 4px) rotate(6deg); }
-        .flora-docs-tile:active .flora-doc-1 { transform: translate(-1px, -2px); }
-      `}</style>
+    <button onClick={() => setDetail({ type: "documents" })} className="press flex flex-col items-center" style={{ gap: 7, flex: 1 }}>
+      <div className="flex items-center justify-center" style={{ width: 54, height: 54, borderRadius: 18, background: c.primarySoft }}><FileText size={22} color={c.primary} /></div>
+      <p style={{ fontSize: 11, fontWeight: FW.medium, color: c.muted, textAlign: "center" }}>اسناد و قراردادها</p>
     </button>
   );
 }
@@ -2619,7 +2603,7 @@ function NextBestActionCard({ ctx }) {
                         <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 3, lineHeight: 1.7 }}>{oc?.result || a.reason}</p>
                       </div>
                     </div>
-                    <button onClick={() => setFocusQueue({ actions, index: i })} className="press w-full" style={{ marginTop: SP.md, paddingBlock: 10, borderRadius: RAD.md, background: oc?.result ? c.surface2 : (c.isDark ? "#fff" : c.ink), color: oc?.result ? c.muted : (c.isDark ? c.ink : "#fff"), fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "دوباره" : "اجرا"}</button>
+                    <button onClick={() => setFocusQueue({ actions, index: i })} className="press w-full" style={{ marginTop: SP.md, paddingBlock: 10, borderRadius: RAD.md, background: oc?.result ? c.surface2 : (c.isDark ? "#fff" : c.ink), color: oc?.result ? c.muted : (c.isDark ? "#0A0A0A" : "#fff"), fontSize: FS.caption + 1, fontWeight: FW.bold }}>{oc?.result ? "دوباره" : "اجرا"}</button>
                     {oc?.next && (
                       <div className="flex items-start" style={{ gap: SP.sm, marginTop: SP.sm }}>
                         <Sparkles size={13} color={c.primary} style={{ marginTop: 2, flexShrink: 0 }} />
@@ -3016,11 +3000,11 @@ function HomeTab({ ctx }) {
           <ChevronLeft size={18} color={c.muted} />
         </a>
 
-        {/* Quick-launch tools. A horizontal rail rather than a grid: five tools
-            in a 2-column grid leaves a lopsided half-empty last row, and the
-            rail also means adding a sixth tool later doesn't reshuffle the
-            layout. */}
-        <div className="flex" style={{ gap: SP.md, overflowX: "auto", paddingBottom: SP.xs, scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch" }}>
+        {/* Quick-launch tools — a compact icon dock instead of a horizontally
+            scrolling row of full cards. Apple's own quick-actions pattern:
+            uniform squircle icon, short label, evenly spaced, all four
+            visible at once with nothing to scroll past. */}
+        <div className="flex items-start" style={{ gap: SP.sm, padding: `${SP.sm}px ${SP.xs}px` }}>
           <VoiceAssistantTile ctx={ctx} />
           <LegalTile ctx={ctx} />
           <WeeklyStatsTile ctx={ctx} />

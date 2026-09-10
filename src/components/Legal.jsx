@@ -13,10 +13,9 @@ import { uploadLegalImage, uploadLegalPdf, getLegalAttachmentUrl, deleteLegalCon
 function LegalTile({ ctx }) {
   const { c, setLegalOpen } = ctx;
   return (
-    <button onClick={() => setLegalOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-      <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.dangerSoft, marginBottom: SP.md }}><Scale size={20} color={c.danger} /></div>
-      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>Flora Legal</p>
-      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>دستیار حقوقی چت</p>
+    <button onClick={() => setLegalOpen(true)} className="press flex flex-col items-center" style={{ gap: 7, flex: 1 }}>
+      <div className="flex items-center justify-center" style={{ width: 54, height: 54, borderRadius: 18, background: c.dangerSoft }}><Scale size={22} color={c.danger} /></div>
+      <p style={{ fontSize: 11, fontWeight: FW.medium, color: c.muted, textAlign: "center" }}>Flora Legal</p>
     </button>
   );
 }
