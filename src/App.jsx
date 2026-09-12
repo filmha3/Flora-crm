@@ -3648,31 +3648,40 @@ function PipelineBoard({ rows, ctx }) {
 function CustomerCard({ cu, c, onClick }) {
   const stage = cu.stage || "در حال بررسی";
   const stageColor = CUSTOMER_STAGE_COLOR(c)[stage] || c.primary;
-  // Neglect decay — a customer nobody has touched in a while visibly fades,
-  // like a plant wilting. Closed-won customers never decay (no need to chase them).
-  const idleDays = cu.lastContactAt ? daysSince(cu.lastContactAt) : 99; // never logged → treat as long overdue
+  // One signal for "hasn't been followed up," not three at once — the
+  // warning text alone says it; a grayscale filter and a faded opacity on
+  // top of that were three cues for the same single fact.
+  const idleDays = cu.lastContactAt ? daysSince(cu.lastContactAt) : 99;
   const decaying = stage !== "خرید کرد" && idleDays >= 2;
-  const decay = decaying ? Math.min(1, (idleDays - 1) / 7) : 0; // full grey by ~day 8
   return (
-    <button onClick={onClick} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glassLite(c, RAD.lg), filter: decay > 0 ? `grayscale(${decay})` : "none", opacity: 1 - decay * 0.32, transition: "filter .6s ease, opacity .6s ease" }}>
+    <button onClick={onClick} className="press w-full text-right" style={{ padding: SP.lg, borderRadius: RAD.lg, ...glassLite(c, RAD.lg) }}>
       <div className="flex items-center" style={{ gap: SP.md }}>
         <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 48, height: 48, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
         <div className="flex-1 min-w-0">
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.name}</p>
+          {/* Name is the one thing this row exists to show — it carries the
+              most weight now, not tied with the budget figure. */}
+          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.name}</p>
           <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.need || "بدون توضیح"}</p>
         </div>
-        <div className="text-left shrink-0">
-          <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: c.primary, direction: "rtl" }}>{fmtBudgetShort(cu.budget)}</p>
-          <p style={{ fontSize: 10, color: c.muted, marginTop: 1 }}>بودجه</p>
-        </div>
+        {/* Same quick-action pattern as iOS Contacts/Messages rows — acting
+            on a customer (calling them) shouldn't require opening the full
+            detail screen first. */}
+        {cu.phone && (
+          <a href={`tel:${cu.phone}`} onClick={(e) => e.stopPropagation()} className="press flex items-center justify-center shrink-0" style={{ width: 34, height: 34, borderRadius: "50%", background: c.successSoft }}>
+            <PhoneCall size={14} color={c.success} />
+          </a>
+        )}
       </div>
       <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
         <span className="rounded-full" style={{ fontSize: FS.caption, fontWeight: FW.bold, color: stageColor, background: stageColor + "1f", padding: `4px ${SP.md}px` }}>{stage}</span>
-        {decaying ? (
-          <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}><AlertTriangle size={12} color={c.attn} />{faDigits(idleDays)} روز بدون پیگیری</span>
-        ) : (
-          <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.muted }}>مشاهده <ChevronLeft size={14} color={c.muted} /></span>
-        )}
+        <div className="flex items-center" style={{ gap: SP.md }}>
+          {decaying && (
+            <span className="flex items-center" style={{ gap: SP.xs, fontSize: FS.caption, color: c.attn, fontWeight: FW.bold }}><AlertTriangle size={12} color={c.attn} />{faDigits(idleDays)} روز</span>
+          )}
+          {/* Budget is supporting info now — small and quiet, not
+              competing with the name for the first thing the eye lands on. */}
+          <span style={{ fontSize: FS.caption, color: c.muted, direction: "rtl" }}>{fmtBudgetShort(cu.budget)}</span>
+        </div>
       </div>
       {cu.lastCallNote && (
         <div className="flex items-start" style={{ gap: SP.xs, marginTop: SP.sm }}>
@@ -3943,7 +3952,7 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
 // Settings never shows account stats either, it's purely "who am I, tap to
 // manage" — a single clear entry point instead of a dashboard competing
 // with everything else at the top of the screen.
-function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, notify }) {
+function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, agentPhoto, notify }) {
   const [editing, setEditing] = useState(false);
   const [n, setN] = useState(agencyName);
   const [ct, setCt] = useState(agencyCity);
@@ -3961,8 +3970,8 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
     <div className="rounded-2xl overflow-hidden mb-4" style={glass(c)}>
       {!editing ? (
         <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.md }}>
-          <div className="flex items-center justify-center shrink-0" style={{ width: 50, height: 50, borderRadius: "50%", background: c.gradientPrimary }}>
-            <span style={{ fontSize: 19, fontWeight: 800, color: "#fff" }}>{initial}</span>
+          <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 50, height: 50, borderRadius: "50%", background: c.gradientPrimary }}>
+            {agentPhoto ? <img src={agentPhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 19, fontWeight: 800, color: "#fff" }}>{initial}</span>}
           </div>
           <div className="flex-1 min-w-0">
             <p style={{ fontSize: 16, fontWeight: 700 }}>{agentName || "مشاور"}</p>
@@ -4039,7 +4048,7 @@ function MoreTab({ ctx }) {
 
   return (
     <div className="pt-3">
-      <OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} notify={notify} properties={properties} customers={customers} owners={owners} />
+      <OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} agentPhoto={ctx.agentPhoto} notify={notify} />
 
       {/* Mode switch stays its own card — it's a toggle, not a navigation
           row, and it changes what the rest of this screen even shows. */}
