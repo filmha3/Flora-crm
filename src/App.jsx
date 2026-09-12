@@ -3937,7 +3937,13 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
 
 // Editable agency identity. Flora is meant to be published for any agent, so the
 // name, city, and agent name aren't hardcoded — each office sets their own here.
-function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, notify, properties, customers, owners }) {
+// Same shape as the "Apple ID / iCloud" row at the top of iOS Settings —
+// circular avatar, name, one-line subtitle, trailing chevron, tap-through
+// to edit. Deliberately no gradient hero, no stats row: that row in
+// Settings never shows account stats either, it's purely "who am I, tap to
+// manage" — a single clear entry point instead of a dashboard competing
+// with everything else at the top of the screen.
+function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, notify }) {
   const [editing, setEditing] = useState(false);
   const [n, setN] = useState(agencyName);
   const [ct, setCt] = useState(agencyCity);
@@ -3949,39 +3955,32 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
     setEditing(false);
     notify("مشخصات دفتر ذخیره شد");
   };
+  const initial = (agentName || "م").trim().charAt(0);
+
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ background: c.gradientPrimary, boxShadow: "0 12px 32px rgba(79,70,229,.32)", position: "relative", overflow: "hidden" }}>
-      <span style={{ position: "absolute", top: "-55%", left: "-25%", width: 200, height: 200, background: "radial-gradient(circle,rgba(255,255,255,.15),transparent 70%)", animation: "floraFloat 5s ease-in-out infinite" }} />
-      <div style={{ position: "absolute", bottom: -20, left: -14, opacity: 0.13, pointerEvents: "none" }}><FloraMark size={130} color="#fff" stroke={1.2} /></div>
+    <div className="rounded-2xl overflow-hidden mb-4" style={glass(c)}>
       {!editing ? (
-        <div style={{ position: "relative" }}>
-          <div className="flex items-start justify-between">
-            <div>
-              <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{agentName || "مشاور"}</p>
-              <p style={{ fontSize: 11, color: "rgba(255,255,255,.8)", marginTop: 2 }}>{agencyCity || "شهر ثبت نشده"}{agencyName ? ` — ${agencyName}` : ""}</p>
-            </div>
-            <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press rounded-lg px-2.5 py-1.5 flex items-center gap-1 shrink-0" style={{ background: "rgba(255,255,255,.18)" }}>
-              <Edit3 size={11} color="#fff" /><span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>ویرایش نام</span>
-            </button>
+        <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.md }}>
+          <div className="flex items-center justify-center shrink-0" style={{ width: 50, height: 50, borderRadius: "50%", background: c.gradientPrimary }}>
+            <span style={{ fontSize: 19, fontWeight: 800, color: "#fff" }}>{initial}</span>
           </div>
-          <div className="flex gap-2 mt-3.5">
-            {[{ n: properties.length, l: "فایل" }, { n: customers.length, l: "مشتری" }, { n: owners.length, l: "مالک" }].map((s, i) => (
-              <div key={i} className="flex-1 rounded-xl py-2 text-center" style={{ background: "rgba(255,255,255,.14)" }}>
-                <p style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{faDigits(s.n)}</p>
-                <p style={{ fontSize: 10, color: "rgba(255,255,255,.8)" }}>{s.l}</p>
-              </div>
-            ))}
+          <div className="flex-1 min-w-0">
+            <p style={{ fontSize: 16, fontWeight: 700 }}>{agentName || "مشاور"}</p>
+            <p style={{ fontSize: 12, color: c.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {agencyName || "نام دفتر ثبت نشده"}{agencyCity ? ` — ${agencyCity}` : ""}
+            </p>
           </div>
-        </div>
+          <ChevronLeft size={18} color={c.muted} style={{ flexShrink: 0 }} />
+        </button>
       ) : (
-        <div className="flex flex-col gap-2.5" style={{ position: "relative" }}>
-          <p style={{ fontSize: 13, fontWeight: 800, color: "#fff", marginBottom: 2 }}>ویرایش مشخصات دفتر</p>
-          <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={n} onChange={(e) => setN(e.target.value)} placeholder="نام دفتر (مثلاً املاک گنجینه)" />
-          <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={ct} onChange={(e) => setCt(e.target.value)} placeholder="شهر (مثلاً سرعین)" />
-          <input style={{ ...inputStyle(c), background: "rgba(255,255,255,.16)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }} value={ag} onChange={(e) => setAg(e.target.value)} placeholder="نام شما (مثلاً قبادی)" />
+        <div className="flex flex-col gap-2.5" style={{ padding: SP.lg }}>
+          <p style={{ fontSize: 13, fontWeight: 800, marginBottom: 2 }}>ویرایش مشخصات دفتر</p>
+          <input style={inputStyle(c)} value={ag} onChange={(e) => setAg(e.target.value)} placeholder="نام شما (مثلاً قبادی)" />
+          <input style={inputStyle(c)} value={n} onChange={(e) => setN(e.target.value)} placeholder="نام دفتر (مثلاً املاک گنجینه)" />
+          <input style={inputStyle(c)} value={ct} onChange={(e) => setCt(e.target.value)} placeholder="شهر (مثلاً سرعین)" />
           <div className="flex gap-2">
-            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: "rgba(255,255,255,.16)", fontSize: 13, fontWeight: 700, color: "#fff" }}>لغو</button>
-            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: "#fff", fontSize: 13, fontWeight: 700, color: c.primary }}>ذخیره</button>
+            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: c.surface2, fontSize: 13, fontWeight: 700 }}>لغو</button>
+            <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: c.gradientPrimary, fontSize: 13, fontWeight: 700, color: "#fff" }}>ذخیره</button>
           </div>
         </div>
       )}
@@ -6445,12 +6444,11 @@ function RecentActivityCard({ ctx, onSeeAll }) {
 // shown empty.
 function HomeInsightSlider({ ctx }) {
   const { c, checks, properties, agencyCity, setTab } = ctx;
-  const [face, setFace] = useState(0);
 
   const in7Days = Date.now() + 7 * 86400000;
   const dueThisWeek = checks.filter((ch) => !ch.paid && new Date(ch.dueDate).getTime() <= in7Days);
   const checksTotal = dueThisWeek.reduce((s, ch) => s + ch.amount, 0);
-  const hasChecksSlide = checks.length > 0;
+  const hasChecksCard = checks.length > 0;
 
   const [cjy, cjm] = isoToJalali(todayISO());
   let py = cjy, pm = cjm - 1; if (pm <= 0) { pm = 12; py -= 1; }
@@ -6469,58 +6467,44 @@ function HomeInsightSlider({ ctx }) {
   const streetCounts = {};
   properties.forEach((p) => { const s = streetOf(p.address); if (s) streetCounts[s] = (streetCounts[s] || 0) + 1; });
   const topStreet = Object.entries(streetCounts).sort((a, b) => b[1] - a[1])[0];
-  const hasMarketSlide = pctChange !== null || !!topStreet;
+  const hasMarketCard = pctChange !== null || !!topStreet;
 
-  const slides = [
-    hasChecksSlide && "checks",
-    hasMarketSlide && "market",
-  ].filter(Boolean);
+  if (!hasChecksCard && !hasMarketCard) return null;
 
-  useEffect(() => {
-    if (slides.length < 2) return;
-    const t = setInterval(() => setFace((f) => (f + 1) % slides.length), 4500);
-    return () => clearInterval(t);
-  }, [slides.length]);
-
-  if (slides.length === 0) return null;
-  const current = slides[face % slides.length];
+  // Alert styling is earned, not decorative: only a check actually due
+  // within a week turns this card red. Nothing here auto-rotates anymore —
+  // both cards, if present, are just always visible side by side, so
+  // there's never a moment where the thing you care about is the one
+  // currently hidden mid-cycle.
+  const urgent = dueThisWeek.length > 0;
 
   return (
-    <button onClick={() => current === "checks" ? ctx.setChecksOpen(true) : setTab("finance")} className="press w-full text-right rounded-2xl relative overflow-hidden flora-rise" style={{ padding: SP.md + 2, ...glass(c), marginBottom: SP.xl }}>
-      {current === "checks" && (
-        <>
-          <div className="flex items-center justify-between">
-            <p style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>چک‌های این هفته</p>
-            <Clock size={14} color={c.attn} />
+    <div className="flex flora-rise" style={{ gap: SP.md, marginBottom: SP.xl }}>
+      {hasChecksCard && (
+        <button onClick={() => ctx.setChecksOpen(true)} className="press text-right rounded-2xl" style={{ flex: 1, padding: SP.md, background: urgent ? c.dangerSoft : c.surface2 }}>
+          <div className="flex items-center" style={{ gap: 6 }}>
+            {urgent && <span className="flora-pulse" style={{ width: 6, height: 6, borderRadius: 999, background: c.danger }} />}
+            <p style={{ fontSize: 11, fontWeight: 700, color: urgent ? c.danger : c.muted }}>چک‌های این هفته</p>
           </div>
-          <p style={{ fontSize: 22, fontWeight: 800, color: dueThisWeek.length ? c.attn : c.success, marginTop: 4 }}>{dueThisWeek.length ? fmtToman(checksTotal) : "چکی سررسید ندارد"}</p>
-          {dueThisWeek.length > 0 && <p style={{ fontSize: 11, color: c.muted, marginTop: 2 }}>{faDigits(dueThisWeek.length)} چک در ۷ روز آینده</p>}
-        </>
+          <p style={{ fontSize: 16, fontWeight: 800, color: urgent ? c.danger : c.ink, marginTop: 6 }}>{dueThisWeek.length ? fmtToman(checksTotal) : "چکی سررسید ندارد"}</p>
+          {dueThisWeek.length > 0 && <p style={{ fontSize: 10.5, color: c.muted, marginTop: 2 }}>{faDigits(dueThisWeek.length)} چک</p>}
+        </button>
       )}
-      {current === "market" && (
-        <>
-          <div className="flex items-center justify-between">
-            <p style={{ fontSize: 12, fontWeight: 700, color: c.muted }}>تحلیل بازار — بر اساس فایل‌های خودت</p>
-            <TrendingUp size={14} color={c.primary} />
-          </div>
-          {pctChange !== null && (
-            <p style={{ fontSize: 13, lineHeight: 1.9, marginTop: 6 }}>
-              {agencyCity || "منطقه‌ی تو"} {faDigits(Math.abs(pctChange))}٪ {pctChange >= 0 ? "افزایش" : "کاهش"} قیمت هر متر نسبت به ماه قبل داشته
+      {hasMarketCard && (
+        <button onClick={() => setTab("finance")} className="press text-right rounded-2xl" style={{ flex: 1, padding: SP.md, background: c.surface2 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: c.muted }}>تحلیل بازار</p>
+          {pctChange !== null ? (
+            <p style={{ fontSize: 13, lineHeight: 1.8, marginTop: 6 }}>
+              {faDigits(Math.abs(pctChange))}٪ {pctChange >= 0 ? "افزایش" : "کاهش"} قیمت هر متر
+            </p>
+          ) : (
+            <p style={{ fontSize: 13, marginTop: 6, lineHeight: 1.8 }}>
+              پرتراکم‌ترین: <b style={{ color: c.ink }}>{topStreet[0]}</b>
             </p>
           )}
-          {topStreet && (
-            <p style={{ fontSize: 13, color: c.muted, marginTop: pctChange !== null ? 4 : 6, lineHeight: 1.9 }}>
-              بیشترین فایل فعال: <b style={{ color: c.ink }}>{topStreet[0]}</b> ({faDigits(topStreet[1])} فایل)
-            </p>
-          )}
-        </>
+        </button>
       )}
-      {slides.length > 1 && (
-        <div className="flex items-center justify-center" style={{ gap: 4, marginTop: SP.md }}>
-          {slides.map((_, i) => <div key={i} style={{ width: i === face % slides.length ? 14 : 5, height: 5, borderRadius: 3, background: i === face % slides.length ? c.primary : c.border, transition: "all .3s" }} />)}
-        </div>
-      )}
-    </button>
+    </div>
   );
 }
 
