@@ -59,7 +59,13 @@ const MIN_SPLASH_MS = 1400;
 const splash = document.getElementById("flora-splash");
 
 if (splash) {
-  let minTimeDone = false, appReady = false;
+  // A public share link (?share=...) bypasses the whole session/data boot
+  // sequence entirely — see FloraCRM's early return — so "flora:ready"
+  // never fires for it. That view has its own inline loading spinner, so
+  // the branded splash just needs to clear quickly, not wait on a signal
+  // that view was never going to send.
+  const isShareRoute = new URLSearchParams(window.location.search).has("share");
+  let minTimeDone = false, appReady = isShareRoute;
   const hideSplash = () => {
     splash.style.transition = "opacity 250ms ease";
     splash.style.opacity = "0";
