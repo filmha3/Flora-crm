@@ -968,8 +968,36 @@ export default function FloraCRM() {
            picking its own number. fast = a tap's own feedback, normal = a
            screen or element arriving, slow = a full sheet sliding into place. */
         :root { --flora-fast: 120ms; --flora-normal: 200ms; --flora-slow: 320ms; --flora-ease: cubic-bezier(0.22, 1, 0.36, 1); }
+        /* translateZ(0) is the containing-block trick explained where this
+           class is applied — 0 so it has zero visual effect on its own. */
+        .flora-app-frame { transform: translateZ(0); }
+        /* Below iPad-landscape width the app already IS this width, so this
+           changes nothing there — it only matters once the browser window
+           is wider than the phone frame itself, i.e. an actual desktop
+           window. The frame gets real presence (shadow, rounded corners,
+           breathing room) instead of looking like a mobile page that just
+           happens to be narrow; the rest of the window gets an ambient
+           version of the app's own palette instead of flat, blank canvas. */
+        @media (min-width: 760px) {
+          html, body { background: radial-gradient(120% 120% at 50% -10%, #16213A 0%, #0A0E1A 55%, #05070D 100%); }
+          .flora-app-frame {
+            margin-block: 28px;
+            min-height: calc(100vh - 56px);
+            border-radius: 32px;
+            overflow: hidden;
+            box-shadow: 0 50px 140px -30px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.07);
+          }
+        }
         .press { transition: transform var(--flora-fast) var(--flora-ease), opacity var(--flora-fast) ease; }
         .press:active { transform: scale(0.98); opacity: .92; }
+        @media (hover: hover) and (pointer: fine) {
+          /* Trackpad/mouse only — never applies on an actual touch device,
+             so this is purely additive for the desktop case. Every tap
+             target in this app already uses .press, so this one rule
+             covers all of them instead of hunting down each button. */
+          .press { cursor: pointer; }
+          .press:hover { opacity: .96; }
+        }
         /* Map styling. Dark Matter renders near-monochrome grey on near-black;
            a warm hue-rotate pushes the roads gold and the base navy, matching
            the printed city-map look without touching any other part of the UI. */
@@ -1127,8 +1155,19 @@ export default function FloraCRM() {
         <FloraMark size={320} color={c.ink} stroke={1} />
       </div>
 
-      {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
-      <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      {/* iPhone 13 Pro sized frame (390 × 844 logical points).
+          `transform` here isn't visual — a transformed element becomes the
+          CSS containing block for every `position: fixed` descendant,
+          however deeply nested. That's what actually makes "works on a
+          MacBook" true: every one of this app's ~35 full-screen sheets and
+          overlays (Legal, Construction, Tour, Focus Mode, every BodyPortal)
+          uses `fixed inset-0`, which is normally anchored to the browser
+          viewport — on a wide desktop window that means every one of them
+          would silently stretch edge-to-edge across the whole screen.
+          With this one property, all of them anchor to this 390px frame
+          instead, without a single one of those ~35 screens needing to be
+          touched individually. */}
+      <div className="w-full relative flex flex-col flora-app-frame" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Property detail owns the full screen — its photo hero replaces the top bar */}
         {detail?.type !== "property" && <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} setTab={setTab} />}
 
