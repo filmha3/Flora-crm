@@ -1657,8 +1657,30 @@ function CelebrationOverlay({ c, celebration }) {
   );
 }
 
+// "قیمت متری ۸۰ تومان شد" in a follow-up note, for the specific "بازنگری
+// قیمت" action, should actually become a price change on the file — not
+// just a sentence sitting in a note nobody re-reads. Scoped narrowly: only
+// looks for a number right after "متری", only fires for the price-review
+// action, and only when a property id can be recovered from that action's
+// own key. A bare number here follows the same convention every agent
+// already uses when saying it out loud — "متری هشتاد" means 80 میلیون
+// تومان, not 80 تومان — so anything under 100,000 is read as millions
+// unless the note itself already says میلیون/میلیارد.
+function parsePricePerMeterFromNote(note) {
+  if (!note) return null;
+  const text = toEnDigits(note).replace(/[,،]/g, "");
+  const m = text.match(/متری[^\d]{0,12}(\d+(?:\.\d+)?)\s*(میلیارد|میلیون)?/);
+  if (!m) return null;
+  let n = parseFloat(m[1]);
+  if (!n) return null;
+  if (m[2] === "میلیارد") n *= 1_000_000_000;
+  else if (m[2] === "میلیون") n *= 1_000_000;
+  else if (n < 100000) n *= 1_000_000;
+  return Math.round(n);
+}
+
 function FocusMode({ ctx }) {
-  const { c, focusQueue, setFocusQueue, hasAiKey, callAI, notify } = ctx;
+  const { c, focusQueue, setFocusQueue, hasAiKey, callAI, notify, setProperties } = ctx;
   const { actions, index } = focusQueue;
   const a = actions[index];
   const [step, setStep] = useState("act"); // act | outcome | result
@@ -1674,6 +1696,18 @@ function FocusMode({ ctx }) {
 
   const submitOutcome = async (result, note) => {
     setStep("result"); setLoading(true);
+
+    // Auto-apply, before anything else — if this doesn't match, nothing
+    // about the rest of the flow changes.
+    if (a.key.startsWith("stale-") && note) {
+      const propertyId = a.key.slice("stale-".length);
+      const newPpm = parsePricePerMeterFromNote(note);
+      if (newPpm) {
+        setProperties((prev) => prev.map((p) => p.id === propertyId ? { ...p, pricePerMeter: newPpm } : p));
+        notify(`قیمت هر متر به ${fmtToman(newPpm)} به‌روزرسانی شد`);
+      }
+    }
+
     const saveOutcome = async (next) => {
       try {
         const existing = await dbGet(NBA_KEY);
@@ -4262,24 +4296,49 @@ function AccountBackupCard({ ctx }) {
   const { c, notify, session, signOut, cloudBackupNow, restoreFromCloud, properties, setProperties } = ctx;
   const [profile, setProfile] = useState(null);
   const [history, setHistory] = useState(null); // null = loading
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [editingEmail, setEditingEmail] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(null); // storage_path pending confirmation
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [migrating, setMigrating] = useState(false);
   const [migrateProgress, setMigrateProgress] = useState(null); // {done, total}
 
   const user = session?.user;
   const googleLinked = (user?.app_metadata?.providers || []).includes("google");
 
+  // A backup older than 10 days is quietly cleaned up the next time this
+  // card loads — both the database row and the actual file in Storage, so
+  // nothing orphaned is left behind. This runs before the list is shown, so
+  // the person never sees the stale entries in the first place.
+  const pruneOld = async (rows) => {
+    const cutoff = Date.now() - 10 * 86400000;
+    const stale = (rows || []).filter((h) => new Date(h.created_at).getTime() < cutoff);
+    if (stale.length === 0) return rows;
+    for (const h of stale) {
+      if (h.storage_path) await supabase.storage.from("backups").remove([h.storage_path]).catch(() => {});
+    }
+    await supabase.from("backup_history").delete().in("id", stale.map((h) => h.id)).catch(() => {});
+    return (rows || []).filter((h) => !stale.some((s) => s.id === h.id));
+  };
+
   const loadAll = async () => {
     const { data: p } = await supabase.from("profiles").select("*").eq("id", user.id).single();
     setProfile(p);
     setEmailInput(p?.backup_email || user.email || "");
     const { data: h } = await supabase.from("backup_history").select("*").order("created_at", { ascending: false }).limit(10);
-    setHistory(h || []);
+    setHistory(await pruneOld(h || []));
   };
   useEffect(() => { if (user) loadAll(); }, [user?.id]); // eslint-disable-line
+
+  const deleteBackup = async (h) => {
+    setConfirmDeleteId(null);
+    if (h.storage_path) await supabase.storage.from("backups").remove([h.storage_path]).catch(() => {});
+    await supabase.from("backup_history").delete().eq("id", h.id).catch(() => {});
+    setHistory((prev) => prev.filter((x) => x.id !== h.id));
+    notify("بکاپ حذف شد");
+  };
 
   const saveBackupEmail = async () => {
     if (!emailInput.trim()) return;
@@ -4389,37 +4448,56 @@ function AccountBackupCard({ ctx }) {
         </button>
       )}
 
-      {/* History */}
-      <p style={{ fontSize: 11, color: c.muted, marginBottom: 6 }}>تاریخچه بکاپ</p>
-      {history === null ? (
-        <p style={{ fontSize: 11, color: c.muted }}>در حال بارگذاری...</p>
-      ) : history.length === 0 ? (
-        <EmptyLine c={c} text="هنوز بکاپی ثبت نشده" />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {history.map((h) => (
-            <div key={h.id} className="rounded-xl p-2.5" style={{ background: c.surface2 }}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  {h.status === "success" ? <CheckCircle2 size={13} color={c.success} /> : <AlertTriangle size={13} color={c.danger} />}
-                  <span style={{ fontSize: 12, fontWeight: 700 }}>{fmtJalali(h.created_at.slice(0, 10))}</span>
-                  <span style={{ fontSize: 10, color: c.muted }}>{h.kind === "manual" ? "دستی" : "خودکار"}</span>
+      {/* History — collapsed by default and capped visually at a handful of
+          rows at once (scrollable past that), since 10 backups' worth of
+          detail sitting open by default was the actual clutter, not the
+          feature itself. */}
+      <button onClick={() => setHistoryOpen((v) => !v)} className="press w-full flex items-center justify-between" style={{ marginBottom: historyOpen ? 8 : 0 }}>
+        <span style={{ fontSize: 11, color: c.muted, fontWeight: 700 }}>تاریخچه بکاپ{history?.length ? ` (${faDigits(history.length)})` : ""}</span>
+        <ChevronDown size={13} color={c.muted} style={{ transform: historyOpen ? "rotate(180deg)" : "none", transition: "transform .2s ease" }} />
+      </button>
+      {historyOpen && (
+        history === null ? (
+          <p style={{ fontSize: 11, color: c.muted }}>در حال بارگذاری...</p>
+        ) : history.length === 0 ? (
+          <EmptyLine c={c} text="هنوز بکاپی ثبت نشده" />
+        ) : (
+          <div className="flex flex-col gap-2" style={{ maxHeight: 280, overflowY: "auto" }}>
+            <p style={{ fontSize: 9.5, color: c.muted, lineHeight: 1.6 }}>بکاپ‌های بیشتر از ۱۰ روز خودکار پاک می‌شوند.</p>
+            {history.map((h) => (
+              <div key={h.id} className="rounded-xl p-2.5" style={{ background: c.surface2 }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    {h.status === "success" ? <CheckCircle2 size={13} color={c.success} /> : <AlertTriangle size={13} color={c.danger} />}
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>{fmtJalali(h.created_at.slice(0, 10))}</span>
+                    <span style={{ fontSize: 10, color: c.muted }}>{h.kind === "manual" ? "دستی" : "خودکار"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {h.size_bytes ? <span style={{ fontSize: 10, color: c.muted }}>{(h.size_bytes / 1024).toFixed(1)} KB</span> : null}
+                    {confirmDeleteId === h.id ? (
+                      <div className="flex items-center" style={{ gap: 4 }}>
+                        <button onClick={() => deleteBackup(h)} className="press rounded-lg" style={{ padding: "4px 8px", background: c.danger, color: "#fff", fontSize: 9.5, fontWeight: 700 }}>حذف</button>
+                        <button onClick={() => setConfirmDeleteId(null)} className="press rounded-lg" style={{ padding: "4px 8px", background: c.surface, fontSize: 9.5, fontWeight: 700 }}>لغو</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDeleteId(h.id)} className="press w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={11} color={c.danger} /></button>
+                    )}
+                  </div>
                 </div>
-                {h.size_bytes ? <span style={{ fontSize: 10, color: c.muted }}>{(h.size_bytes / 1024).toFixed(1)} KB</span> : null}
+                {h.status === "success" && h.storage_path && (
+                  <div className="flex gap-2" style={{ marginTop: 6 }}>
+                    <button onClick={() => doDownload(h.storage_path)} className="press flex-1 rounded-lg py-1.5 flex items-center justify-center gap-1" style={{ background: c.surface }}>
+                      <Download size={11} color={c.ink} /><span style={{ fontSize: 10, fontWeight: 700 }}>دانلود</span>
+                    </button>
+                    <button onClick={() => setConfirmRestore(h.storage_path)} className="press flex-1 rounded-lg py-1.5 flex items-center justify-center gap-1" style={{ background: c.attnSoft }}>
+                      <RefreshCw size={11} color={c.attn} /><span style={{ fontSize: 10, fontWeight: 700, color: c.attn }}>بازیابی</span>
+                    </button>
+                  </div>
+                )}
               </div>
-              {h.status === "success" && h.storage_path && (
-                <div className="flex gap-2" style={{ marginTop: 6 }}>
-                  <button onClick={() => doDownload(h.storage_path)} className="press flex-1 rounded-lg py-1.5 flex items-center justify-center gap-1" style={{ background: c.surface }}>
-                    <Download size={11} color={c.ink} /><span style={{ fontSize: 10, fontWeight: 700 }}>دانلود</span>
-                  </button>
-                  <button onClick={() => setConfirmRestore(h.storage_path)} className="press flex-1 rounded-lg py-1.5 flex items-center justify-center gap-1" style={{ background: c.attnSoft }}>
-                    <RefreshCw size={11} color={c.attn} /><span style={{ fontSize: 10, fontWeight: 700, color: c.attn }}>بازیابی</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
       )}
 
       {confirmRestore && (
@@ -5829,10 +5907,35 @@ function CustomerDetail({ id, ctx, onBack }) {
   const cu = customers.find((x) => x.id === id);
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState(null);
+
+  // Both hooks below use cu?.name (optional chaining) rather than cu.name
+  // specifically so they stay safe to call unconditionally, before the
+  // "customer not found" early return further down — a hook can never be
+  // skipped on some renders and not others, so it has to tolerate cu being
+  // momentarily null rather than the early return happening first.
+  const custCalls = useMemo(() => calls.filter((cl) => cl.customerId === id || cl.customerName === cu?.name), [calls, id, cu?.name]);
+  const custAppts = useMemo(() => appointments.filter((a) => a.customerId === id || a.customerName === cu?.name), [appointments, id, cu?.name]);
+  // One chronological feed instead of two separate "تاریخچه تماس" /
+  // "بازدیدهای برنامه‌ریزی‌شده" lists — what actually matters when opening a
+  // customer's record is "what's the story with this person," which calls
+  // and visits both answer together, not as two disconnected histories.
+  const timeline = useMemo(() => {
+    const items = [
+      ...custCalls.map((cl) => ({ type: "call", date: cl.date || "", key: `call-${cl.id}`, data: cl })),
+      ...custAppts.map((a) => ({ type: "appt", date: a.date || "", key: `appt-${a.id}`, data: a })),
+    ];
+    return items.sort((x, y) => y.date.localeCompare(x.date));
+  }, [custCalls, custAppts]);
+
   if (!cu) return null;
+
   const startEdit = () => { setF({ name: cu.name || "", phone: cu.phone || "", need: cu.need || "", budget: String(cu.budget || "") }); setEditing(true); };
   const save = () => {
-    ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, name: f.name.trim() || x.name, phone: f.phone.trim(), need: f.need.trim(), budget: toNum(f.budget) } : x));
+    // Editing a customer's details is itself a follow-up touch — the agent
+    // just looked at this person's record and updated it, which is exactly
+    // what "پیگیری" means here, so it resets the same clock a phone call
+    // would.
+    ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, name: f.name.trim() || x.name, phone: f.phone.trim(), need: f.need.trim(), budget: toNum(f.budget), lastContactAt: todayISO(), lastContactTs: Date.now() } : x));
     setEditing(false); ctx.notify("مشخصات مشتری ذخیره شد");
   };
   const changeStage = (st) => {
@@ -5840,66 +5943,129 @@ function CustomerDetail({ id, ctx, onBack }) {
     if (st === "خرید کرد") { celebrate({ kind: "deal", label: "این معامله بسته شد" }); setTimeout(onBack, 1400); }
     else if (st === "منصرف شد") { celebrate({ kind: "lost", label: "از لیست فعال مشتریان جدا شد" }); setTimeout(onBack, 1400); }
   };
-  const custCalls = calls.filter((cl) => cl.customerId === id || cl.customerName === cu.name);
-  const custAppts = appointments.filter((a) => a.customerId === id || a.customerName === cu.name);
+  const logCall = () => {
+    ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO(), lastContactTs: Date.now() } : x));
+  };
+
+  const stageColor = CUSTOMER_STAGE_COLOR(c)[cu.stage || "در حال بررسی"] || c.primary;
+  const idleDays = cu.lastContactAt ? daysSince(cu.lastContactAt) : null;
+  const followedUpToday = cu.lastContactAt === todayISO();
+  const needsFollowUp = cu.stage !== "خرید کرد" && cu.stage !== "منصرف شد" && (idleDays == null || idleDays >= 5);
+
   return (
     <div className="pt-2">
       <BackHeader c={c} title="جزئیات مشتری" onBack={onBack} onDelete={() => { ctx.setCustomers((prev) => prev.filter((x) => x.id !== id)); onBack(); ctx.notify("مشتری حذف شد"); }} />
 
-      {!editing ? (
-        <div className="rounded-2xl p-4 mb-3 flex items-center gap-3" style={glass(c)}>
-          <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 52, height: 52, background: c.primarySoft }}><UserCircle2 size={26} color={c.primary} /></div>
-          <div className="flex-1"><p style={{ fontSize: 15, fontWeight: 800 }}>{cu.name}</p><p style={{ fontSize: 13, color: c.muted }} dir="ltr">{cu.phone || "بدون شماره"}</p></div>
-          <button onClick={startEdit} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={14} color={c.muted} /></button>
-          {cu.phone && (
-            <a href={`tel:${cu.phone}`} onClick={() => ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastContactAt: todayISO(), lastContactTs: Date.now() } : x))} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={18} color={c.success} /></a>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-2xl p-4 mb-3" style={glass(c)}>
-          <Field c={c} label="نام"><input style={inputStyle(c)} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-          <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
-          <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={(e) => setF({ ...f, need: e.target.value })} /></Field>
-          <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.budget} onChange={(e) => setF({ ...f, budget: e.target.value })} /></Field>
-          <div className="flex" style={{ gap: SP.sm }}>
-            <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.surface2, color: c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>لغو</button>
-            <button onClick={save} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.caption + 1 }}>ذخیره</button>
-          </div>
-        </div>
-      )}
+      {/* Identity + status, one card — name, stage, and how long since
+          anyone touched this record all answer the same question ("where
+          do things stand with this person") so they live together instead
+          of stage living in its own separate block further down. */}
+      <div className="rounded-2xl p-4 mb-3" style={glass(c)}>
+        {!editing ? (
+          <>
+            <div className="flex items-center" style={{ gap: SP.md }}>
+              <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 56, height: 56, background: c.primarySoft }}><UserCircle2 size={28} color={c.primary} /></div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: 17, fontWeight: FW.heavy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.name}</p>
+                <p style={{ fontSize: 13, color: c.muted, marginTop: 2 }} dir="ltr">{cu.phone || "بدون شماره"}</p>
+              </div>
+              <button onClick={startEdit} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={13} color={c.muted} /></button>
+            </div>
 
-      {/* Stage — tap to change */}
-      <div className="mb-3">
-        <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, paddingRight: 2 }}>مرحله مشتری</p>
-        <div className="flex flex-wrap" style={{ gap: SP.sm }}>
-          {CUSTOMER_STAGES.map((st) => { const active = (cu.stage || "در حال بررسی") === st; const col = CUSTOMER_STAGE_COLOR(c)[st]; return (
-            <button key={st} onClick={() => changeStage(st)} className="press rounded-full" style={{ padding: `6px ${SP.md}px`, fontSize: FS.caption, fontWeight: FW.bold, background: active ? col : c.surface2, color: active ? "#fff" : c.muted }}>{st}</button>
-          ); })}
-        </div>
+            {/* Status line — the one new piece of information this redesign
+                adds that the old screen never showed at all: exactly how
+                stale this record is, in the same language as the customer
+                list's own sections. */}
+            <div className="flex items-center justify-between" style={{ marginTop: SP.md, paddingTop: SP.md, borderTop: `1px solid ${c.border}` }}>
+              <span className="rounded-full" style={{ fontSize: 11, fontWeight: FW.bold, color: stageColor, background: stageColor + "1f", padding: "4px 12px" }}>{cu.stage || "در حال بررسی"}</span>
+              {followedUpToday ? (
+                <span className="flex items-center" style={{ gap: 5, fontSize: 11, fontWeight: FW.bold, color: c.success }}><CheckCircle2 size={12} /> امروز پیگیری شد</span>
+              ) : needsFollowUp ? (
+                <span className="flex items-center" style={{ gap: 5, fontSize: 11, fontWeight: FW.bold, color: c.attn }}><AlertTriangle size={12} /> {idleDays == null ? "هنوز پیگیری نشده" : `${faDigits(idleDays)} روز بدون پیگیری`}</span>
+              ) : (
+                <span style={{ fontSize: 11, color: c.muted }}>{idleDays == null ? "—" : `${faDigits(idleDays)} روز از آخرین پیگیری`}</span>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <Field c={c} label="نام"><input style={inputStyle(c)} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus /></Field>
+            <Field c={c} label="شماره تماس"><input style={inputStyle(c)} dir="ltr" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
+            <Field c={c} label="نیاز مشتری"><input style={inputStyle(c)} value={f.need} onChange={(e) => setF({ ...f, need: e.target.value })} /></Field>
+            <Field c={c} label="بودجه (تومان)"><input style={inputStyle(c)} inputMode="numeric" value={f.budget} onChange={(e) => setF({ ...f, budget: e.target.value })} /></Field>
+            <div className="flex" style={{ gap: SP.sm }}>
+              <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.surface2, color: c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>لغو</button>
+              <button onClick={save} className="press flex-1 rounded-xl" style={{ paddingBlock: SP.sm + 2, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.caption + 1 }}>ذخیره</button>
+            </div>
+          </>
+        )}
       </div>
-      <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press w-full rounded-xl p-3.5 mb-3 flex items-center gap-2.5" style={{ background: c.primarySoft }}>
-        <MessageSquare size={16} color={c.primary} /><span style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>پیام آماده برای این مشتری</span>
-      </button>
-      <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => { ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO(), lastContactTs: Date.now() } : x)); celebrate({ kind: "followup", label: "پیگیری ثبت شد" }); }} />
+
       {!editing && (
-        <div className="rounded-2xl p-4 mb-3" style={glass(c)}>
-          <div className="flex items-center justify-between">
-            <div><p style={{ fontSize: 13, color: c.muted, marginBottom: 4 }}>نیاز مشتری</p><p style={{ fontSize: 13 }}>{cu.need || "—"}</p></div>
-            <button onClick={startEdit} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={11} color={c.muted} /></button>
+        <>
+          {/* Primary actions — equal-weight row, matches the same pattern
+              used everywhere else in the app for "the 2-3 things you'd do
+              from here" instead of scattered buttons of different styles. */}
+          <div className="flex" style={{ gap: SP.sm, marginBottom: SP.md }}>
+            {cu.phone ? (
+              <a href={`tel:${cu.phone}`} onClick={logCall} className="press flex-1 flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 12, background: c.successSoft }}>
+                <PhoneCall size={14} color={c.success} /><span style={{ fontSize: 12.5, fontWeight: FW.bold, color: c.success }}>تماس</span>
+              </a>
+            ) : (
+              <div className="flex-1 flex items-center justify-center rounded-xl" style={{ paddingBlock: 12, background: c.surface2, opacity: 0.5 }}>
+                <span style={{ fontSize: 12.5, color: c.muted }}>بدون شماره</span>
+              </div>
+            )}
+            <button onClick={() => setSheet({ kind: "messages", customerId: id })} className="press flex-1 flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 12, background: c.primarySoft }}>
+              <MessageSquare size={14} color={c.primary} /><span style={{ fontSize: 12.5, fontWeight: FW.bold, color: c.primary }}>پیام آماده</span>
+            </button>
           </div>
-          <p style={{ fontSize: 13, color: c.muted, marginTop: 10, marginBottom: 4 }}>بودجه</p><p style={{ fontSize: 13, fontWeight: 700, color: c.primary }}>{fmtToman(cu.budget)}</p>
-        </div>
+
+          {/* Need + budget — two calm stats, not a card competing with the
+              identity card above it. */}
+          <div className="flex" style={{ gap: SP.sm, marginBottom: SP.md }}>
+            <div className="flex-1 rounded-xl" style={{ padding: SP.md, ...glassLite(c, RAD.md) }}>
+              <p style={{ fontSize: 11, color: c.muted }}>نیاز مشتری</p>
+              <p style={{ fontSize: 13, fontWeight: FW.medium, marginTop: 4, lineHeight: 1.6 }}>{cu.need || "—"}</p>
+            </div>
+            <div className="rounded-xl" style={{ padding: SP.md, ...glassLite(c, RAD.md) }}>
+              <p style={{ fontSize: 11, color: c.muted }}>بودجه</p>
+              <p style={{ fontSize: 13, fontWeight: FW.bold, color: c.primary, marginTop: 4, direction: "ltr" }}>{fmtToman(cu.budget)}</p>
+            </div>
+          </div>
+
+          {/* Stage change tucked under its own quiet label — a deliberate,
+              occasional action, not something that should compete for
+              attention with the status line above every time this screen
+              opens. */}
+          <div className="mb-4">
+            <p style={{ fontSize: 11, color: c.muted, marginBottom: SP.sm, paddingRight: 2 }}>تغییر مرحله</p>
+            <div className="flex flex-wrap" style={{ gap: SP.xs }}>
+              {CUSTOMER_STAGES.map((st) => { const active = (cu.stage || "در حال بررسی") === st; const col = CUSTOMER_STAGE_COLOR(c)[st]; return (
+                <button key={st} onClick={() => changeStage(st)} className="press rounded-full" style={{ padding: `5px ${SP.md - 2}px`, fontSize: 11, fontWeight: FW.bold, background: active ? col : c.surface2, color: active ? "#fff" : c.muted }}>{st}</button>
+              ); })}
+            </div>
+          </div>
+
+          <CustomerNoteBox c={c} note={cu.lastCallNote} onSave={(text) => { ctx.setCustomers((prev) => prev.map((x) => x.id === id ? { ...x, lastCallNote: text, lastContactAt: todayISO(), lastContactTs: Date.now() } : x)); celebrate({ kind: "followup", label: "پیگیری ثبت شد" }); }} />
+
+          <SectionHeader c={c} title="تاریخچه" />
+          <div className="flex flex-col gap-2 mb-6">
+            {timeline.map((item) => item.type === "call" ? (
+              <div key={item.key} className="rounded-xl p-3 flex items-center" style={{ gap: SP.sm + 2, ...glassLite(c, RAD.md) }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></div>
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.data.notes || "تماس"}</p>
+                </div>
+                <span style={{ fontSize: 11, color: c.muted, flexShrink: 0 }}>{fmtJalali(item.date)}</span>
+              </div>
+            ) : (
+              <ActivityApptRow key={item.key} a={item.data} ctx={ctx} />
+            ))}
+            {timeline.length === 0 && <EmptyLine c={c} text="هنوز تماس یا بازدیدی ثبت نشده" />}
+          </div>
+        </>
       )}
-      <SectionHeader c={c} title="تاریخچه تماس" />
-      <div className="flex flex-col gap-2 mb-4">
-        {custCalls.map((cl) => <div key={cl.id} className="rounded-lg p-3 flex items-center justify-between" style={glassLite(c, 20)}><span style={{ fontSize: 13 }}>{cl.notes}</span><span style={{ fontSize: 11, color: c.muted }}>{fmtJalali(cl.date)}</span></div>)}
-        {custCalls.length === 0 && <EmptyLine c={c} text="تماسی ثبت نشده" />}
-      </div>
-      <SectionHeader c={c} title="بازدیدهای برنامه‌ریزی‌شده" />
-      <div className="flex flex-col gap-2 mb-6">
-        {custAppts.map((a) => <ActivityApptRow key={a.id} a={a} ctx={ctx} />)}
-        {custAppts.length === 0 && <EmptyLine c={c} text="بازدیدی ثبت نشده" />}
-      </div>
     </div>
   );
 }
