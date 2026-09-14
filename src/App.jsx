@@ -855,7 +855,19 @@ export default function FloraCRM() {
     await cloudBackupNow();
     const { data: signed, error: signErr } = await supabase.storage.from("backups").createSignedUrl(storagePath, 60);
     if (signErr || !signed) { notify("لینک بازیابی ساخته نشد"); return false; }
-    const res = await fetch(signed.signedUrl);
+    // A large backup (some are 20-30MB) downloading over a slow connection
+    // used to have no timeout and no catch here at all — a stalled fetch
+    // just hung forever, and because nothing downstream ever caught it,
+    // the "در حال بازیابی" state never cleared either. Now a genuine
+    // network failure ends in a clear message instead of a silent hang.
+    let res;
+    try {
+      res = await fetch(signed.signedUrl, { signal: AbortSignal.timeout?.(30000) });
+    } catch (e) {
+      notify("دانلود بکاپ ناموفق بود — اتصال اینترنت را چک کن و دوباره امتحان کن");
+      return false;
+    }
+    if (!res.ok) { notify("دانلود بکاپ ناموفق بود"); return false; }
     const data = await res.json().catch(() => null);
     if (!data) { notify("فایل بکاپ خراب بود"); return false; }
     if (data.properties) setProperties(data.properties);
@@ -4378,9 +4390,14 @@ function AccountBackupCard({ ctx }) {
 
   const doBackupNow = async () => {
     setBusy(true);
-    await cloudBackupNow();
-    await loadAll();
-    setBusy(false);
+    try {
+      await cloudBackupNow();
+      await loadAll();
+    } catch (e) {
+      notify("بکاپ‌گیری با خطا مواجه شد");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const doDownload = async (path) => {
@@ -4392,9 +4409,17 @@ function AccountBackupCard({ ctx }) {
   const doRestore = async (path) => {
     setConfirmRestore(null);
     setBusy(true);
-    await restoreFromCloud(path);
-    await loadAll();
-    setBusy(false);
+    try {
+      await restoreFromCloud(path);
+      await loadAll();
+    } catch (e) {
+      notify("بازیابی با خطا مواجه شد");
+    } finally {
+      // finally, not just a plain call after the awaits above — if either
+      // one throws, this still runs, so the UI can never get stuck showing
+      // a permanent "در حال انجام" state again.
+      setBusy(false);
+    }
   };
 
   // One-time, explicit (never automatic) migration of old base64 photos to
