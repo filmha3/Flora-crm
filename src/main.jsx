@@ -11,14 +11,17 @@ import "./index.css";
 // app: whatever breaks inside, the person always gets a real "something
 // broke" screen with a reload button instead of a silent blank page.
 class FloraErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { crashed: false }; }
-  static getDerivedStateFromError() { return { crashed: true }; }
+  constructor(props) { super(props); this.state = { crashed: false, error: null, info: null, showDetails: false }; }
+  static getDerivedStateFromError(error) { return { crashed: true, error }; }
   componentDidCatch(error, info) {
+    this.setState({ info });
     // eslint-disable-next-line no-console
     console.error("Flora crashed:", error, info?.componentStack);
   }
   render() {
     if (!this.state.crashed) return this.props.children;
+    const message = this.state.error?.message || String(this.state.error || "");
+    const stack = this.state.info?.componentStack || this.state.error?.stack || "";
     return (
       <div style={{
         position: "fixed", inset: 0, background: "#0A0E1A", color: "#F0F2F8",
@@ -35,6 +38,28 @@ class FloraErrorBoundary extends React.Component {
         >
           تلاش دوباره
         </button>
+        {/* Previously this only went to the browser console, which is
+            useless on a phone with no way to open dev tools. Surfacing the
+            actual error text here is what turns a report of "it broke"
+            into something we can actually locate in the code. */}
+        {message && (
+          <button
+            onClick={() => this.setState((s) => ({ showDetails: !s.showDetails }))}
+            style={{ marginTop: 6, background: "none", border: "none", color: "#5B9DFF", fontSize: 11, fontWeight: 700 }}
+          >
+            {this.state.showDetails ? "پنهان کردن جزئیات" : "نمایش جزئیات فنی"}
+          </button>
+        )}
+        {this.state.showDetails && (
+          <div style={{
+            maxWidth: 340, maxHeight: 220, overflowY: "auto", textAlign: "left", direction: "ltr",
+            background: "rgba(255,255,255,0.06)", borderRadius: 10, padding: 12, fontSize: 10.5,
+            color: "#C8CEDD", lineHeight: 1.6, fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}>
+            {message}
+            {stack ? `\n\n${stack}` : ""}
+          </div>
+        )}
       </div>
     );
   }

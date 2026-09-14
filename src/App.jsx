@@ -1508,8 +1508,8 @@ function MarketWidget({ c }) {
         const json = await res.json();
         const label = (x) => `${x.symbol || ""} ${x.name || ""} ${x.name_en || ""} ${x.title || ""}`;
         const priceOf = (x) => x.price ?? x.value ?? x.price_toman ?? x.close;
-        const usd = (json.currency || []).find((x) => /USD|دلار امریکا|دلار آمریکا/i.test(label(x)));
-        const gram = (json.gold || []).find((x) => /18|هجده|IR_GOLD_18K|geram18/i.test(label(x)));
+        const usd = (Array.isArray(json.currency) ? json.currency : []).find((x) => /USD|دلار امریکا|دلار آمریکا/i.test(label(x)));
+        const gram = (Array.isArray(json.gold) ? json.gold : []).find((x) => /18|هجده|IR_GOLD_18K|geram18/i.test(label(x)));
         const parsed = {
           usd: usd ? Number(String(priceOf(usd)).replace(/[^\d]/g, "")) : null,
           gold: gram ? Number(String(priceOf(gram)).replace(/[^\d]/g, "")) : null,
