@@ -4339,8 +4339,18 @@ function AccountBackupCard({ ctx }) {
       setEmailInput(user.email || "");
     }
     try {
-      const { data: h } = await supabase.from("backup_history").select("*").order("created_at", { ascending: false }).limit(10);
-      setHistory(await pruneOld(h || []));
+      const { data: h, error } = await supabase.from("backup_history").select("*").order("created_at", { ascending: false }).limit(10);
+      if (error) throw error;
+      const rows = h || [];
+      // Show what was actually fetched immediately and unconditionally —
+      // pruning old entries is a nice-to-have cleanup, not a gate on
+      // whether real backups get displayed. It used to run inline before
+      // setHistory, so if the prune step itself hit any snag, the fallback
+      // path showed an empty list instead of the real (unpruned) one —
+      // which looked exactly like "the backups vanished" even though they
+      // were untouched in the database the whole time.
+      setHistory(rows);
+      pruneOld(rows).then((pruned) => { if (pruned.length !== rows.length) setHistory(pruned); }).catch(() => {});
     } catch (e) {
       setHistory([]);
     }
