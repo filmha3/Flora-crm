@@ -643,6 +643,32 @@ export default function FloraCRM() {
     })();
   }, [loaded, session]); // eslint-disable-line
 
+  // WWDC25/iOS 26: a floating tab bar shrinks to a compact pill while
+  // scrolling down (content gets the full screen) and expands back the
+  // moment you scroll up even slightly or near the top — never on a timer,
+  // always tied directly to the gesture that's actually happening.
+  // Declared here, BEFORE the session-gated early returns below, because
+  // every hook in this component must run on every render regardless of
+  // auth state — putting them after those returns made them run zero times
+  // while signed out and several times once signed in, which is exactly
+  // React error #310 ("rendered more hooks than during the previous
+  // render"): the signed-out render and the signed-in render of this same
+  // component instance called a different number of hooks.
+  const scrollElRef = useRef(null);
+  const lastScrollTopRef = useRef(0);
+  const [navCompact, setNavCompact] = useState(false);
+  const onContentScroll = (e) => {
+    const top = e.currentTarget.scrollTop;
+    const last = lastScrollTopRef.current;
+    if (top <= 24) setNavCompact(false);
+    else if (top > last + 4) setNavCompact(true);
+    else if (top < last - 4) setNavCompact(false);
+    lastScrollTopRef.current = top;
+  };
+  // A fresh screen always starts with the full bar, regardless of where the
+  // previous screen's scroll position left off.
+  useEffect(() => { setNavCompact(false); lastScrollTopRef.current = 0; }, [tab, detail]);
+
   // Everything below this line (ctx, the CRM itself) only matters once we
   // know who's signed in — checked last so every hook above still runs on
   // every render, auth state or not.
@@ -654,7 +680,6 @@ export default function FloraCRM() {
   // except for a rare slow-network moment after the video's own reveal ends.
   if (session === undefined) return <div style={{ position: "fixed", inset: 0, background: c.bg }} />;
   if (!session) return <AuthScreen c={c} dark={dark} />;
-
   // Whether THIS user typed their own key in settings. Only this decides
   // which path callAI takes (personal key direct vs. server proxy).
   const hasPersonalAiKey = !!((aiProvider === "avalai" && avalaiKey) || (aiProvider === "gemini" && geminiKey) || (aiProvider === "perplexity" && perplexityKey));
@@ -895,25 +920,6 @@ export default function FloraCRM() {
   const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
   const todaysAppts = appointments.filter((a) => a.date === todayISO()).length;
   const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
-
-  // WWDC25/iOS 26: a floating tab bar shrinks to a compact pill while
-  // scrolling down (content gets the full screen) and expands back the
-  // moment you scroll up even slightly or near the top — never on a timer,
-  // always tied directly to the gesture that's actually happening.
-  const scrollElRef = useRef(null);
-  const lastScrollTopRef = useRef(0);
-  const [navCompact, setNavCompact] = useState(false);
-  const onContentScroll = (e) => {
-    const top = e.currentTarget.scrollTop;
-    const last = lastScrollTopRef.current;
-    if (top <= 24) setNavCompact(false);
-    else if (top > last + 4) setNavCompact(true);
-    else if (top < last - 4) setNavCompact(false);
-    lastScrollTopRef.current = top;
-  };
-  // A fresh screen always starts with the full bar, regardless of where the
-  // previous screen's scroll position left off.
-  useEffect(() => { setNavCompact(false); lastScrollTopRef.current = 0; }, [tab, detail]);
 
   const goProperties = (stageHint) => { setPropStageHint(stageHint || "همه"); setTab("properties"); };
 
