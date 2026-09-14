@@ -4401,9 +4401,35 @@ function AccountBackupCard({ ctx }) {
   };
 
   const doDownload = async (path) => {
-    const { data, error } = await supabase.storage.from("backups").createSignedUrl(path, 60);
-    if (error || !data) { notify("لینک دانلود ساخته نشد"); return; }
-    window.open(data.signedUrl, "_blank");
+    // The earlier fix (opening a blank tab before the await, to preserve
+    // Safari's "user gesture" window) treated the wrong layer of this —
+    // Flora runs installed as a standalone PWA (manifest display:
+    // "standalone"), and in that mode iOS's WKWebView frequently can't
+    // open a new tab/window AT ALL, regardless of gesture timing, since
+    // there's no browser chrome for a tab to open into. window.open() is
+    // the wrong tool here, not just mistimed.
+    //
+    // Fetching the file as a blob and clicking a hidden <a download> link
+    // sidesteps that entirely — no new window is ever requested, so there's
+    // nothing for standalone mode to block. This is the standard pattern
+    // for triggering a save from inside an installed PWA.
+    try {
+      const { data, error } = await supabase.storage.from("backups").createSignedUrl(path, 60);
+      if (error || !data) { notify("لینک دانلود ساخته نشد"); return; }
+      const res = await fetch(data.signedUrl, { signal: AbortSignal.timeout?.(30000) });
+      if (!res.ok) { notify("دانلود ناموفق بود"); return; }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = path.split("/").pop() || "flora-backup.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+    } catch (e) {
+      notify("دانلود ناموفق بود — اتصال اینترنت را چک کن");
+    }
   };
 
   const doRestore = async (path) => {
