@@ -9,7 +9,7 @@ import {
   MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, HardHat, ArrowUpRight, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
   CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
   Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
-  DollarSign, Coins, WifiOff,
+  DollarSign, Coins, WifiOff, ZoomIn,
 } from "lucide-react";
 
 // ---------- Extracted modules (kept App.jsx from becoming a single
@@ -29,6 +29,7 @@ import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourSt
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
 import { PropertyShareModal, PublicShareView } from "./components/PropertyShare.jsx";
+import { PrivacyPolicyView, TermsOfServiceView } from "./components/LegalPages.jsx";
 import { DEFAULT_MATERIAL_COEFFICIENTS } from "./lib/materialEstimate.js";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
@@ -98,11 +99,27 @@ export default function FloraCRM() {
   // which is what keeps skipping every hook below safe here.
   const shareToken = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("share") : null;
   if (shareToken) return <PublicShareView token={shareToken} />;
+  // Public, unauthenticated legal pages — required by Google's OAuth
+  // consent screen (a privacy policy URL is mandatory for the "Sign in
+  // with Google" button already live in this app) and needed before any
+  // public launch regardless. Same pattern as the share route: checked
+  // before any hooks exist, so it never touches the rest of the app.
+  const legalPage = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("legal") : null;
+  if (legalPage === "privacy") return <PrivacyPolicyView />;
+  if (legalPage === "terms") return <TermsOfServiceView />;
 
   const [dark, setDark] = useState(true);
   // Simple mode hides advanced tools (finance, split, AI) behind "more", so a first-time
   // agent sees only the essentials. On by default; a switch in More restores everything.
   const [simpleMode, setSimpleMode] = useState(true);
+  // A single toggle that scales the ENTIRE interface (text, icons, tap
+  // targets, spacing — everything, proportionally) rather than guessing
+  // one "correct" size for both a 15-year-old and a 60-year-old consultant.
+  // With ~200+ places across this app using a fixed pixel size directly
+  // rather than a shared token, rewriting each individually would be slow
+  // and risky; CSS zoom on the app's own frame scales all of them at once,
+  // safely, and reversibly — exactly an OS-level "display zoom" does.
+  const [largeText, setLargeText] = useState(false);
   const c = dark ? T.dark : T.light;
 
   // The rubber-band overscroll shows the page background, not the app's — so paint it too.
@@ -368,6 +385,7 @@ export default function FloraCRM() {
     if (d?.perplexityKey !== undefined) setPerplexityKey(d.perplexityKey);
     if (d?.splitShares !== undefined) setSplitShares(d.splitShares);
     if (typeof d?.simpleMode === "boolean") setSimpleMode(d.simpleMode);
+    if (typeof d?.largeText === "boolean") setLargeText(d.largeText);
   };
 
   useEffect(() => {
@@ -445,7 +463,7 @@ export default function FloraCRM() {
         // everything else (previously a separate, local-only key) so
         // setting your name or AI key on one device actually shows up on
         // another, the same as a new property does.
-        agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode,
+        agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText,
         updatedAt: now,
       };
       dbSet(DATA_KEY, core).catch(() => {});
@@ -454,7 +472,7 @@ export default function FloraCRM() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates, constructionCostEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode]);
+  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates, constructionCostEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText]);
 
   // Live cross-device convergence: if a second signed-in device (or this
   // same account on the web) pushes a newer flora_data row while this tab
@@ -939,7 +957,7 @@ export default function FloraCRM() {
     c, dark, session, signOut: () => supabase.auth.signOut(), isOnline,
     properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates, constructionCostEstimates, setConstructionCostEstimates, splitShares, setSplitShares, simpleMode, setSimpleMode,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates, constructionCostEstimates, setConstructionCostEstimates, splitShares, setSplitShares, simpleMode, setSimpleMode, largeText, setLargeText,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
@@ -1139,8 +1157,16 @@ export default function FloraCRM() {
         <FloraMark size={320} color={c.ink} stroke={1} />
       </div>
 
-      {/* iPhone 13 Pro sized frame (390 × 844 logical points) */}
-      <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      {/* iPhone 13 Pro sized frame (390 × 844 logical points).
+          `zoom` scales everything inside — text, icons, tap targets,
+          spacing — together and proportionally, the same way an OS-level
+          display-zoom setting works. Chosen deliberately over rewriting the
+          ~200+ places that set a font-size directly rather than through a
+          shared token: touching each of those individually across a file
+          this size is real risk for real reward, while this one property
+          gets the actual outcome (a consultant who needs bigger text gets
+          it, everywhere, today) without any of that risk. */}
+      <div className="w-full relative flex flex-col" style={{ maxWidth: 390, minHeight: "100vh", paddingTop: "env(safe-area-inset-top, 0px)", zoom: largeText ? 1.18 : 1 }}>
         {/* Property detail owns the full screen — its photo hero replaces the top bar */}
         {detail?.type !== "property" && <TopBar c={c} dark={dark} setDark={setDark} tab={tab} pendingCalls={pendingCalls} setSheet={setSheet} setDetail={setDetail} setTab={setTab} />}
 
@@ -2133,7 +2159,7 @@ ${views ? "- نسبت بازدید به تماس: با توجه به بازدی�
       <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
         <button onClick={onClose} aria-label="بستن" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>جستجوی دیوار با AI</h2>
-        <button onClick={clearChat} disabled={messages.length === 0} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: messages.length === 0 ? 0.5 : 1 }}><Trash2 size={16} color={messages.length === 0 ? c.muted : c.danger} /></button>
+        <button onClick={clearChat} disabled={messages.length === 0} aria-label="پاک کردن گفتگو" title="پاک کردن گفتگو" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: messages.length === 0 ? 0.5 : 1 }}><Trash2 size={16} color={messages.length === 0 ? c.muted : c.danger} /></button>
       </div>
 
       {messages.length === 0 ? (
@@ -3343,9 +3369,9 @@ function ActivityApptRow({ a, ctx, showDelete }) {
       </div>
       <input type="time" value={a.time} onChange={(e) => setAppointments((prev) => prev.map((x) => x.id === a.id ? { ...x, time: e.target.value } : x))}
         style={{ background: c.surface2, border: "none", borderRadius: 8, padding: "5px 7px", fontSize: 11, color: c.ink, width: 72 }} />
-      <button onClick={() => scheduleReminder(a, p?.title)} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><Bell size={14} color={c.attn} /></button>
+      <button onClick={() => scheduleReminder(a, p?.title)} aria-label="یادآوری بازدید" title="یادآوری بازدید" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.attnSoft }}><Bell size={14} color={c.attn} /></button>
       {showDelete && (
-        <button onClick={() => { setAppointments((prev) => prev.filter((x) => x.id !== a.id)); notify("بازدید حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
+        <button onClick={() => { setAppointments((prev) => prev.filter((x) => x.id !== a.id)); notify("بازدید حذف شد"); }} aria-label="حذف بازدید" title="حذف بازدید" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
       )}
     </div>
   );
@@ -3947,9 +3973,9 @@ function CalendarTab({ ctx }) {
     <div style={{ paddingTop: SP.lg }}>
       {/* Month header */}
       <div className="flex items-center justify-between" style={{ marginBottom: SP.lg, paddingInline: SP.xs }}>
-        <button onClick={prevMonth} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ ...glass(c) }}><ChevronRight size={18} color={c.ink} /></button>
+        <button onClick={prevMonth} aria-label="ماه قبل" title="ماه قبل" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ ...glass(c) }}><ChevronRight size={18} color={c.ink} /></button>
         <h2 style={{ fontSize: FS.title, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>{MONTHS_FA[view.jm - 1]} {faDigits(view.jy)}</h2>
-        <button onClick={nextMonth} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ ...glass(c) }}><ChevronLeft size={18} color={c.ink} /></button>
+        <button onClick={nextMonth} aria-label="ماه بعد" title="ماه بعد" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ ...glass(c) }}><ChevronLeft size={18} color={c.ink} /></button>
       </div>
 
       {/* Calendar card */}
@@ -4175,7 +4201,7 @@ function ListRow({ c, icon: Icon, label, value, badge, tint, onClick }) {
 }
 
 function MoreTab({ ctx }) {
-  const { c, owners, builders, calls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow, notify, properties, customers, simpleMode, setSimpleMode, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
+  const { c, owners, builders, calls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow, notify, properties, customers, simpleMode, setSimpleMode, largeText, setLargeText, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
   const [contactsOpen, setContactsOpen] = useState(null); // "owners" | "builders" | null
@@ -4203,6 +4229,23 @@ function MoreTab({ ctx }) {
         <button onClick={() => { setSimpleMode(!simpleMode); notify(simpleMode ? "حالت حرفه‌ای فعال شد" : "حالت ساده فعال شد"); }}
           className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: simpleMode ? c.border : c.primary, position: "relative", transition: "background .3s ease" }}>
           <span style={{ position: "absolute", top: 3, right: simpleMode ? 3 : 25, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
+        </button>
+      </div>
+
+      {/* Scales the whole app — text, icons, tap targets — for anyone who
+          finds the default a bit small, without forcing that size on
+          everyone else. */}
+      <div className="rounded-2xl p-4 mb-5 flex items-center gap-3" style={glass(c)}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}>
+          <ZoomIn size={18} color={c.primary} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>متن و آیکون‌های بزرگ‌تر</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>کل صفحه بزرگ‌تر دیده می‌شود</p>
+        </div>
+        <button onClick={() => setLargeText(!largeText)}
+          className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: largeText ? c.primary : c.border, position: "relative", transition: "background .3s ease" }}>
+          <span style={{ position: "absolute", top: 3, right: largeText ? 25 : 3, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
         </button>
       </div>
 
@@ -4292,9 +4335,9 @@ function ContactsSheet({ ctx, kind, onClose }) {
           <div key={o.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
             <div className="rounded-full flex items-center justify-center shrink-0" style={{ width: 36, height: 36, background: tintSoft }}><Icon size={16} color={tint} /></div>
             <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 600 }}>{o.name}</p><p style={{ fontSize: 11, color: c.muted }} dir="ltr">{o.phone}</p></div>
-            {o.phone && <a href={`tel:${o.phone}`} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
-            <button onClick={() => { onClose(); setSheet({ kind: isOwners ? "owner" : "builder", editId: o.id }); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
-            <button onClick={() => { setList((prev) => prev.filter((x) => x.id !== o.id)); notify(isOwners ? "مالک حذف شد" : "سازنده حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
+            {o.phone && <a href={`tel:${o.phone}`} aria-label="تماس" title="تماس" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={12} color={c.success} /></a>}
+            <button onClick={() => { onClose(); setSheet({ kind: isOwners ? "owner" : "builder", editId: o.id }); }} aria-label="ویرایش" title="ویرایش" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
+            <button onClick={() => { setList((prev) => prev.filter((x) => x.id !== o.id)); notify(isOwners ? "مالک حذف شد" : "سازنده حذف شد"); }} aria-label="حذف" title="حذف" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
           </div>
         ))}
         {list.length === 0 && <EmptyLine c={c} text={isOwners ? "مالکی ثبت نشده" : "سازنده‌ای ثبت نشده"} />}
@@ -4316,6 +4359,9 @@ function AccountBackupCard({ ctx }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [migrating, setMigrating] = useState(false);
   const [migrateProgress, setMigrateProgress] = useState(null); // {done, total}
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const user = session?.user;
   const googleLinked = (user?.app_metadata?.providers || []).includes("google");
@@ -4397,6 +4443,28 @@ function AccountBackupCard({ ctx }) {
       notify("بکاپ‌گیری با خطا مواجه شد");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const doDeleteAccount = async () => {
+    if (deleteConfirmText.trim() !== "حذف") return;
+    setDeletingAccount(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("delete-account", { body: {} });
+      if (error || data?.error) {
+        let msg = data?.error;
+        if (!msg) { try { const b = await error.context?.json?.(); msg = b?.error; } catch (e) { /* ignore */ } }
+        notify(msg || "حذف حساب ناموفق بود");
+        setDeletingAccount(false);
+        return;
+      }
+      // Account and every row/file tied to it are already gone server-side
+      // at this point — signing out just clears the now-meaningless local
+      // session.
+      await signOut();
+    } catch (e) {
+      notify("حذف حساب ناموفق بود");
+      setDeletingAccount(false);
     }
   };
 
@@ -4491,6 +4559,47 @@ function AccountBackupCard({ ctx }) {
         <button onClick={() => signOut()} className="press mt-2" style={{ fontSize: 11, color: c.danger, fontWeight: 700 }}>خروج از حساب</button>
       </div>
 
+      {/* Deleting an account is irreversible and destroys real data — kept
+          visually apart from every other action here (its own red-tinted
+          block, a typed confirmation instead of a single tap) so it can
+          never be triggered by a stray tap the way "خروج از حساب" above it
+          can be. */}
+      {!deleteOpen ? (
+        <button onClick={() => setDeleteOpen(true)} className="press w-full text-right rounded-xl p-3 mb-3" style={{ background: c.dangerSoft }}>
+          <span style={{ fontSize: 11, color: c.danger, fontWeight: 700 }}>حذف کامل حساب</span>
+        </button>
+      ) : (
+        <div className="rounded-xl p-3 mb-3" style={{ background: c.dangerSoft, border: `1px solid ${c.danger}55` }}>
+          <p style={{ fontSize: 12, fontWeight: 800, color: c.danger, marginBottom: 4 }}>حذف کامل حساب</p>
+          <p style={{ fontSize: 11, color: c.danger, lineHeight: 1.9, marginBottom: 10 }}>
+            این کار همه‌چیز را برای همیشه پاک می‌کند: فایل‌ها، مشتریان، عکس‌ها، بکاپ‌ها، همه‌چیز. غیرقابل بازگشت است. اگر مطمئنی، کلمه‌ی «حذف» را تایپ کن.
+          </p>
+          <input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="حذف"
+            style={{ width: "100%", background: c.surface, border: `1px solid ${c.danger}55`, borderRadius: RAD.sm, padding: "8px 10px", fontSize: 13, color: c.ink, marginBottom: 10, outline: "none" }}
+          />
+          <div className="flex gap-2">
+            <button onClick={() => { setDeleteOpen(false); setDeleteConfirmText(""); }} className="press flex-1 rounded-lg py-2" style={{ background: c.surface, fontSize: 11, fontWeight: 700 }}>انصراف</button>
+            <button
+              onClick={doDeleteAccount}
+              disabled={deleteConfirmText.trim() !== "حذف" || deletingAccount}
+              className="press flex-1 rounded-lg py-2"
+              style={{ background: c.danger, color: "#fff", fontSize: 11, fontWeight: 700, opacity: deleteConfirmText.trim() === "حذف" && !deletingAccount ? 1 : 0.5 }}
+            >
+              {deletingAccount ? "در حال حذف..." : "حذف برای همیشه"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-center gap-3 mt-1">
+        <a href="/?legal=privacy" target="_blank" rel="noreferrer" style={{ fontSize: 10, color: c.muted }}>حریم خصوصی</a>
+        <span style={{ fontSize: 10, color: c.muted }}>·</span>
+        <a href="/?legal=terms" target="_blank" rel="noreferrer" style={{ fontSize: 10, color: c.muted }}>شرایط استفاده</a>
+      </div>
+
       {/* Backup email */}
       <div className="rounded-xl p-3 mb-3" style={{ background: c.surface2 }}>
         <p style={{ fontSize: 11, color: c.muted, marginBottom: 6 }}>ایمیل دریافت‌کننده بکاپ</p>
@@ -4556,7 +4665,7 @@ function AccountBackupCard({ ctx }) {
                         <button onClick={() => setConfirmDeleteId(null)} className="press rounded-lg" style={{ padding: "4px 8px", background: c.surface, fontSize: 9.5, fontWeight: 700 }}>لغو</button>
                       </div>
                     ) : (
-                      <button onClick={() => setConfirmDeleteId(h.id)} className="press w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={11} color={c.danger} /></button>
+                      <button onClick={() => setConfirmDeleteId(h.id)} aria-label="حذف بکاپ" title="حذف بکاپ" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
                     )}
                   </div>
                 </div>
@@ -5275,8 +5384,8 @@ function InvestmentDetail({ id, ctx, onBack }) {
                 <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{p.name}</p>
                 <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{faDigits(p.percent)}٪ · {fmtBudgetShort(p.capital)}</p>
               </div>
-              <button onClick={() => { setEditPartner(p); setShowPartner(true); }} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface }}><Edit3 size={12} color={c.muted} /></button>
-              <button onClick={() => removePartner(p.id)} className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
+              <button onClick={() => { setEditPartner(p); setShowPartner(true); }} aria-label="ویرایش شریک" title="ویرایش شریک" className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface }}><Edit3 size={12} color={c.muted} /></button>
+              <button onClick={() => removePartner(p.id)} aria-label="حذف شریک" title="حذف شریک" className="press w-7 h-7 rounded-full flex items-center justify-center" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
             </div>
           ))}
           {inv.partners.length === 0 && <EmptyLine c={c} text="شریکی ثبت نشده" />}
@@ -5297,7 +5406,7 @@ function InvestmentDetail({ id, ctx, onBack }) {
                 <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{fmtJalali(e.date)}{e.payer ? ` · ${e.payer}` : ""}</p>
               </div>
               <span style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.attn, direction: "ltr" }}>{fmtBudgetShort(e.amount)}</span>
-              <button onClick={() => removeExpense(e.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
+              <button onClick={() => removeExpense(e.id)} aria-label="حذف هزینه" title="حذف هزینه" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
             </div>
           ))}
           {inv.expenses.length === 0 && <EmptyLine c={c} text="هزینه‌ای ثبت نشده" />}
@@ -5324,8 +5433,8 @@ function InvestmentDetail({ id, ctx, onBack }) {
                 </div>
                 {isCheck && <span className="rounded-full shrink-0" style={{ fontSize: 10, fontWeight: FW.bold, color: checkTone, background: checkTone + "1f", padding: "3px 8px" }}>{p.checkStatus}</span>}
                 <span style={{ fontSize: FS.body, fontWeight: FW.bold, color: c.success, direction: "ltr" }}>{fmtBudgetShort(p.amount)}</span>
-                <button onClick={() => { setEditPayment(p); setShowPayment(true); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Edit3 size={12} color={c.muted} /></button>
-                <button onClick={() => removePayment(p.id)} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
+                <button onClick={() => { setEditPayment(p); setShowPayment(true); }} aria-label="ویرایش پرداخت" title="ویرایش پرداخت" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Edit3 size={12} color={c.muted} /></button>
+                <button onClick={() => removePayment(p.id)} aria-label="حذف پرداخت" title="حذف پرداخت" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface }}><Trash2 size={12} color={c.danger} /></button>
               </div>
             );
           })}
@@ -6045,7 +6154,7 @@ function CustomerDetail({ id, ctx, onBack }) {
                 <p style={{ fontSize: 17, fontWeight: FW.heavy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cu.name}</p>
                 <p style={{ fontSize: 13, color: c.muted, marginTop: 2 }} dir="ltr">{cu.phone || "بدون شماره"}</p>
               </div>
-              <button onClick={startEdit} className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={13} color={c.muted} /></button>
+              <button onClick={startEdit} aria-label="ویرایش مشتری" title="ویرایش مشتری" className="press w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><Edit3 size={13} color={c.muted} /></button>
             </div>
 
             {/* Status line — the one new piece of information this redesign
@@ -6447,9 +6556,9 @@ function CallsView({ ctx, onBack }) {
                 <p style={{ fontSize: 13, fontWeight: 700, textDecoration: done ? "line-through" : "none", color: done ? c.muted : c.ink }}>{cl.customerName}</p>
                 <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{cl.notes ? `${cl.notes} · ` : ""}{fmtJalali(cl.date)}</p>
               </div>
-              {cl.customerPhone && <a href={`tel:${cl.customerPhone}`} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
-              <button onClick={() => setSheet({ kind: "call", editId: cl.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
-              <button onClick={() => { setCalls((prev) => prev.filter((x) => x.id !== cl.id)); notify("تماس حذف شد"); }} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
+              {cl.customerPhone && <a href={`tel:${cl.customerPhone}`} aria-label="تماس" title="تماس" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.successSoft }}><PhoneCall size={13} color={c.success} /></a>}
+              <button onClick={() => setSheet({ kind: "call", editId: cl.id })} aria-label="ویرایش تماس" title="ویرایش تماس" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
+              <button onClick={() => { setCalls((prev) => prev.filter((x) => x.id !== cl.id)); notify("تماس حذف شد"); }} aria-label="حذف تماس" title="حذف تماس" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={13} color={c.danger} /></button>
             </div>
           );
         })}
@@ -6630,7 +6739,7 @@ ${transcript}
       </div>
       <div className="flex items-center gap-2 pt-2 shrink-0">
         <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="سوالت را بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
-        <button onClick={send} disabled={sending || !input.trim()} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primary, opacity: sending || !input.trim() ? 0.5 : 1 }}><Send size={16} color="#fff" /></button>
+        <button onClick={send} disabled={sending || !input.trim()} aria-label="ارسال" title="ارسال" className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primary, opacity: sending || !input.trim() ? 0.5 : 1 }}><Send size={16} color="#fff" /></button>
       </div>
     </div>
   );
@@ -7058,8 +7167,8 @@ function FinanceCenterView({ ctx, onBack }) {
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><method.icon size={17} color={c.primary} /></div>
                   <div className="flex-1 min-w-0"><p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{payerName}</p><p style={{ fontSize: 11, color: c.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{method.label} · {deal?.propertyTitle}</p></div>
                   <div className="text-left shrink-0"><p style={{ fontSize: 13, fontWeight: 800, color: c.success }}>+{fmtToman(p.amount)}</p><p style={{ fontSize: 10, color: c.muted }}>{fmtJalali(p.date)}</p></div>
-                  <button onClick={() => setSheet({ kind: "payment", editId: p.id })} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
-                  <button onClick={() => { setPayments((prev) => prev.filter((x) => x.id !== p.id)); notify("پرداخت حذف شد"); }} className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
+                  <button onClick={() => setSheet({ kind: "payment", editId: p.id })} aria-label="ویرایش پرداخت" title="ویرایش پرداخت" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={12} color={c.primary} /></button>
+                  <button onClick={() => { setPayments((prev) => prev.filter((x) => x.id !== p.id)); notify("پرداخت حذف شد"); }} aria-label="حذف پرداخت" title="حذف پرداخت" className="press w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: c.dangerSoft }}><Trash2 size={12} color={c.danger} /></button>
                 </div>
               );
             })}
@@ -7109,7 +7218,7 @@ function FinanceCenterView({ ctx, onBack }) {
                   <p style={{ fontSize: 11, color: c.muted }}>{t.category || (t.kind === "in" ? "درآمد" : "هزینه")} · {fmtJalali(t.date)}</p>
                 </div>
                 <p className="shrink-0" style={{ fontSize: 13, fontWeight: 800, color: t.kind === "in" ? c.success : c.danger }}>{t.kind === "in" ? "+" : "−"}{fmtToman(t.amount)}</p>
-                <button onClick={() => setSheet({ kind: t.kind === "in" ? "income" : "expense", editId: t.id })} className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
+                <button onClick={() => setSheet({ kind: t.kind === "in" ? "income" : "expense", editId: t.id })} aria-label="ویرایش تراکنش" title="ویرایش تراکنش" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}><Edit3 size={13} color={c.primary} /></button>
                 <button onClick={() => {
                   if (t.kind === "in") setOfficeIncomes((prev) => prev.filter((x) => x.id !== t.id));
                   else setExpenses((prev) => prev.filter((x) => x.id !== t.id));
@@ -8900,8 +9009,8 @@ function DealDetailSheet({ ctx, onClose, dealId }) {
       <div className="flex items-start justify-between mb-1">
         <div><p style={{ fontSize: 15, fontWeight: 800 }}>{deal.propertyTitle}</p><p style={{ fontSize: 11, color: c.muted, marginTop: 3 }}>{fmtToman(deal.price)} · {deal.advisor}</p></div>
         <div className="flex gap-2 shrink-0">
-          <button onClick={() => setSheet({ kind: "deal", editId: dealId })} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Edit3 size={14} color={c.primary} /></button>
-          <button onClick={() => { setDeals((prev) => prev.filter((d) => d.id !== dealId)); onClose(); notify("قرارداد حذف شد"); }} className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
+          <button onClick={() => setSheet({ kind: "deal", editId: dealId })} aria-label="ویرایش قرارداد" title="ویرایش قرارداد" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.primarySoft }}><Edit3 size={14} color={c.primary} /></button>
+          <button onClick={() => { setDeals((prev) => prev.filter((d) => d.id !== dealId)); onClose(); notify("قرارداد حذف شد"); }} aria-label="حذف قرارداد" title="حذف قرارداد" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.dangerSoft }}><Trash2 size={14} color={c.danger} /></button>
         </div>
       </div>
       <div style={{ height: 10 }} />

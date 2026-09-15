@@ -89,7 +89,7 @@ if (splash) {
   // never fires for it. That view has its own inline loading spinner, so
   // the branded splash just needs to clear quickly, not wait on a signal
   // that view was never going to send.
-  const isShareRoute = new URLSearchParams(window.location.search).has("share");
+  const isShareRoute = new URLSearchParams(window.location.search).has("share") || new URLSearchParams(window.location.search).has("legal");
   let minTimeDone = false, appReady = isShareRoute;
   const hideSplash = () => {
     splash.style.transition = "opacity 250ms ease";

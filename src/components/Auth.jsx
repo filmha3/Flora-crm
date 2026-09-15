@@ -265,6 +265,9 @@ function AuthScreen({ c, dark }) {
           {loading ? <Loader2 size={16} className="animate-spin" /> : null}
           {loading ? "در حال ورود..." : "ورود / ساخت حساب"}
         </button>
+        <p style={{ textAlign: "center", fontSize: 10.5, color: c.muted, marginTop: SP.lg, lineHeight: 1.9 }}>
+          با ورود، <a href="/?legal=terms" style={{ color: c.primary }}>شرایط استفاده</a> و <a href="/?legal=privacy" style={{ color: c.primary }}>حریم خصوصی</a> فلورا را می‌پذیری.
+        </p>
       </div>
     </div>
   );
