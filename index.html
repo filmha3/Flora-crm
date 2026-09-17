@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-    <title>Flora CRM</title>
+    <title>Flora CRM — نرم‌افزار مدیریت املاک | مشاوران سرعین</title>
 
     <!-- Makes it behave like an installed app when added to the iPhone home screen -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,7 +14,47 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <meta name="application-name" content="Flora CRM" />
-    <meta name="description" content="مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب دفتر املاک" />
+    <meta name="description" content="فلورا، نرم‌افزار مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب برای مشاوران املاک — با دستیار هوش مصنوعی، بکاپ ابری و ابزارهای اختصاصی بازار سرعین." />
+
+    <!-- Canonical host: www.florapro.ir is the one Vercel actually serves
+         (florapro.ir redirects to it) — this just makes explicit what's
+         already true, so search engines never treat the two as separate,
+         competing pages. -->
+    <link rel="canonical" href="https://www.florapro.ir/" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph / Twitter — the practical win here isn't really search
+         ranking, it's that the homepage (and, as a fallback, any link into
+         the app) gets a real title/description/image instead of a blank
+         card when pasted into WhatsApp, Telegram, or Twitter. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Flora CRM" />
+    <meta property="og:title" content="Flora CRM — نرم‌افزار مدیریت املاک" />
+    <meta property="og:description" content="مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب دفتر املاک — با دستیار هوش مصنوعی." />
+    <meta property="og:image" content="https://www.florapro.ir/icon-512.png" />
+    <meta property="og:url" content="https://www.florapro.ir/" />
+    <meta property="og:locale" content="fa_IR" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Flora CRM — نرم‌افزار مدیریت املاک" />
+    <meta name="twitter:description" content="مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب دفتر املاک." />
+    <meta name="twitter:image" content="https://www.florapro.ir/icon-512.png" />
+
+    <!-- Organization + WebSite structured data. Deliberately NOT a
+         RealEstateAgent/LocalBusiness type here — that would need a real,
+         verified public address/phone/hours for the product itself, which
+         isn't something to invent. Each agent's own office details live
+         inside the authenticated app, not on this marketing/login page. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Flora CRM",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web, iOS, Android",
+      "url": "https://www.florapro.ir/",
+      "description": "نرم‌افزار مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب برای مشاوران املاک"
+    }
+    </script>
 
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@600;800&display=swap');

@@ -145,6 +145,19 @@ function PublicShareView({ token }) {
   const [properties, setProperties] = useState([]);
   const [errMsg, setErrMsg] = useState("");
 
+  // Belt-and-suspenders beyond robots.txt: a share link is a private,
+  // recipient-specific page by design (the whole point of "ارجاع به
+  // همکار" is that it goes to one chosen colleague, not the public search
+  // index) — robots.txt only asks crawlers not to fetch it, this tells any
+  // crawler that DOES load it not to index what it found either.
+  useEffect(() => {
+    const meta = document.createElement("meta");
+    meta.name = "robots";
+    meta.content = "noindex, nofollow";
+    document.head.appendChild(meta);
+    return () => { meta.remove(); };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {

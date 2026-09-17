@@ -30,6 +30,8 @@ import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
 import { PropertyShareModal, PublicShareView } from "./components/PropertyShare.jsx";
 import { PrivacyPolicyView, TermsOfServiceView } from "./components/LegalPages.jsx";
+import { PublicHomeView, PublicPropertiesListView, PublicPropertyDetailView, PublicAboutView, PublicContactView } from "./components/PublicSite.jsx";
+import { publishProperty, unpublishProperty, isPropertyPublished } from "./lib/publicPropertiesApi.js";
 import { DEFAULT_MATERIAL_COEFFICIENTS } from "./lib/materialEstimate.js";
 import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
@@ -90,24 +92,46 @@ const seedOfficeIncomes = [
 // a display convenience.
 
 export default function FloraCRM() {
-  // A share link is a fully separate, unauthenticated view for someone with
-  // no Flora account at all — checked before any of the app's own hooks
-  // exist, so opening one never touches session loading, IndexedDB, or any
-  // of the rest of the CRM. The query param can't change without a full
-  // page reload (it's not a client-side route), so this condition is
-  // stable for this component's entire lifetime — it never flips mid-render,
-  // which is what keeps skipping every hook below safe here.
+  // The public site (/, /properties, /properties/:slug, /share/:token,
+  // /about, /contact) and the Agent CRM (/app) are two genuinely different
+  // experiences sharing one deployed app. This dispatch decides which one
+  // renders, and it's the ONLY thing allowed to run before it: every hook
+  // below belongs to the CRM branch, so anything that changes what's
+  // rendered has to happen via a hook declared right here, at the very top,
+  // never via an early return positioned after a hook — that's exactly the
+  // "rendered more hooks than last time" class of bug this project has hit
+  // before. `path`/`navigate` are the only state this dispatch needs, and
+  // they're declared unconditionally, before the dispatch itself runs.
+  const [path, setPath] = useState(() => (typeof window !== "undefined" ? window.location.pathname : "/"));
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const navigate = (to) => {
+    window.history.pushState({}, "", to);
+    setPath(to.split("?")[0]);
+    window.scrollTo(0, 0);
+  };
+
+  if (path === "/") return <PublicHomeView navigate={navigate} />;
+  if (path === "/properties") return <PublicPropertiesListView navigate={navigate} />;
+  if (path.startsWith("/properties/")) return <PublicPropertyDetailView slug={decodeURIComponent(path.slice("/properties/".length))} navigate={navigate} />;
+  if (path.startsWith("/share/")) return <PublicShareView token={path.slice("/share/".length)} />;
+  if (path === "/about") return <PublicAboutView navigate={navigate} />;
+  if (path === "/contact") return <PublicContactView navigate={navigate} />;
+
+  // Legacy links already sent out before real paths existed — a share link
+  // as "?share=" or a legal page as "?legal=" — keep working exactly as
+  // before rather than breaking anyone who already has one saved.
   const shareToken = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("share") : null;
   if (shareToken) return <PublicShareView token={shareToken} />;
-  // Public, unauthenticated legal pages — required by Google's OAuth
-  // consent screen (a privacy policy URL is mandatory for the "Sign in
-  // with Google" button already live in this app) and needed before any
-  // public launch regardless. Same pattern as the share route: checked
-  // before any hooks exist, so it never touches the rest of the app.
   const legalPage = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("legal") : null;
   if (legalPage === "privacy") return <PrivacyPolicyView />;
   if (legalPage === "terms") return <TermsOfServiceView />;
 
+  // Anything else — /app, or any unrecognized path — falls through to the
+  // Agent CRM below, unchanged from how it always worked.
   const [dark, setDark] = useState(true);
   // Simple mode hides advanced tools (finance, split, AI) behind "more", so a first-time
   // agent sees only the essentials. On by default; a switch in More restores everything.
@@ -298,6 +322,11 @@ export default function FloraCRM() {
   const [avalaiModel, setAvalaiModel] = useState("gpt-4o-mini");
   const [aiProvider, setAiProvider] = useState("avalai");
   const [agentName, setAgentName] = useState("");
+  // Needed for the public site's "تماس/واتساپ" button on a published
+  // property — nothing in Flora previously tracked the agent's OWN phone
+  // number (only owners' and customers'), since the CRM itself never
+  // needed it before now.
+  const [agentPhone, setAgentPhone] = useState("");
   const [agentPhoto, setAgentPhoto] = useState(""); // compressed base64, same pipeline as property photos
   const [agencyName, setAgencyName] = useState("املاک گنجینه");
   const [agencyCity, setAgencyCity] = useState("سرعین");
@@ -375,6 +404,7 @@ export default function FloraCRM() {
     // hasn't set a given field yet, never resets something already typed in
     // this session back to empty.
     if (d?.agentName !== undefined) setAgentName(d.agentName);
+    if (d?.agentPhone !== undefined) setAgentPhone(d.agentPhone);
     if (d?.agentPhoto !== undefined) setAgentPhoto(d.agentPhoto);
     if (d?.agencyName !== undefined) setAgencyName(d.agencyName);
     if (d?.agencyCity !== undefined) setAgencyCity(d.agencyCity);
@@ -463,7 +493,7 @@ export default function FloraCRM() {
         // everything else (previously a separate, local-only key) so
         // setting your name or AI key on one device actually shows up on
         // another, the same as a new property does.
-        agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText,
+        agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText, agentPhone,
         updatedAt: now,
       };
       dbSet(DATA_KEY, core).catch(() => {});
@@ -472,7 +502,7 @@ export default function FloraCRM() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates, constructionCostEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText]);
+  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates, constructionCostEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText, agentPhone]);
 
   // Live cross-device convergence: if a second signed-in device (or this
   // same account on the web) pushes a newer flora_data row while this tab
@@ -961,7 +991,7 @@ export default function FloraCRM() {
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
-    perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agentPhone, setAgentPhone, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
     cloudBackupNow, restoreFromCloud,
   };
@@ -4113,15 +4143,17 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
 // Settings never shows account stats either, it's purely "who am I, tap to
 // manage" — a single clear entry point instead of a dashboard competing
 // with everything else at the top of the screen.
-function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, agentPhoto, notify }) {
+function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, agentPhone, setAgentPhone, agentPhoto, notify }) {
   const [editing, setEditing] = useState(false);
   const [n, setN] = useState(agencyName);
   const [ct, setCt] = useState(agencyCity);
   const [ag, setAg] = useState(agentName);
+  const [ph, setPh] = useState(agentPhone);
   const save = () => {
     setAgencyName(n.trim() || "املاک");
     setAgencyCity(ct.trim());
     setAgentName(ag.trim());
+    setAgentPhone(ph.trim());
     setEditing(false);
     notify("مشخصات دفتر ذخیره شد");
   };
@@ -4130,7 +4162,7 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
   return (
     <div className="rounded-2xl overflow-hidden mb-4" style={glass(c)}>
       {!editing ? (
-        <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setEditing(true); }} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.md }}>
+        <button onClick={() => { setN(agencyName); setCt(agencyCity); setAg(agentName); setPh(agentPhone); setEditing(true); }} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.md }}>
           <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 50, height: 50, borderRadius: "50%", background: c.gradientPrimary }}>
             {agentPhoto ? <img src={agentPhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 19, fontWeight: 800, color: "#fff" }}>{initial}</span>}
           </div>
@@ -4148,6 +4180,7 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
           <input style={inputStyle(c)} value={ag} onChange={(e) => setAg(e.target.value)} placeholder="نام شما (مثلاً قبادی)" />
           <input style={inputStyle(c)} value={n} onChange={(e) => setN(e.target.value)} placeholder="نام دفتر (مثلاً املاک گنجینه)" />
           <input style={inputStyle(c)} value={ct} onChange={(e) => setCt(e.target.value)} placeholder="شهر (مثلاً سرعین)" />
+          <input style={inputStyle(c)} dir="ltr" value={ph} onChange={(e) => setPh(e.target.value)} placeholder="شماره تماس (برای سایت عمومی)" />
           <div className="flex gap-2">
             <button onClick={() => setEditing(false)} className="press flex-1 rounded-xl py-2.5" style={{ background: c.surface2, fontSize: 13, fontWeight: 700 }}>لغو</button>
             <button onClick={save} className="press flex-1 rounded-xl py-2.5" style={{ background: c.gradientPrimary, fontSize: 13, fontWeight: 700, color: "#fff" }}>ذخیره</button>
@@ -4213,7 +4246,7 @@ function MoreTab({ ctx }) {
           cascading in below it, since this is the one card the person
           actually built (the iCloud-row identity card), not one row among
           many. */}
-      <div className="flora-bounce"><OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} agentPhoto={ctx.agentPhoto} notify={notify} /></div>
+      <div className="flora-bounce"><OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} agentPhone={ctx.agentPhone} setAgentPhone={ctx.setAgentPhone} agentPhoto={ctx.agentPhoto} notify={notify} /></div>
 
       <div className="flora-stagger">
       {/* Mode switch stays its own card — it's a toggle, not a navigation
@@ -5940,7 +5973,34 @@ function PropertyDetail({ id, ctx, onBack }) {
   const builder = builders.find((b) => b.id === p?.builderId);
   const [uploading, setUploading] = useState(false);
   const [valuationOpen, setValuationOpen] = useState(false);
+  const [published, setPublished] = useState(false);
+  const [publishBusy, setPublishBusy] = useState(false);
+  useEffect(() => {
+    if (!p) return;
+    let cancelled = false;
+    isPropertyPublished(p.id).then((v) => { if (!cancelled) setPublished(v); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [p?.id]);
   if (!p) return null;
+
+  const togglePublish = async () => {
+    setPublishBusy(true);
+    try {
+      if (published) {
+        await unpublishProperty(p.id);
+        setPublished(false);
+        notify("فایل از سایت عمومی برداشته شد");
+      } else {
+        await publishProperty({ userId: session.user.id, property: p, agentName: ctx.agentName, agencyName: ctx.agencyName, agentPhone: ctx.agentPhone });
+        setPublished(true);
+        notify("فایل روی سایت عمومی منتشر شد");
+      }
+    } catch (e) {
+      notify("عملیات ناموفق بود — دوباره امتحان کن");
+    } finally {
+      setPublishBusy(false);
+    }
+  };
 
   const addMedia = async (fileList) => {
     setUploading(true);
@@ -5974,8 +6034,28 @@ function PropertyDetail({ id, ctx, onBack }) {
   return (
     <div>
       <PropertyHero c={c} p={p} media={p.media || []} onBack={onBack} onEdit={() => setSheet({ kind: "property", editId: id })} uploading={uploading} addMedia={addMedia} setLightbox={setLightbox} />
+
+      {/* Publish toggle — the one control that decides whether this
+          specific file leaves the private CRM at all. Off by default for
+          every property; nothing becomes public without this explicit,
+          per-file action. */}
+      <div className="flex items-center justify-between rounded-2xl p-4" style={{ marginTop: SP.md, ...glass(c) }}>
+        <div className="flex items-center" style={{ gap: SP.sm }}>
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: published ? c.successSoft : c.surface2 }}>
+            <Globe size={16} color={published ? c.success : c.muted} />
+          </div>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 700 }}>{published ? "منتشرشده در سایت عمومی" : "انتشار در سایت عمومی"}</p>
+            <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{published ? "هرکسی می‌تونه این فایل رو توی florapro.ir ببینه" : "فقط داخل CRM قابل مشاهده است"}</p>
+          </div>
+        </div>
+        <button onClick={togglePublish} disabled={publishBusy} className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: published ? c.success : c.border, position: "relative", opacity: publishBusy ? 0.6 : 1 }}>
+          <span style={{ position: "absolute", top: 3, right: published ? 25 : 3, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
+        </button>
+      </div>
+
       <div className="flex justify-end" style={{ marginTop: SP.md, marginBottom: SP.md }}>
-        <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); if (session?.user) deletePropertyFolder({ userId: session.user.id, propertyId: id }).catch(() => {}); onBack(); notify("فایل حذف شد"); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.danger }}><Trash2 size={12} color={c.danger} />حذف فایل</button>
+        <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); if (session?.user) deletePropertyFolder({ userId: session.user.id, propertyId: id }).catch(() => {}); unpublishProperty(id).catch(() => {}); onBack(); notify("فایل حذف شد"); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.danger }}><Trash2 size={12} color={c.danger} />حذف فایل</button>
       </div>
 
       <div style={{ borderRadius: RAD.lg, padding: SP.lg, marginBottom: SP.md, ...glass(c) }}>

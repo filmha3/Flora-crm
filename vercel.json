@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/sitemap.xml", "destination": "https://grbtuoaoygpbtjrmxbkp.supabase.co/functions/v1/sitemap-xml" },
+    { "source": "/((?!.*\\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }
+  ]
+}
