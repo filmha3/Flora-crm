@@ -1,10 +1,10 @@
 User-agent: *
-Allow: /
+Allow: /site
 Allow: /properties
 Allow: /properties/*
 Allow: /about
 Allow: /contact
-Disallow: /app
+Disallow: /
 Disallow: /share/*
 Disallow: /*?share=*
 

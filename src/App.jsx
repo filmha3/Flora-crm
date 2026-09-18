@@ -9,7 +9,7 @@ import {
   MessageSquare, AlertTriangle, TrendingUp, ShieldAlert, HardHat, ArrowUpRight, Bot, RefreshCw, Send, Link2, Wand2, MessageCircle, Wallet,
   CreditCard, Banknote, Landmark, FileCheck, Award, TrendingDown, ChevronDown, Eye, FileText, Tag, StickyNote, Image as ImageIcon, Flame, Mic, Copy, UserX, Trophy, Share2, Camera, Globe,
   Key, Heart, Meh, Car, Clock, Circle, ArrowUp, ArrowDown, Medal, Check, Navigation as NavigationIcon,
-  DollarSign, Coins, WifiOff, ZoomIn,
+  DollarSign, Coins, WifiOff, ZoomIn, Lock,
 } from "lucide-react";
 
 // ---------- Extracted modules (kept App.jsx from becoming a single
@@ -114,7 +114,7 @@ export default function FloraCRM() {
     window.scrollTo(0, 0);
   };
 
-  if (path === "/") return <PublicHomeView navigate={navigate} />;
+  if (path === "/site") return <PublicHomeView navigate={navigate} />;
   if (path === "/properties") return <PublicPropertiesListView navigate={navigate} />;
   if (path.startsWith("/properties/")) return <PublicPropertyDetailView slug={decodeURIComponent(path.slice("/properties/".length))} navigate={navigate} />;
   if (path.startsWith("/share/")) return <PublicShareView token={path.slice("/share/".length)} />;
@@ -156,6 +156,14 @@ export default function FloraCRM() {
 
   // undefined = still checking on load, null = signed out, object = signed in
   const [session, setSession] = useState(undefined);
+  useEffect(() => {
+    if (!session?.user) { setPublishUnlocked(false); return; }
+    let cancelled = false;
+    supabase.from("user_features").select("feature").eq("user_id", session.user.id).eq("feature", "publish").maybeSingle()
+      .then(({ data }) => { if (!cancelled) setPublishUnlocked(!!data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [session?.user?.id]);
   // Every write already lands in IndexedDB first regardless of network (see
   // the cloud-sync effects below) — this is purely so the PERSON knows why
   // something that genuinely needs a live connection (an upload, an AI
@@ -327,6 +335,11 @@ export default function FloraCRM() {
   // number (only owners' and customers'), since the CRM itself never
   // needed it before now.
   const [agentPhone, setAgentPhone] = useState("");
+  // Whether this account has unlocked the "انتشار در سایت عمومی" feature —
+  // checked server-side (user_features, populated only by redeem-code),
+  // never inferred from anything stored client-side, so there's no local
+  // value to tamper with to unlock it.
+  const [publishUnlocked, setPublishUnlocked] = useState(false);
   const [agentPhoto, setAgentPhoto] = useState(""); // compressed base64, same pipeline as property photos
   const [agencyName, setAgencyName] = useState("املاک گنجینه");
   const [agencyCity, setAgencyCity] = useState("سرعین");
@@ -991,7 +1004,7 @@ export default function FloraCRM() {
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
     divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
-    perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agentPhone, setAgentPhone, agencyName, setAgencyName, agencyCity, setAgencyCity,
+    perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agentPhone, setAgentPhone, publishUnlocked, setPublishUnlocked, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
     cloudBackupNow, restoreFromCloud,
   };
@@ -4234,11 +4247,33 @@ function ListRow({ c, icon: Icon, label, value, badge, tint, onClick }) {
 }
 
 function MoreTab({ ctx }) {
-  const { c, owners, builders, calls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow, notify, properties, customers, simpleMode, setSimpleMode, largeText, setLargeText, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
+  const { c, owners, builders, calls, setSheet, setDetail, setTab, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow, notify, properties, customers, simpleMode, setSimpleMode, largeText, setLargeText, publishUnlocked, setPublishUnlocked, agencyName, setAgencyName, agencyCity, setAgencyCity } = ctx;
   const importRef = useRef(null);
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
   const [contactsOpen, setContactsOpen] = useState(null); // "owners" | "builders" | null
   const [backupOpen, setBackupOpen] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
+  const redeemCode = async () => {
+    if (!codeInput.trim()) return;
+    setRedeeming(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("redeem-code", { body: { code: codeInput.trim() } });
+      if (error || data?.error) {
+        let msg = data?.error;
+        if (!msg) { try { const b = await error.context?.json?.(); msg = b?.error; } catch (e) { /* ignore */ } }
+        notify(msg || "کد معتبر نیست");
+      } else {
+        notify("فعال شد");
+        setCodeInput("");
+        setPublishUnlocked(true);
+      }
+    } catch (e) {
+      notify("کد معتبر نیست");
+    } finally {
+      setRedeeming(false);
+    }
+  };
 
   return (
     <div className="pt-3">
@@ -4280,6 +4315,27 @@ function MoreTab({ ctx }) {
           className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: largeText ? c.primary : c.border, position: "relative", transition: "background .3s ease" }}>
           <span style={{ position: "absolute", top: 3, right: largeText ? 25 : 3, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
         </button>
+      </div>
+
+      {/* Publishing to the public site is off for every account until this
+          code is redeemed — the same mechanism a future paid unlock would
+          use, just triggered manually for now. */}
+      <div className="rounded-2xl p-4 mb-5" style={glass(c)}>
+        <div className="flex items-center" style={{ gap: SP.sm, marginBottom: publishUnlocked ? 0 : 12 }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: publishUnlocked ? c.successSoft : c.primarySoft }}>
+            <Globe size={18} color={publishUnlocked ? c.success : c.primary} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p style={{ fontSize: 13, fontWeight: 700 }}>کد دسترسی سایت عمومی</p>
+            <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{publishUnlocked ? "فعال — می‌تونی فایل منتشر کنی" : "برای فعال‌شدن «انتشار در سایت عمومی» کد را وارد کن"}</p>
+          </div>
+        </div>
+        {!publishUnlocked && (
+          <div className="flex" style={{ gap: SP.sm }}>
+            <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} placeholder="کد را اینجا وارد کن" dir="ltr" style={{ ...inputStyle(c), flex: 1, textAlign: "center" }} />
+            <button onClick={redeemCode} disabled={redeeming || !codeInput.trim()} className="press rounded-xl px-5" style={{ background: c.primary, color: "#fff", fontSize: 13, fontWeight: 700, opacity: redeeming || !codeInput.trim() ? 0.5 : 1 }}>{redeeming ? "..." : "فعال‌سازی"}</button>
+          </div>
+        )}
       </div>
 
       <ListSection c={c} title="ابزارها">
@@ -5967,7 +6023,7 @@ function ScheduleVisitCard({ ctx, property }) {
 // matching the same "never finalize without the advisor seeing it" rule
 // used everywhere else voice creates something.
 function PropertyDetail({ id, ctx, onBack }) {
-  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, setSheet, session } = ctx;
+  const { c, properties, setProperties, owners, builders, appointments, setLightbox, notify, setSheet, session, publishUnlocked, setTab } = ctx;
   const p = properties.find((x) => x.id === id);
   const owner = owners.find((o) => o.id === p?.ownerId);
   const builder = builders.find((b) => b.id === p?.builderId);
@@ -6038,21 +6094,38 @@ function PropertyDetail({ id, ctx, onBack }) {
       {/* Publish toggle — the one control that decides whether this
           specific file leaves the private CRM at all. Off by default for
           every property; nothing becomes public without this explicit,
-          per-file action. */}
-      <div className="flex items-center justify-between rounded-2xl p-4" style={{ marginTop: SP.md, ...glass(c) }}>
-        <div className="flex items-center" style={{ gap: SP.sm }}>
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: published ? c.successSoft : c.surface2 }}>
-            <Globe size={16} color={published ? c.success : c.muted} />
+          per-file action. Locked entirely until the account has redeemed
+          an access code (بیشتر ← کد دسترسی سایت عمومی) — the toggle itself
+          never even becomes clickable for an account that hasn't. */}
+      {publishUnlocked ? (
+        <div className="flex items-center justify-between rounded-2xl p-4" style={{ marginTop: SP.md, ...glass(c) }}>
+          <div className="flex items-center" style={{ gap: SP.sm }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: published ? c.successSoft : c.surface2 }}>
+              <Globe size={16} color={published ? c.success : c.muted} />
+            </div>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700 }}>{published ? "منتشرشده در سایت عمومی" : "انتشار در سایت عمومی"}</p>
+              <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{published ? "هرکسی می‌تونه این فایل رو توی florapro.ir ببینه" : "فقط داخل CRM قابل مشاهده است"}</p>
+            </div>
           </div>
-          <div>
-            <p style={{ fontSize: 13, fontWeight: 700 }}>{published ? "منتشرشده در سایت عمومی" : "انتشار در سایت عمومی"}</p>
-            <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{published ? "هرکسی می‌تونه این فایل رو توی florapro.ir ببینه" : "فقط داخل CRM قابل مشاهده است"}</p>
-          </div>
+          <button onClick={togglePublish} disabled={publishBusy} className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: published ? c.success : c.border, position: "relative", opacity: publishBusy ? 0.6 : 1 }}>
+            <span style={{ position: "absolute", top: 3, right: published ? 25 : 3, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
+          </button>
         </div>
-        <button onClick={togglePublish} disabled={publishBusy} className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: published ? c.success : c.border, position: "relative", opacity: publishBusy ? 0.6 : 1 }}>
-          <span style={{ position: "absolute", top: 3, right: published ? 25 : 3, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
+      ) : (
+        <button onClick={() => setTab("more")} className="press w-full flex items-center justify-between rounded-2xl p-4 text-right" style={{ marginTop: SP.md, ...glass(c), opacity: 0.75 }}>
+          <div className="flex items-center" style={{ gap: SP.sm }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.surface2 }}>
+              <Lock size={14} color={c.muted} />
+            </div>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700 }}>انتشار در سایت عمومی</p>
+              <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>این امکان هنوز فعال نشده — کد دسترسی را از «بیشتر» وارد کن</p>
+            </div>
+          </div>
+          <ChevronLeft size={16} color={c.muted} />
         </button>
-      </div>
+      )}
 
       <div className="flex justify-end" style={{ marginTop: SP.md, marginBottom: SP.md }}>
         <button onClick={() => { setProperties((prev) => prev.filter((x) => x.id !== id)); if (session?.user) deletePropertyFolder({ userId: session.user.id, propertyId: id }).catch(() => {}); unpublishProperty(id).catch(() => {}); onBack(); notify("فایل حذف شد"); }} className="press flex items-center" style={{ gap: 4, fontSize: FS.caption, color: c.danger }}><Trash2 size={12} color={c.danger} />حذف فایل</button>

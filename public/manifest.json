@@ -2,7 +2,7 @@
   "name": "Flora CRM — املاک گنجینه",
   "short_name": "Flora",
   "description": "مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب دفتر املاک",
-  "start_url": "/app",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
