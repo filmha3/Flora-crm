@@ -111,6 +111,9 @@ const ORG_LD = {
 };
 const EXTRA_CSS = `
 html,body,#root{background:${pc.bg}!important}
+html,body{max-width:100%;overflow-x:hidden}
+#root{overflow-x:clip}
+img{max-width:100%}
 .fp-hphone{display:none!important}
 @media(min-width:640px){.fp-hphone{display:inline-flex!important}.fp-hphone-sm{display:none!important}}
 .fp-pin{display:block;width:30px;height:30px;border-radius:50% 50% 50% 0;background:${pc.brand};transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 6px 16px rgba(14,20,37,.35)}
@@ -733,8 +736,8 @@ function VisitRequestForm({ p, onDone, compact }) {
   );
   const label = { fontSize: 12, fontWeight: 700, color: pc.inkSoft, marginBottom: 6, display: "block" };
   return (
-    <form onSubmit={submit} className="flex flex-col" style={{ gap: compact ? 12 : 14 }}>
-      <input value={hp} onChange={(e) => setHp(e.target.value)} name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 }} />
+    <form onSubmit={submit} className="flex flex-col" style={{ gap: compact ? 12 : 14, position: "relative" }}>
+      <input value={hp} onChange={(e) => setHp(e.target.value)} name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", width: 1, height: 1, padding: 0, border: 0, opacity: 0, overflow: "hidden", clipPath: "inset(50%)", pointerEvents: "none" }} />
       <label><span style={label}>نام و نام خانوادگی</span><input className="fp-in" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="اختیاری" /></label>
       <label><span style={label}>شماره موبایل <b style={{ color: "#B42318" }}>*</b></span><input className="fp-in" value={phone} onChange={(e) => { setPhone(e.target.value); setErr(""); }} inputMode="tel" autoComplete="tel" dir="ltr" placeholder="09xx xxx xxxx" required style={{ textAlign: "right", borderColor: err ? "#B42318" : undefined }} /></label>
       <div className="grid grid-cols-2" style={{ gap: 10 }}>
