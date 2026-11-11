@@ -69,7 +69,7 @@ async function publishProperty({ userId, property, agentName, agencyName, agentP
     city: null, // no dedicated city field on a property yet — address carries it
     address: property.address || null,
     price: property.price || null,
-    price_per_meter: property.pricePerMeter || null,
+    price_per_meter: property.pricePerMeter || (property.price && property.area && property.deal !== "رهن و اجاره" ? Math.round(property.price / property.area) : null),
     amenities: [
       ...extractAmenities(property.desc),
       ...(property.furnished === "با لوازم" ? ["فرنیش کامل"] : []),

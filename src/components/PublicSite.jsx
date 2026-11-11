@@ -95,15 +95,17 @@ const OFFICE = {
   agent: "آقای قبادی",
   tagline: "خرید و فروش املاک در سرعین",
   phone: "09300151579",
-  phoneFa: "۰۹۳۰ ۰۱۵ ۱۵۷۹",
+  phoneFa: "09300151579",
   wa: "989300151579",
-  address: "سرعین، میدان دانش، جنب رستوران خاتای",
+  address: "سرعین، میدان دانش، جنب رستوران خاتای، سایت املاک گنجینه",
+  lat: 38.14557, lng: 48.07265, // میدان دانش، سرعین
 };
 const ORG_LD = {
   "@context": "https://schema.org", "@type": "RealEstateAgent", "@id": SITE + "/#agency",
   name: OFFICE.name, description: "خرید واحد، آپارتمان و ویلا در سرعین — " + OFFICE.tagline,
   url: SITE + "/", telephone: "+98" + OFFICE.phone.slice(1), image: SITE + "/icon-512.png", priceRange: "$$",
-  address: { "@type": "PostalAddress", streetAddress: "میدان دانش، جنب رستوران خاتای", addressLocality: "سرعین", addressRegion: "اردبیل", addressCountry: "IR" },
+  address: { "@type": "PostalAddress", streetAddress: "میدان دانش، جنب رستوران خاتای، سایت املاک گنجینه", addressLocality: "سرعین", addressRegion: "اردبیل", addressCountry: "IR" },
+  geo: { "@type": "GeoCoordinates", latitude: 38.14557, longitude: 48.07265 },
   areaServed: { "@type": "City", name: "سرعین" },
   employee: { "@type": "Person", name: "قبادی", jobTitle: "مدیر املاک" },
 };
@@ -298,6 +300,12 @@ function specGrid(p) {
   if (p.floor != null) items.push({ label: "طبقه", value: `طبقه ${faDigits(p.floor)}`, Icon: Building2 });
   return items;
 }
+// Price per meter: stored value, or computed from total price ÷ area (sales only).
+function ppm(p) {
+  if (p.price_per_meter) return p.price_per_meter;
+  if (p.deal === "رهن و اجاره" || !p.price || !p.area) return null;
+  return Math.round(p.price / p.area);
+}
 function jalaliShort(iso) {
   if (!iso) return "";
   try { const [jy, jm, jd] = isoToJalali(iso.slice(0, 10)); return `${faDigits(jd)} ${MONTHS_FA[jm - 1]} ${faDigits(jy)}`; } catch (e) { return ""; }
@@ -342,7 +350,7 @@ function PropertyCardPublic({ p, navigate }) {
               <span className="flex items-center justify-center shrink-0" style={{ width: 36, height: 36, borderRadius: 2, background: pc.brand, color: "#fff" }}><ArrowLeft size={15} /></span>
             </div>
             <div className="flex items-center justify-between" style={{ marginTop: 8 }}>
-              {p.price_per_meter ? <span style={{ fontSize: 10.5, color: pc.muted }}>{fmtToman(p.price_per_meter)} در هر متر</span> : <span />}
+              {ppm(p) ? <span style={{ fontSize: 10.5, color: pc.muted }}>{fmtToman(ppm(p))} در هر متر</span> : <span />}
               {p.updated_at && <span className="flex items-center" style={{ gap: 4, fontSize: 10, color: pc.muted }}><CalendarDays size={11} /> {jalaliShort(p.updated_at)}</span>}
             </div>
           </div></div>
@@ -743,7 +751,7 @@ function VisitRequestForm({ p, onDone, compact }) {
 }
 
 function OfficeCard({ p, onVisit }) {
-  const wa = `https://wa.me/${OFFICE.wa}?text=${encodeURIComponent(`سلام، درباره‌ی فایل «${p.title}» (کد ${propCode(p)}) سؤال داشتم.`)}`;
+  const wa = `https://wa.me/${OFFICE.wa}?text=${encodeURIComponent(`سلام، درباره‌ی فایل «${p.title}» در سایت Flora سؤال داشتم.`)}`;
   return (
     <div style={{ border: `1px solid ${pc.border}`, background: pc.surface, boxShadow: "0 18px 40px -30px rgba(14,20,37,0.35)" }}>
       <div style={{ padding: 24 }}>
@@ -761,11 +769,10 @@ function OfficeCard({ p, onVisit }) {
           <a href={wa} target="_blank" rel="noreferrer" className="fp-btn fp-btn-line" style={{ height: 52 }}><MessageCircle size={16} /> گفتگو در واتس‌اپ</a>
           <button type="button" onClick={onVisit} className="fp-btn fp-btn-soft" style={{ height: 52 }}><CalendarDays size={16} /> درخواست بازدید</button>
         </div>
-        <p style={{ fontSize: 12, color: pc.muted, marginTop: 14, lineHeight: 1.9 }}>هنگام تماس، کد ملک <b className="numeric" style={{ color: pc.ink }}>{propCode(p)}</b> را اعلام کنید.</p>
       </div>
       <div className="flex items-start" style={{ gap: 10, padding: "16px 24px", borderTop: `1px solid ${pc.border}`, background: pc.bg, fontSize: 13, color: pc.inkSoft, lineHeight: 2 }}>
         <MapPin size={15} color={pc.brand} className="shrink-0" style={{ marginTop: 6 }} />
-        <span><b style={{ color: pc.ink }}>آدرس دفتر:</b> {OFFICE.address}</span>
+        <span><b style={{ color: pc.ink }}>آدرس دفتر:</b> {OFFICE.address} — <a href={`https://www.google.com/maps/dir/?api=1&destination=${OFFICE.lat},${OFFICE.lng}`} target="_blank" rel="noreferrer" style={{ color: pc.brand, fontWeight: 700 }}>مسیریابی</a></span>
       </div>
     </div>
   );
@@ -898,7 +905,6 @@ function PublicPropertyDetailView({ slug, navigate }) {
               <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
                 {p.deal && <span style={{ fontSize: 12, fontWeight: 800, color: "#fff", background: pc.brand, padding: "5px 12px", borderRadius: 2 }}>{p.deal}</span>}
                 {p.property_type && <span style={{ fontSize: 12, fontWeight: 700, color: pc.brand, background: pc.accentSoft, padding: "5px 12px", borderRadius: 2 }}>{p.property_type}</span>}
-                <span className="flex items-center" style={{ gap: 4, fontSize: 12, color: pc.muted, background: pc.soft, padding: "5px 10px", borderRadius: 2 }}>کد <b className="numeric" style={{ color: pc.ink }}>{propCode(p)}</b></span>
               </div>
               <h1 style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.6, marginTop: 14 }}>{p.title}</h1>
               {p.address && <p className="flex items-center" style={{ gap: 6, fontSize: 14, color: pc.inkSoft, marginTop: 8 }}><MapPin size={15} color={pc.brand} /> اردبیل، سرعین، {p.address}</p>}
@@ -910,7 +916,7 @@ function PublicPropertyDetailView({ slug, navigate }) {
                 </div>
                 <div style={{ background: pc.surface, padding: 20 }}>
                   <p style={{ fontSize: 12, color: pc.muted }}>قیمت هر متر</p>
-                  <p style={{ fontSize: 17, fontWeight: 800, marginTop: 8 }}>{p.price_per_meter ? fmtToman(p.price_per_meter) : "—"}</p>
+                  <p style={{ fontSize: 17, fontWeight: 800, marginTop: 8 }}>{ppm(p) ? fmtToman(ppm(p)) : "—"}</p>
                 </div>
                 <div style={{ background: pc.surface, padding: 20 }}>
                   <p style={{ fontSize: 12, color: pc.muted }}>تاریخ انتشار</p>
@@ -958,7 +964,10 @@ function PublicPropertyDetailView({ slug, navigate }) {
                   <a href={`https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`} target="_blank" rel="noreferrer" className="fp-btn fp-btn-sm fp-btn-line" style={{ marginTop: 12 }}><Navigation size={15} /> مسیریابی</a>
                 </>
               ) : (
-                <div className="flex items-center" style={{ gap: 10, padding: 20, background: pc.surface, border: `1px dashed ${pc.border}`, fontSize: 14, color: pc.inkSoft }}><MapIcon size={18} color={pc.brand} /> موقعیت دقیق این فایل را از {OFFICE.agent} بپرسید: <a href={`tel:${OFFICE.phone}`} className="numeric" style={{ color: pc.brand, fontWeight: 800, textDecoration: "none" }}>{OFFICE.phoneFa}</a></div>
+                <>
+                  <PropertyMap lat={OFFICE.lat} lng={OFFICE.lng} />
+                  <p className="flex items-center flex-wrap" style={{ gap: 8, marginTop: 12, fontSize: 13.5, color: pc.inkSoft, lineHeight: 2 }}><MapIcon size={16} color={pc.brand} /> نقشه موقعیت دفتر را نشان می‌دهد؛ موقعیت دقیق این ملک را از {OFFICE.agent} بپرسید: <a href={`tel:${OFFICE.phone}`} className="numeric" style={{ color: pc.brand, fontWeight: 800, textDecoration: "none" }}>{OFFICE.phoneFa}</a></p>
+                </>
               )}
             </section>
 
@@ -1053,6 +1062,9 @@ function PublicContactView({ navigate }) {
             <a href={`https://wa.me/${OFFICE.wa}`} target="_blank" rel="noreferrer" className="fp-btn fp-btn-line"><MessageCircle size={16} /> واتس‌اپ</a>
           </div>
         </div>
+        <h2 style={{ fontSize: 20, fontWeight: 800, margin: "36px 0 14px" }}>موقعیت دفتر روی نقشه</h2>
+        <PropertyMap lat={OFFICE.lat} lng={OFFICE.lng} />
+        <a href={`https://www.google.com/maps/dir/?api=1&destination=${OFFICE.lat},${OFFICE.lng}`} target="_blank" rel="noreferrer" className="fp-btn fp-btn-sm fp-btn-line" style={{ marginTop: 12 }}><Navigation size={15} /> مسیریابی تا دفتر</a>
       </div>
       <PublicFooter navigate={navigate} />
     </div>

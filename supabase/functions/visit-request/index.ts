@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import webpush from "npm:web-push@3.6.7";
 
 // Public (no auth) endpoint for the site's «درخواست بازدید» form.
 // Validates input, stores the request, and notifies the listing's agent
@@ -53,6 +54,23 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ chat_id: tg.chat_id, text: `🏠 ${title}\n${text}\nhttps://www.florapro.ir/properties/${encodeURIComponent(prop.slug)}` }),
       }).catch(() => {});
     }
+  }
+  // Web push to the agent's devices (same VAPID setup as send-push).
+  const vapidPublic = Deno.env.get("VAPID_PUBLIC_KEY"), vapidPrivate = Deno.env.get("VAPID_PRIVATE_KEY");
+  if (vapidPublic && vapidPrivate) {
+    try {
+      webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") || "mailto:support@flora-crm.app", vapidPublic, vapidPrivate);
+      const { data: subs } = await admin.from("push_subscriptions").select("*").eq("user_id", prop.user_id).eq("is_active", true);
+      const payload = JSON.stringify({ title, body: text, url: "/site", data: { type: "visit_request", critical: true } });
+      await Promise.allSettled((subs || []).map(async (sub: { id: string; endpoint: string; p256dh: string; auth: string }) => {
+        try {
+          await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
+        } catch (e: unknown) {
+          const st = (e as { statusCode?: number })?.statusCode;
+          if (st === 404 || st === 410) await admin.from("push_subscriptions").update({ is_active: false }).eq("id", sub.id);
+        }
+      }));
+    } catch (_) { /* push is best-effort */ }
   }
   return json({ ok: true });
 });

@@ -28,6 +28,7 @@ import { AuthPhoneField, PasswordBoxes, AuthScreen, OnboardingTour, formatPhoneD
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
+import { VisitRequestsCard, VisitRequestWatcher } from "./components/VisitRequests.jsx";
 import { PropertyShareModal, PublicShareView } from "./components/PropertyShare.jsx";
 import { PrivacyPolicyView, TermsOfServiceView } from "./components/LegalPages.jsx";
 import { PublicHomeView, PublicPropertiesListView, PublicPropertyDetailView, PublicAboutView, PublicContactView } from "./components/PublicSite.jsx";
@@ -1256,6 +1257,7 @@ export default function FloraCRM() {
         {divarSearchOpen && <DivarSearchSheet ctx={ctx} onClose={() => setDivarSearchOpen(false)} />}
         {legalOpen && <LegalHome ctx={ctx} />}
         {weeklyStatsOpen && <WeeklyStatsHome ctx={ctx} />}
+        <VisitRequestWatcher userId={session?.user?.id} notify={notify} />
         {quickValuationOpen && <FloraValuationSheet ctx={ctx} onClose={() => setQuickValuationOpen(false)} />}
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
         {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
@@ -4284,6 +4286,8 @@ function MoreTab({ ctx }) {
       <div className="flora-bounce"><OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} agentPhone={ctx.agentPhone} setAgentPhone={ctx.setAgentPhone} agentPhoto={ctx.agentPhoto} notify={notify} /></div>
 
       <div className="flora-stagger">
+      {/* Visit requests submitted from the public site's property pages. */}
+      <VisitRequestsCard c={c} notify={notify} />
       {/* Mode switch stays its own card — it's a toggle, not a navigation
           row, and it changes what the rest of this screen even shows. */}
       <div className="rounded-2xl p-4 mb-5 flex items-center gap-3" style={glass(c)}>
