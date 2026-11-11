@@ -1,11 +1,7 @@
 User-agent: *
-Allow: /site
-Allow: /properties
-Allow: /properties/*
-Allow: /about
-Allow: /contact
-Disallow: /
-Disallow: /share/*
+Allow: /
+Disallow: /site
+Disallow: /share/
 Disallow: /*?share=*
 
 Sitemap: https://www.florapro.ir/sitemap.xml

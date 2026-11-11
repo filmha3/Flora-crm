@@ -1,6 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App.jsx";
+// Public pages load a small separate bundle; the CRM bundle loads only for the app.
+// Routing: florapro.ir/ = public site, florapro.ir/site (and every other
+// path) = Agent CRM. Native (Capacitor) builds always open the CRM.
+const _loc = window.location, _q = new URLSearchParams(_loc.search);
+const _p = _loc.pathname;
+const _isPublic = !(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) && (
+  _p === "/"
+    ? !(_q.has("share") || _q.has("legal") || _q.has("code") || _q.has("error") || _loc.hash.includes("access_token"))
+    : ["/properties", "/about", "/contact"].includes(_p) || _p.startsWith("/properties/")
+);
+const App = React.lazy(() => (_isPublic ? import("./PublicApp.jsx") : import("./App.jsx")));
 import "./index.css";
 
 // Nothing in this app previously caught a render-time error anywhere —
@@ -68,7 +78,7 @@ class FloraErrorBoundary extends React.Component {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <FloraErrorBoundary>
-      <App />
+      <React.Suspense fallback={null}><App /></React.Suspense>
     </FloraErrorBoundary>
   </React.StrictMode>
 );
@@ -89,10 +99,10 @@ if (splash) {
   // never fires for it. That view has its own inline loading spinner, so
   // the branded splash just needs to clear quickly, not wait on a signal
   // that view was never going to send.
-  const publicPaths = ["/site", "/properties", "/about", "/contact"];
+  const publicPaths = ["/properties", "/about", "/contact"];
   const isShareRoute = new URLSearchParams(window.location.search).has("share")
     || new URLSearchParams(window.location.search).has("legal")
-    || publicPaths.includes(window.location.pathname)
+    || _isPublic || publicPaths.includes(window.location.pathname)
     || window.location.pathname.startsWith("/properties/")
     || window.location.pathname.startsWith("/share/");
   let minTimeDone = false, appReady = isShareRoute;
@@ -103,7 +113,7 @@ if (splash) {
   };
   const tryHide = () => { if (minTimeDone && appReady) hideSplash(); };
 
-  setTimeout(() => { minTimeDone = true; tryHide(); }, MIN_SPLASH_MS);
+  setTimeout(() => { minTimeDone = true; tryHide(); }, isShareRoute ? 0 : MIN_SPLASH_MS);
   window.addEventListener("flora:ready", () => { appReady = true; tryHide(); }, { once: true });
   setTimeout(() => { appReady = true; tryHide(); }, 12000);
 }

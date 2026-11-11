@@ -19,6 +19,27 @@ function extractAmenities(desc) {
   return out;
 }
 
+// Structured, non-private facts for the public spec grid. Only pulled from
+// dedicated fields or the same "label: value" lines the property form and
+// Divar importer write into desc — never the free-text description itself.
+function publicDetails(p) {
+  const desc = p.desc || "";
+  const line = (label) => { const m = desc.match(new RegExp(label + "\\s*[:：]\\s*([^\\n]+)")); return m ? m[1].trim() : null; };
+  const yes = (label) => { const v = line(label); return v ? /دارد|بله/.test(v) : null; };
+  return {
+    code: (p.id || "").slice(0, 6).toUpperCase(),
+    total_floors: line("تعداد طبقات"),
+    year_built: p.yearBuilt || line("سال ساخت"),
+    furnished: p.furnished || null,
+    parking: yes("پارکینگ"),
+    elevator: yes("آسانسور"),
+    storage: yes("انباری"),
+    street: p.street || null,
+    pre_delivery: p.preDelivery || null,
+    build_stage: p.deal === "پیش‌فروش" ? (p.buildStage || null) : null,
+  };
+}
+
 // Persian-friendly slug: the title, kept mostly as-is (Persian characters
 // are valid in a URL path segment and this is what the spec explicitly
 // asked for), with spaces turned to dashes and a short suffix from the
@@ -54,13 +75,23 @@ async function publishProperty({ userId, property, agentName, agencyName, agentP
       ...(property.furnished === "با لوازم" ? ["فرنیش کامل"] : []),
     ],
     cover_path: cover?.storagePath || null,
+    cover_thumb_path: cover?.thumbnailPath || null,
+    lat: Number.isFinite(property.lat) ? property.lat : null,
+    lng: Number.isFinite(property.lng) ? property.lng : null,
+    details: publicDetails(property),
     gallery_paths: gallery,
     agent_name: agentName || null,
     agency_name: agencyName || null,
     agent_phone: agentPhone || null,
     updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase.from("public_properties").upsert(row);
+  let { error } = await supabase.from("public_properties").upsert(row);
+  // If the new columns (lat/lng/details/cover_thumb_path) aren't migrated yet,
+  // still publish the property with the original fields instead of failing.
+  if (error && /column|schema cache/i.test(error.message || "")) {
+    const { lat, lng, details, cover_thumb_path, ...legacy } = row;
+    ({ error } = await supabase.from("public_properties").upsert(legacy));
+  }
   if (error) throw error;
   return row.slug;
 }

@@ -182,7 +182,7 @@ function AuthScreen({ c, dark }) {
 
   const submitGoogle = async () => {
     setGoogleLoading(true); setMsg(null);
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin + "/site" } });
     // On success the browser is redirected away to Google immediately, so
     // there's nothing to reset here — only a same-tab failure reaches this line.
     if (error) { setGoogleLoading(false); say("ورود با Google ممکن نشد", true); }

@@ -98,7 +98,7 @@ self.addEventListener("push", (event) => {
     body: payload.body || "",
     icon: "/icon-192.png",
     badge: "/favicon-32.png",
-    data: { url: payload.url || "/", ...(payload.data || {}) },
+    data: { url: payload.url || "/site", ...(payload.data || {}) },
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
@@ -108,7 +108,7 @@ self.addEventListener("push", (event) => {
 // there is one instead of always spawning a new one.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/";
+  const targetUrl = event.notification.data?.url || "/site";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientsArr) => {
       const existing = clientsArr.find((c) => c.url.startsWith(self.location.origin));

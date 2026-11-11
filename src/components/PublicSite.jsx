@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Search, MapPin, Ruler, BedDouble, ArrowUpDown, Phone, MessageCircle, X,
   SlidersHorizontal, ChevronLeft, ChevronRight, Building2, Car, Warehouse, Home, Loader2,
-  ArrowLeft, CalendarDays, Menu, Mail,
+  ArrowLeft, CalendarDays, Menu, Mail, Images, Maximize2, Layers, Sofa, Package, Wallet, Building, Satellite, User, Clock, Check, Navigation, Map as MapIcon,
 } from "lucide-react";
 import { FLORA_GOLD, FloraMark } from "../lib/ui.jsx";
-import { faDigits, fmtToman, isoToJalali, MONTHS_FA } from "../lib/format.js";
+import { faDigits, fmtToman, isoToJalali, MONTHS_FA, toEnDigits } from "../lib/format.js";
 import { supabase } from "../lib/supabaseClient.js";
 import { publicImageUrl } from "../lib/publicPropertiesApi.js";
 
@@ -88,18 +88,78 @@ const PUBLIC_CSS = `
 @keyframes fp-cue{from{transform:translateY(-100%)}to{transform:translateY(400%)}}
 `;
 
+// ---------- Office / brand (single place to edit) ----------
+const SITE = "https://www.florapro.ir";
+const OFFICE = {
+  name: "Flora",
+  agent: "آقای قبادی",
+  tagline: "خرید و فروش املاک در سرعین",
+  phone: "09300151579",
+  phoneFa: "۰۹۳۰ ۰۱۵ ۱۵۷۹",
+  wa: "989300151579",
+  address: "سرعین، میدان دانش، جنب رستوران خاتای",
+};
+const ORG_LD = {
+  "@context": "https://schema.org", "@type": "RealEstateAgent", "@id": SITE + "/#agency",
+  name: OFFICE.name, description: "خرید واحد، آپارتمان و ویلا در سرعین — " + OFFICE.tagline,
+  url: SITE + "/", telephone: "+98" + OFFICE.phone.slice(1), image: SITE + "/icon-512.png", priceRange: "$$",
+  address: { "@type": "PostalAddress", streetAddress: "میدان دانش، جنب رستوران خاتای", addressLocality: "سرعین", addressRegion: "اردبیل", addressCountry: "IR" },
+  areaServed: { "@type": "City", name: "سرعین" },
+  employee: { "@type": "Person", name: "قبادی", jobTitle: "مدیر املاک" },
+};
+const EXTRA_CSS = `
+html,body,#root{background:${pc.bg}!important}
+.fp-hphone{display:none!important}
+@media(min-width:640px){.fp-hphone{display:inline-flex!important}.fp-hphone-sm{display:none!important}}
+.fp-pin{display:block;width:30px;height:30px;border-radius:50% 50% 50% 0;background:${pc.brand};transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 6px 16px rgba(14,20,37,.35)}
+.fp-pin:after{content:"";position:absolute;inset:7px;border-radius:50%;background:#fff}
+.fp-dl{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:${pc.border};border:1px solid ${pc.border}}
+@media(min-width:640px){.fp-dl{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:1100px){.fp-dl{grid-template-columns:repeat(4,1fr)}}
+.fp-price{display:grid;gap:1px;background:${pc.border};border:1px solid ${pc.border};grid-template-columns:1fr}
+@media(min-width:640px){.fp-price{grid-template-columns:1.4fr 1fr 1fr}}
+.fp-mbar{display:flex}
+@media(min-width:860px){.fp-mbar{display:none!important}}
+.fp-gbtn{display:flex;align-items:center;justify-content:center;width:42px;height:42px;background:rgba(255,255,255,.92);color:${pc.ink};border-radius:2px;box-shadow:0 4px 14px rgba(14,20,37,.18);transition:background .3s}
+.fp-gbtn:hover{background:#fff}
+.fp-in{width:100%;height:48px;border:1px solid ${pc.border};background:#fff;padding:0 14px;font-size:14px;outline:none;border-radius:2px;font-family:inherit}
+.fp-in:focus{border-color:${pc.brand}}
+.fp-faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:16px;padding:22px 0;font-size:16px;font-weight:700}
+.fp-faq summary::-webkit-details-marker{display:none}
+.fp-faq summary:after{content:"+";font-size:22px;color:${pc.brand};line-height:1}
+.fp-faq[open] summary:after{content:"–"}
+`;
+
 const CATEGORIES = [
-  { to: "/properties?q=" + encodeURIComponent("آپارتمان"), title: "خرید آپارتمان در سرعین", text: "آپارتمان‌های سرعین که مشاوران ثبت کرده‌اند؛ هر فایل با قیمت، متراژ، تعداد خواب و عکس." },
+  { to: "/properties?q=" + encodeURIComponent("آپارتمان"), title: "خرید واحد و آپارتمان در سرعین", text: "واحدهای آپارتمانی فروشی سرعین که کارشناسان ما بازدید و ثبت کرده‌اند؛ هر فایل با قیمت، متراژ، تعداد خواب، عکس و موقعیت روی نقشه." },
   { to: "/properties?q=" + encodeURIComponent("ویلا"), title: "خرید ویلا در سرعین", text: "ویلاهای فروشی سرعین با متراژ، عکس و مشخصات کامل، مستقیم از دفتر مشاور." },
   { to: "/properties?deal=" + encodeURIComponent("رهن و اجاره"), title: "رهن و اجاره در سرعین", text: "فایل‌های رهن و اجاره‌ی به‌روز برای سکونت یا اقامت در سرعین." },
   { to: "/properties?deal=" + encodeURIComponent("پیش‌فروش"), title: "پیش‌فروش ملک در سرعین", text: "پروژه‌های پیش‌فروش سرعین برای خرید در مرحله‌ی ساخت با پرداخت مرحله‌ای." },
 ];
 
-function setMeta(title, description) {
+function upsertTag(selector, make) {
+  let el = document.head.querySelector(selector);
+  if (!el) { el = make(); document.head.appendChild(el); }
+  return el;
+}
+function setMeta(title, description, { path, image, jsonLd } = {}) {
   document.title = title;
-  let m = document.querySelector('meta[name="description"]');
-  if (!m) { m = document.createElement("meta"); m.name = "description"; document.head.appendChild(m); }
-  m.content = description;
+  const meta = (attr, key, val) => { if (val == null) return; upsertTag(`meta[${attr}="${key}"]`, () => { const m = document.createElement("meta"); m.setAttribute(attr, key); return m; }).setAttribute("content", val); };
+  const url = SITE + (path || window.location.pathname);
+  meta("name", "description", description);
+  meta("name", "robots", "index, follow, max-image-preview:large");
+  meta("property", "og:title", title); meta("property", "og:description", description);
+  meta("property", "og:url", url); meta("property", "og:site_name", OFFICE.name);
+  meta("property", "og:type", jsonLd ? "article" : "website");
+  meta("property", "og:image", image || SITE + "/icon-512.png");
+  meta("name", "twitter:card", image ? "summary_large_image" : "summary");
+  meta("name", "twitter:title", title); meta("name", "twitter:description", description);
+  upsertTag('link[rel="canonical"]', () => { const l = document.createElement("link"); l.rel = "canonical"; return l; }).href = url;
+  // Replace the CRM's SoftwareApplication schema with the agency + page schema.
+  document.head.querySelectorAll('script[type="application/ld+json"]').forEach((x) => x.remove());
+  const ld = document.createElement("script"); ld.type = "application/ld+json";
+  ld.textContent = JSON.stringify([ORG_LD, ...(jsonLd ? [].concat(jsonLd) : [])]);
+  document.head.appendChild(ld);
 }
 
 // A real <a>, intercepted only for a plain left-click on the same origin —
@@ -140,11 +200,11 @@ function PublicHeader({ navigate, dark }) {
   const links = [["/properties", "فایل‌ها"], ["/about", "درباره ما"], ["/contact", "ارتباط با ما"]];
   return (
     <header style={{ position: dark ? "fixed" : "sticky", top: 0, left: 0, right: 0, zIndex: 50, color: textColor, background: overDark ? "linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0))" : "rgba(249,248,245,0.95)", backdropFilter: overDark ? "none" : "blur(12px)", borderBottom: `1px solid ${overDark ? "transparent" : pc.border}`, boxShadow: overDark ? "none" : "0 8px 24px -20px rgba(14,20,37,0.35)" }}>
-      <style>{PUBLIC_CSS}</style>
+      <style>{PUBLIC_CSS + EXTRA_CSS}</style>
       <div className={`fp-shell fp-bar flex items-center justify-between ${scrolled ? "fp-small" : ""}`}>
-        <NavLink to="/site" navigate={navigate} style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
+        <NavLink to="/" navigate={navigate} style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
           <FloraMark size={34} color={textColor} stroke={1.5} />
-          <span style={{ fontSize: 21, fontWeight: 800, color: textColor, letterSpacing: 1 }}>FLORA</span>
+          <span style={{ fontSize: 20, fontWeight: 800, color: textColor }}>{OFFICE.name}</span>
         </NavLink>
         <nav className="fp-nav">
           {links.map(([to, label]) => <NavLink key={to} to={to} navigate={navigate} className="fp-link">{label}</NavLink>)}
@@ -157,7 +217,8 @@ function PublicHeader({ navigate, dark }) {
               and swapping between them without a full remount is the one
               transition that would actually change how many hooks that
               component calls mid-render. */}
-          <a href="/" className="fp-login items-center" style={{ height: 44, padding: "0 18px", border: `1px solid ${edge}`, borderRadius: 2, color: textColor, fontSize: 14, fontWeight: 800, textDecoration: "none" }}>ورود مشاوران</a>
+          <a href={`tel:${OFFICE.phone}`} className="fp-hphone items-center" style={{ gap: 10, height: 44, padding: "0 16px", border: `1px solid ${edge}`, borderRadius: 2, color: textColor, fontSize: 17, fontWeight: 800, textDecoration: "none" }}><Phone size={16} /> <span className="numeric">{OFFICE.phoneFa}</span></a>
+          <a href={`tel:${OFFICE.phone}`} aria-label="تماس" className="fp-hphone-sm flex items-center justify-center" style={{ width: 44, height: 44, border: `1px solid ${edge}`, borderRadius: 2, color: textColor }}><Phone size={17} /></a>
           <button className="fp-burger items-center justify-center" onClick={() => setMenu((m) => !m)} aria-label="منو" style={{ width: 44, height: 44, border: `1px solid ${edge}`, borderRadius: 2, background: "transparent" }}>
             {menu ? <X size={18} color={textColor} /> : <Menu size={18} color={textColor} />}
           </button>
@@ -166,7 +227,7 @@ function PublicHeader({ navigate, dark }) {
       {menu && (
         <div className="fp-mobile fp-shell flex flex-col" style={{ borderTop: `1px solid ${pc.border}`, paddingBlock: 12 }}>
           {links.map(([to, label]) => <NavLink key={to} to={to} navigate={navigate} onClick={() => setMenu(false)} style={{ padding: "14px 0", fontSize: 15, fontWeight: 700, color: pc.ink, textDecoration: "none", borderBottom: `1px solid ${pc.border}` }}>{label}</NavLink>)}
-          <a href="/" style={{ padding: "14px 0", fontSize: 15, fontWeight: 700, color: pc.brand, textDecoration: "none" }}>ورود مشاوران</a>
+          <a href="/site" style={{ padding: "14px 0", fontSize: 15, fontWeight: 700, color: pc.brand, textDecoration: "none" }}>ورود مشاوران</a>
         </div>
       )}
     </header>
@@ -183,9 +244,9 @@ function PublicFooter({ navigate, flush }) {
           <div style={{ maxWidth: 360 }}>
             <div className="flex items-center" style={{ gap: 10, marginBottom: 20 }}>
               <FloraMark size={30} color="#fff" stroke={1.5} />
-              <span style={{ fontSize: 19, fontWeight: 800, color: "#fff", letterSpacing: 1 }}>FLORA</span>
+              <span style={{ fontSize: 19, fontWeight: 800, color: "#fff" }}>{OFFICE.name}</span>
             </div>
-            <p style={{ fontSize: 14, lineHeight: 2.2, color: "rgba(255,255,255,0.6)" }}>فایل‌های به‌روز خرید، رهن و اجاره‌ی ملک در سرعین — مستقیم از مشاوران املاک.</p>
+            <p style={{ fontSize: 14, lineHeight: 2.2, color: "rgba(255,255,255,0.6)" }}>{OFFICE.tagline} — خرید واحد، آپارتمان، ویلا و پیش‌فروش با بازدید کارشناس و همراهی تا پایان معامله.</p>
           </div>
           <nav>
             <h2 style={h}>دسترسی سریع</h2>
@@ -193,7 +254,7 @@ function PublicFooter({ navigate, flush }) {
               <NavLink to="/properties" navigate={navigate} className="fp-flink">فایل‌ها</NavLink>
               <NavLink to="/about" navigate={navigate} className="fp-flink">درباره ما</NavLink>
               <NavLink to="/contact" navigate={navigate} className="fp-flink">ارتباط با ما</NavLink>
-              <a href="/" className="fp-flink">ورود مشاوران</a>
+              <a href="/site" className="fp-flink">ورود مشاوران</a>
             </div>
           </nav>
           <nav>
@@ -205,16 +266,17 @@ function PublicFooter({ navigate, flush }) {
           <div>
             <h2 style={h}>تماس</h2>
             <div style={col}>
-              <a href="mailto:support@flora-crm.app" className="flex items-center" style={{ gap: 10, color: "#fff", fontSize: 14, fontWeight: 700, textDecoration: "none" }}><Mail size={15} /> <span dir="ltr">support@flora-crm.app</span></a>
-              <span className="flex items-center" style={{ gap: 10, fontSize: 14 }}><MapPin size={15} /> سرعین، استان اردبیل</span>
+              <a href={`tel:${OFFICE.phone}`} className="flex items-center" style={{ gap: 10, color: "#fff", fontSize: 17, fontWeight: 800, textDecoration: "none" }}><Phone size={15} /> <span className="numeric">{OFFICE.phoneFa}</span></a>
+              <span className="flex items-center" style={{ gap: 10, fontSize: 14 }}><User size={15} /> {OFFICE.agent}</span>
+              <span className="flex items-start" style={{ gap: 10, fontSize: 14, lineHeight: 1.9 }}><MapPin size={15} className="shrink-0" style={{ marginTop: 5 }} /> {OFFICE.address}</span>
               <a href="/?legal=privacy" className="fp-flink">حریم خصوصی</a>
               <a href="/?legal=terms" className="fp-flink">شرایط استفاده</a>
             </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-between" style={{ gap: 12, marginTop: 56, paddingTop: 28, borderTop: "1px solid rgba(255,255,255,0.1)", fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-          <p>© {faDigits(1405)} Flora — تمامی حقوق محفوظ است.</p>
-          <p>همه‌ی فایل‌ها توسط مشاوران املاک ثبت و منتشر می‌شوند.</p>
+          <p>© {faDigits(1405)} {OFFICE.name} — تمامی حقوق محفوظ است.</p>
+          <p>سرعین، استان اردبیل</p>
         </div>
       </div>
     </footer>
@@ -242,13 +304,13 @@ function jalaliShort(iso) {
 }
 
 function PropertyCardPublic({ p, navigate }) {
-  const img = publicImageUrl(p.cover_path);
+  const img = publicImageUrl(p.cover_thumb_path || p.cover_path);
   const specs = specGrid(p);
   return (
     <NavLink to={`/properties/${p.slug}`} navigate={navigate} style={{ textDecoration: "none", color: "inherit", display: "block", height: "100%" }}>
       <div className="fp-card flex flex-col h-full" style={{ overflow: "hidden", background: pc.surface, border: "1px solid rgba(34,63,153,0.1)", boxShadow: "0 1px 3px rgba(14,20,37,0.05)" }}>
         <div style={{ width: "100%", aspectRatio: "4 / 3", background: pc.soft, position: "relative", overflow: "hidden", borderBottom: "1px solid rgba(34,63,153,0.1)" }}>
-          {img ? <img src={img} alt={p.title} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
+          {img ? <img src={img} alt={`${p.title} — ${p.property_type || "ملک"} در سرعین`} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
             <div className="w-full h-full flex items-center justify-center"><Building2 size={26} color={pc.muted} /></div>
           )}
         </div>
@@ -290,12 +352,19 @@ function PropertyCardPublic({ p, navigate }) {
   );
 }
 
+const FAQ = [
+  ["قیمت خرید واحد در سرعین چقدر است؟", "قیمت هر متر آپارتمان در سرعین به موقعیت، ویو، سال ساخت و امکانات بستگی دارد. قیمت به‌روز هر فایل، همراه با قیمت هر متر، روی صفحه‌ی همان فایل درج شده است."],
+  ["خرید واحد در سرعین برای سرمایه‌گذاری مناسب است؟", "سرعین به‌خاطر چشمه‌های آب گرم و گردشگری در تمام فصول، تقاضای بالایی برای اجاره‌ی کوتاه‌مدت دارد؛ واحدهای نزدیک به مرکز شهر و آب‌گرم‌ها معمولاً بازدهی اجاره‌ی بهتری دارند."],
+  ["چطور برای بازدید ملک وقت بگیرم؟", `در صفحه‌ی هر فایل روی «درخواست بازدید» بزنید و شماره‌ی تماس خود را وارد کنید، یا مستقیم با ${OFFICE.agent} به شماره‌ی ${OFFICE.phoneFa} تماس بگیرید.`],
+  [`دفتر ${OFFICE.name} کجاست؟`, `${OFFICE.address}. برای هماهنگی بازدید پیش از مراجعه تماس بگیرید.`],
+];
+
 // ---------- Homepage ----------
 function PublicHomeView({ navigate }) {
   const [latest, setLatest] = useState(null); // null = loading
   const [count, setCount] = useState(null);
 
-  useEffect(() => { setMeta("Flora — فایل‌های ملکی سرعین", "خرید و رهن‌واجاره‌ی آپارتمان و ویلا در سرعین — فایل‌های به‌روز از مشاوران املاک."); }, []);
+  useEffect(() => { setMeta(`خرید واحد در سرعین | خرید آپارتمان و ویلا — ${OFFICE.name}`, `خرید واحد و آپارتمان در سرعین با ${OFFICE.name}: فایل‌های به‌روز فروش آپارتمان، ویلا و پیش‌فروش با قیمت، عکس و موقعیت روی نقشه. مشاوره و بازدید: ${OFFICE.phoneFa}`, { path: "/", jsonLd: { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: FAQ.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } }); }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -328,11 +397,11 @@ function PublicHomeView({ navigate }) {
         <div className="fp-shell relative" style={{ paddingTop: 160, paddingBottom: 96 }}>
           <div style={{ maxWidth: 760 }}>
             <p className="fp-eyebrow fp-up" style={{ color: "rgba(255,255,255,0.7)" }}>سرعین، استان اردبیل</p>
-            <h1 className="fp-h1 fp-up" style={{ marginTop: 24, animationDelay: "120ms" }}>فایل ملکی بعدی‌ات<br />را این‌جا پیدا کن</h1>
-            <p className="fp-up" style={{ fontSize: 16, color: "rgba(255,255,255,0.75)", lineHeight: 2.2, marginTop: 24, maxWidth: 520, animationDelay: "240ms" }}>فایل‌های به‌روز آپارتمان و ویلا در سرعین، مستقیم از مشاوران املاک — بدون واسطه.</p>
+            <h1 className="fp-h1 fp-up" style={{ marginTop: 24, animationDelay: "120ms" }}>خرید واحد در سرعین<span style={{ display: "block", fontSize: "0.45em", fontWeight: 700, marginTop: 14, color: "rgba(255,255,255,0.85)" }}>{OFFICE.name} — {OFFICE.tagline}</span></h1>
+            <p className="fp-up" style={{ fontSize: 16, color: "rgba(255,255,255,0.75)", lineHeight: 2.2, marginTop: 24, maxWidth: 520, animationDelay: "240ms" }}>آپارتمان، ویلا و پروژه‌های پیش‌فروش سرعین؛ هر فایل پس از بازدید کارشناس با قیمت، عکس و موقعیت دقیق روی نقشه منتشر می‌شود.</p>
             <div className="flex flex-wrap items-center fp-up" style={{ gap: 12, marginTop: 40, animationDelay: "360ms" }}>
               <NavLink to="/properties" navigate={navigate} className="fp-btn fp-btn-brand">مشاهده فایل‌ها <ArrowLeft size={16} /></NavLink>
-              <NavLink to="/contact" navigate={navigate} className="fp-btn fp-btn-ghost">ارتباط با ما</NavLink>
+              <a href={`tel:${OFFICE.phone}`} className="fp-btn fp-btn-ghost"><Phone size={16} /> <span className="numeric">{OFFICE.phoneFa}</span></a>
             </div>
             {count != null && count > 0 && (
               <p className="fp-up" style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", marginTop: 48, animationDelay: "480ms" }}><b className="numeric" style={{ color: "#fff", fontWeight: 800 }}>{faDigits(count)}</b> فایل فعال روی سایت</p>
@@ -352,12 +421,12 @@ function PublicHomeView({ navigate }) {
             <p style={{ marginTop: 12, maxWidth: 440, fontSize: 14, lineHeight: 2.2, color: "rgba(255,255,255,0.75)" }}>فایل‌های موجود سرعین را ببینید، بر اساس متراژ و قیمت فیلتر کنید و گزینه‌ی مناسب خود را پیدا کنید.</p>
             <span className="flex items-center" style={{ gap: 12, marginTop: "auto", paddingTop: 28, fontSize: 14, fontWeight: 800 }}>مشاهده‌ی فایل‌ها {arrowDot("#fff", pc.brand)}</span>
           </NavLink>
-          <a href="/" className="fp-intent" style={{ background: pc.surface, color: pc.ink, border: `1px solid ${pc.border}`, boxShadow: "0 18px 40px -28px rgba(14,20,37,0.35)" }}>
+          <a href={`tel:${OFFICE.phone}`} className="fp-intent" style={{ background: pc.surface, color: pc.ink, border: `1px solid ${pc.border}`, boxShadow: "0 18px 40px -28px rgba(14,20,37,0.35)" }}>
             <span className="flex items-center justify-center" style={{ width: 48, height: 48, borderRadius: 16, background: pc.accentSoft, color: pc.brand, border: "1px solid rgba(34,63,153,0.15)" }}><Building2 size={20} /></span>
-            <p style={{ marginTop: 28, fontSize: 12, fontWeight: 700, color: pc.accent }}>برای مشاوران املاک</p>
-            <h3 style={{ marginTop: 8, fontSize: 28, fontWeight: 800, lineHeight: 1.4 }}>انتشار فایل</h3>
-            <p style={{ marginTop: 12, maxWidth: 440, fontSize: 14, lineHeight: 2.2, color: pc.inkSoft }}>فایل‌ها، مشتریان و قراردادهایتان را در Flora مدیریت کنید و هر فایل را با یک دکمه روی سایت منتشر کنید.</p>
-            <span className="flex items-center" style={{ gap: 12, marginTop: "auto", paddingTop: 28, fontSize: 14, fontWeight: 800 }}>ورود مشاوران {arrowDot(pc.brand, "#fff")}</span>
+            <p style={{ marginTop: 28, fontSize: 12, fontWeight: 700, color: pc.accent }}>برای فروشندگان</p>
+            <h3 style={{ marginTop: 8, fontSize: 28, fontWeight: 800, lineHeight: 1.4 }}>فروش ملک</h3>
+            <p style={{ marginTop: 12, maxWidth: 440, fontSize: 14, lineHeight: 2.2, color: pc.inkSoft }}>ملک خود را به کارشناسان {OFFICE.name} بسپارید؛ از قیمت‌گذاری تا یافتن خریدار مناسب، در کنار شما هستیم.</p>
+            <span className="flex items-center" style={{ gap: 12, marginTop: "auto", paddingTop: 28, fontSize: 14, fontWeight: 800 }}>تماس با ما {arrowDot(pc.brand, "#fff")}</span>
           </a>
         </div>
       </section>
@@ -367,8 +436,8 @@ function PublicHomeView({ navigate }) {
         <div className="fp-shell">
           <div style={{ maxWidth: 760 }}>
             <p className="fp-eyebrow">املاک سرعین</p>
-            <h2 className="fp-h2" style={{ marginTop: 20 }}>خرید و اجاره‌ی ملک در سرعین</h2>
-            <p style={{ marginTop: 20, fontSize: 15, lineHeight: 2.3, color: pc.inkSoft }}>سرعین با چشمه‌های آب گرم و دامنه‌های سبلان، از پرمسافرترین شهرهای ایران است و ملک در آن هم برای سکونت و هم برای سرمایه‌گذاری خواهان دارد. فایل‌هایی که این‌جا می‌بینید مستقیم از دفتر مشاوران املاک منتشر و به‌روز نگه داشته می‌شوند.</p>
+            <h2 className="fp-h2" style={{ marginTop: 20 }}>خرید واحد و ملک در سرعین</h2>
+            <p style={{ marginTop: 20, fontSize: 15, lineHeight: 2.3, color: pc.inkSoft }}>سرعین با چشمه‌های آب گرم و دامنه‌های سبلان، از پرمسافرترین شهرهای ایران است و ملک در آن هم برای سکونت و هم برای سرمایه‌گذاری خواهان دارد. {OFFICE.name} فایل‌های فروش واحد آپارتمانی، ویلا و پروژه‌های پیش‌فروش سرعین را پس از بازدید کارشناس، با قیمت، عکس و موقعیت دقیق روی نقشه منتشر می‌کند و تا پایان معامله همراه خریدار است.</p>
           </div>
           <div className="fp-grid4" style={{ marginTop: 48 }}>
             {CATEGORIES.map((c) => (
@@ -412,11 +481,25 @@ function PublicHomeView({ navigate }) {
         <div style={{ position: "absolute", top: "50%", left: -80, transform: "translateY(-50%)", opacity: 0.12 }}><FloraMark size={460} color="#fff" stroke={0.6} /></div>
         <div className="fp-shell relative">
           <div style={{ maxWidth: 640 }}>
-            <p className="fp-eyebrow">درباره‌ی Flora</p>
-            <h2 className="fp-h2" style={{ marginTop: 20 }}>فایل‌ها را از خودِ مشاور ببینید، نه دست چندم</h2>
-            <p style={{ marginTop: 20, fontSize: 15, lineHeight: 2.3, color: "rgba(255,255,255,0.7)" }}>Flora ابزار مدیریتی مشاوران املاک است — فایل‌هایی که این‌جا می‌بینید، مستقیم از دفتر همان مشاور منتشر شده و به‌روز نگه داشته می‌شود.</p>
+            <p className="fp-eyebrow">درباره‌ی {OFFICE.name}</p>
+            <h2 className="fp-h2" style={{ marginTop: 20 }}>مشاوره‌ی خرید واحد در سرعین، از بازدید تا قرارداد</h2>
+            <p style={{ marginTop: 20, fontSize: 15, lineHeight: 2.3, color: "rgba(255,255,255,0.7)" }}>{OFFICE.name} با مدیریت {OFFICE.agent}، در میدان دانش سرعین فعالیت می‌کند. همه‌ی فایل‌ها پیش از انتشار بازدید می‌شوند تا قیمت، متراژ و عکس‌ها با واقعیت ملک یکی باشد.</p>
             <NavLink to="/about" navigate={navigate} className="fp-btn fp-btn-ghost" style={{ marginTop: 40 }}>بیشتر بدانید <ArrowLeft size={16} /></NavLink>
           </div>
+        </div>
+      </section>
+
+      {/* FAQ — real content for the target query + FAQPage schema */}
+      <section className="fp-sec" style={{ borderBottom: `1px solid ${pc.border}` }}>
+        <div className="fp-shell" style={{ maxWidth: 900 }}>
+          <p className="fp-eyebrow">سؤالات متداول</p>
+          <h2 className="fp-h2" style={{ marginTop: 16, marginBottom: 24 }}>راهنمای خرید واحد در سرعین</h2>
+          {FAQ.map(([q, a]) => (
+            <details key={q} className="fp-faq" style={{ borderBottom: `1px solid ${pc.border}` }}>
+              <summary>{q}</summary>
+              <p style={{ paddingBottom: 22, fontSize: 15, lineHeight: 2.3, color: pc.inkSoft }}>{a}</p>
+            </details>
+          ))}
         </div>
       </section>
 
@@ -429,7 +512,7 @@ function PublicHomeView({ navigate }) {
             <p style={{ maxWidth: 520, fontSize: 15, lineHeight: 2.3, color: pc.inkSoft }}>همه‌ی فایل‌ها را با فیلتر متراژ، قیمت و نوع معامله مرور کنید یا با ما در تماس باشید.</p>
             <div className="flex flex-wrap items-center justify-center" style={{ gap: 12 }}>
               <NavLink to="/properties" navigate={navigate} className="fp-btn fp-btn-brand">همه‌ی فایل‌ها <ArrowLeft size={16} /></NavLink>
-              <NavLink to="/contact" navigate={navigate} className="fp-btn fp-btn-line">راه‌های ارتباط با ما</NavLink>
+              <a href={`tel:${OFFICE.phone}`} className="fp-btn fp-btn-line"><Phone size={16} /> <span className="numeric">{OFFICE.phoneFa}</span></a>
             </div>
           </div>
         </div>
@@ -454,7 +537,7 @@ function PublicPropertiesListView({ navigate }) {
   const [rooms, setRooms] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  useEffect(() => { setMeta("فایل‌های ملکی — Flora", "فهرست فایل‌های آپارتمان و ویلای منتشرشده در Flora."); }, []);
+  useEffect(() => { setMeta(`خرید واحد و آپارتمان در سرعین — فایل‌های فروش | ${OFFICE.name}`, `فهرست کامل فایل‌های فروش واحد، آپارتمان، ویلا، پیش‌فروش و رهن و اجاره در سرعین با قیمت، متراژ و عکس — ${OFFICE.name}`, { path: "/properties" }); }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -506,7 +589,7 @@ function PublicPropertiesListView({ navigate }) {
       <PublicHeader navigate={navigate} onSearchClick={() => setFiltersOpen(true)} />
       <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 20px 0" }}>
         <p className="fp-eyebrow">املاک سرعین</p>
-        <h1 className="fp-h2" style={{ marginTop: 14, marginBottom: 28 }}>فایل‌های ملکی</h1>
+        <h1 className="fp-h2" style={{ marginTop: 14, marginBottom: 28 }}>خرید واحد و ملک در سرعین</h1>
         <div className="flex items-center" style={{ gap: 10, marginBottom: 22 }}>
           <div className="flex-1 flex items-center" style={{ gap: 8, background: pc.surface, border: `1px solid ${pc.border}`, borderRadius: 2, padding: "9px 14px" }}>
             <Search size={13} color={pc.muted} />
@@ -551,13 +634,150 @@ function PublicPropertiesListView({ navigate }) {
   );
 }
 
-// ---------- Property detail ----------
+// ---------- Property detail (minaei-style) ----------
+function detailSpecs(p) {
+  const d = p.details || {};
+  const yn = (v) => (v == null ? null : v ? "دارد" : "ندارد");
+  return [
+    [Ruler, "زیربنا", p.area ? `${faDigits(p.area)} متر مربع` : null],
+    [BedDouble, "اتاق خواب", p.rooms != null ? `${faDigits(p.rooms)} خواب` : null],
+    [Layers, "طبقه", p.floor != null ? faDigits(p.floor) : null],
+    [Building2, "تعداد طبقات", d.total_floors ? faDigits(d.total_floors) : null],
+    [CalendarDays, "سال ساخت", d.year_built ? faDigits(d.year_built) : null],
+    [Sofa, "وضعیت فرنیش", d.furnished || null],
+    [Car, "پارکینگ", yn(d.parking)],
+    [ArrowUpDown, "آسانسور", yn(d.elevator)],
+    [Warehouse, "انباری", yn(d.storage)],
+    [Wallet, "نوع معامله", p.deal || null],
+    [Building, "نوع ملک", p.property_type || null],
+    [Clock, "زمان تحویل", d.pre_delivery ? `${faDigits(d.pre_delivery)} ماه` : null],
+  ].filter((x) => x[2]);
+}
+const dealVerb = (deal) => (deal === "رهن و اجاره" ? "رهن و اجاره" : deal === "پیش‌فروش" ? "پیش‌فروش" : "خرید");
+const propCode = (p) => p.details?.code || String(p.id || "").slice(0, 6).toUpperCase();
+const sectionTitle = (t) => <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 18 }}>{t}</h2>;
+
+// Leaflet is loaded only when the map scrolls into view, so it never costs
+// anything on first paint (it's ~150KB with its CSS).
+function PropertyMap({ lat, lng }) {
+  const box = useRef(null), mapRef = useRef(null), layerRef = useRef(null), LRef = useRef(null);
+  const [sat, setSat] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const init = async () => {
+      const [{ default: L }] = await Promise.all([import("leaflet"), import("leaflet/dist/leaflet.css")]);
+      if (cancelled || !box.current || mapRef.current) return;
+      LRef.current = L;
+      const m = L.map(box.current, { scrollWheelZoom: false, attributionControl: true }).setView([lat, lng], 16);
+      L.marker([lat, lng], { icon: L.divIcon({ className: "", html: '<span class="fp-pin" style="position:relative"></span>', iconSize: [30, 40], iconAnchor: [15, 38] }) }).addTo(m);
+      mapRef.current = m; setReady(true);
+    };
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); init(); } }, { rootMargin: "300px" });
+    if (box.current) io.observe(box.current);
+    return () => { cancelled = true; io.disconnect(); mapRef.current?.remove(); mapRef.current = null; };
+  }, [lat, lng]);
+  useEffect(() => {
+    const L = LRef.current, m = mapRef.current;
+    if (!L || !m) return;
+    layerRef.current?.remove();
+    layerRef.current = sat
+      ? L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Esri" })
+      : L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" });
+    layerRef.current.addTo(m);
+  }, [sat, ready]);
+  return (
+    <div style={{ position: "relative", isolation: "isolate", zIndex: 0 }}>
+      <div ref={box} dir="ltr" style={{ width: "100%", height: 380, background: pc.soft, border: `1px solid ${pc.border}` }} />
+      <button type="button" onClick={() => setSat((v) => !v)} className="flex items-center" style={{ position: "absolute", top: 12, right: 12, zIndex: 500, gap: 8, height: 38, padding: "0 14px", background: "#fff", border: `1px solid ${pc.border}`, borderRadius: 2, fontSize: 13, fontWeight: 700, color: pc.ink, boxShadow: "0 4px 14px rgba(14,20,37,.15)" }}>
+        {sat ? <MapIcon size={15} /> : <Satellite size={15} />} {sat ? "نقشه" : "ماهواره"}
+      </button>
+    </div>
+  );
+}
+
+const VISIT_TIMES = ["هر زمان", "امروز", "فردا", "همین هفته", "آخر هفته"];
+function VisitRequestForm({ p, onDone, compact }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [when, setWhen] = useState(VISIT_TIMES[0]);
+  const [part, setPart] = useState("صبح");
+  const [note, setNote] = useState("");
+  const [hp, setHp] = useState("");
+  const [state, setState] = useState("idle"); // idle | sending | done | error
+  const [err, setErr] = useState("");
+  const clean = toEnDigits(phone).replace(/\D/g, "");
+  const valid = /^09\d{9}$/.test(clean);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!valid) { setErr("شماره موبایل را درست وارد کنید (مثل ۰۹۱۲۱۲۳۴۵۶۷)"); return; }
+    setState("sending"); setErr("");
+    const { data, error } = await supabase.functions.invoke("visit-request", { body: { property_id: p.id, name: name.trim(), phone: clean, preferred_time: `${when} — ${part}`, note: note.trim(), website: hp } });
+    if (error || data?.error) { setState("error"); setErr(data?.error || "ارسال نشد. لطفاً تماس بگیرید."); return; }
+    setState("done"); onDone?.();
+  };
+  if (state === "done") return (
+    <div style={{ textAlign: "center", padding: "18px 4px" }}>
+      <span className="flex items-center justify-center" style={{ width: 52, height: 52, margin: "0 auto", borderRadius: "50%", background: pc.accentSoft, color: pc.brand }}><Check size={24} /></span>
+      <p style={{ fontSize: 16, fontWeight: 800, marginTop: 14 }}>درخواست بازدید ثبت شد</p>
+      <p style={{ fontSize: 13, color: pc.inkSoft, lineHeight: 2, marginTop: 6 }}>{OFFICE.agent} به‌زودی برای هماهنگی زمان بازدید با شما تماس می‌گیرد.</p>
+    </div>
+  );
+  const label = { fontSize: 12, fontWeight: 700, color: pc.inkSoft, marginBottom: 6, display: "block" };
+  return (
+    <form onSubmit={submit} className="flex flex-col" style={{ gap: compact ? 12 : 14 }}>
+      <input value={hp} onChange={(e) => setHp(e.target.value)} name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 }} />
+      <label><span style={label}>نام و نام خانوادگی</span><input className="fp-in" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="اختیاری" /></label>
+      <label><span style={label}>شماره موبایل <b style={{ color: "#B42318" }}>*</b></span><input className="fp-in" value={phone} onChange={(e) => { setPhone(e.target.value); setErr(""); }} inputMode="tel" autoComplete="tel" dir="ltr" placeholder="09xx xxx xxxx" required style={{ textAlign: "right", borderColor: err ? "#B42318" : undefined }} /></label>
+      <div className="grid grid-cols-2" style={{ gap: 10 }}>
+        <label><span style={label}>روز بازدید</span><select className="fp-in" value={when} onChange={(e) => setWhen(e.target.value)}>{VISIT_TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
+        <label><span style={label}>ساعت</span><select className="fp-in" value={part} onChange={(e) => setPart(e.target.value)}><option>صبح</option><option>عصر</option></select></label>
+      </div>
+      {!compact && <label><span style={label}>توضیحات</span><textarea className="fp-in" value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="اختیاری" style={{ height: "auto", padding: 12, resize: "vertical" }} /></label>}
+      {err && <p style={{ fontSize: 12.5, color: "#B42318", lineHeight: 1.9 }}>{err}</p>}
+      <button type="submit" disabled={state === "sending"} className="fp-btn fp-btn-brand" style={{ width: "100%", height: 52, opacity: state === "sending" ? 0.7 : 1, border: "none" }}>
+        {state === "sending" ? <Loader2 size={16} className="animate-spin" /> : <CalendarDays size={16} />} ثبت درخواست بازدید
+      </button>
+    </form>
+  );
+}
+
+function OfficeCard({ p, onVisit }) {
+  const wa = `https://wa.me/${OFFICE.wa}?text=${encodeURIComponent(`سلام، درباره‌ی فایل «${p.title}» (کد ${propCode(p)}) سؤال داشتم.`)}`;
+  return (
+    <div style={{ border: `1px solid ${pc.border}`, background: pc.surface, boxShadow: "0 18px 40px -30px rgba(14,20,37,0.35)" }}>
+      <div style={{ padding: 24 }}>
+        <p className="fp-eyebrow">تماس با دفتر</p>
+        <div className="flex items-center" style={{ gap: 14, marginTop: 18 }}>
+          <span className="flex items-center justify-center shrink-0" style={{ width: 52, height: 52, borderRadius: "50%", background: pc.accentSoft, color: pc.brand }}><User size={22} /></span>
+          <div>
+            <p style={{ fontSize: 17, fontWeight: 800 }}>{OFFICE.name}</p>
+            <p style={{ fontSize: 13, color: pc.inkSoft, marginTop: 2 }}>{OFFICE.tagline}</p>
+            <p style={{ fontSize: 13, color: pc.ink, fontWeight: 700, marginTop: 2 }}>{OFFICE.agent}</p>
+          </div>
+        </div>
+        <div className="flex flex-col" style={{ gap: 10, marginTop: 20 }}>
+          <a href={`tel:${OFFICE.phone}`} className="fp-btn fp-btn-brand" style={{ height: 52, fontSize: 17 }}><Phone size={16} /> <span className="numeric">{OFFICE.phoneFa}</span></a>
+          <a href={wa} target="_blank" rel="noreferrer" className="fp-btn fp-btn-line" style={{ height: 52 }}><MessageCircle size={16} /> گفتگو در واتس‌اپ</a>
+          <button type="button" onClick={onVisit} className="fp-btn fp-btn-soft" style={{ height: 52 }}><CalendarDays size={16} /> درخواست بازدید</button>
+        </div>
+        <p style={{ fontSize: 12, color: pc.muted, marginTop: 14, lineHeight: 1.9 }}>هنگام تماس، کد ملک <b className="numeric" style={{ color: pc.ink }}>{propCode(p)}</b> را اعلام کنید.</p>
+      </div>
+      <div className="flex items-start" style={{ gap: 10, padding: "16px 24px", borderTop: `1px solid ${pc.border}`, background: pc.bg, fontSize: 13, color: pc.inkSoft, lineHeight: 2 }}>
+        <MapPin size={15} color={pc.brand} className="shrink-0" style={{ marginTop: 6 }} />
+        <span><b style={{ color: pc.ink }}>آدرس دفتر:</b> {OFFICE.address}</span>
+      </div>
+    </div>
+  );
+}
+
 function PublicPropertyDetailView({ slug, navigate }) {
   const [state, setState] = useState("loading");
   const [p, setP] = useState(null);
   const [similar, setSimilar] = useState([]);
   const [activeImg, setActiveImg] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
+  const [visitOpen, setVisitOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -565,170 +785,235 @@ function PublicPropertyDetailView({ slug, navigate }) {
       const { data, error } = await supabase.from("public_properties").select("*").eq("slug", slug).maybeSingle();
       if (cancelled) return;
       if (error || !data) { setState("error"); return; }
-      setP(data);
+      setP(data); setActiveImg(0);
       setState("ready");
-      setMeta(`${data.title} — Flora`, `${specLine(data)}${data.address ? " — " + data.address : ""}`.trim() || "فایل ملکی در Flora");
-      let mOg = document.querySelector('meta[property="og:image"]');
-      if (mOg && data.cover_path) mOg.setAttribute("content", publicImageUrl(data.cover_path));
-      const { data: sim } = await supabase.from("public_properties").select("*").eq("deal", data.deal).neq("id", data.id).limit(4);
+      const type = data.property_type || "ملک";
+      const verb = dealVerb(data.deal);
+      const path = `/properties/${encodeURIComponent(data.slug)}`;
+      const imgs = [data.cover_path, ...(data.gallery_paths || [])].filter(Boolean).map(publicImageUrl);
+      const bits = [data.area && `${faDigits(data.area)} متری`, data.rooms != null && `${faDigits(data.rooms)} خوابه`, data.address].filter(Boolean).join("، ");
+      const desc = `${verb} ${type} در سرعین: ${bits}${data.price ? `، قیمت ${fmtToman(data.price)}` : ""}. عکس‌ها، موقعیت روی نقشه و درخواست بازدید — ${OFFICE.name}`;
+      setMeta(`${data.title} | ${verb} ${type} در سرعین — ${OFFICE.name}`, desc, {
+        path, image: imgs[0],
+        jsonLd: [
+          {
+            "@context": "https://schema.org", "@type": "RealEstateListing", name: data.title, description: desc, url: SITE + path,
+            identifier: propCode(data), inLanguage: "fa-IR", datePosted: data.updated_at, image: imgs,
+            about: {
+              "@type": type === "ویلا" ? "House" : "Apartment", name: data.title,
+              ...(data.area ? { floorSize: { "@type": "QuantitativeValue", value: Number(data.area), unitCode: "MTK" } } : {}),
+              ...(data.rooms != null ? { numberOfRooms: Number(data.rooms) } : {}),
+              address: { "@type": "PostalAddress", addressCountry: "IR", addressRegion: "اردبیل", addressLocality: "سرعین", streetAddress: data.address || "" },
+              ...(data.lat && data.lng ? { geo: { "@type": "GeoCoordinates", latitude: data.lat, longitude: data.lng } } : {}),
+            },
+            ...(data.price ? { offers: { "@type": "Offer", price: Number(data.price) * 10, priceCurrency: "IRR", availability: "https://schema.org/InStock", seller: { "@id": ORG_LD["@id"] } } } : {}),
+          },
+          {
+            "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+              { "@type": "ListItem", position: 1, name: OFFICE.name, item: SITE + "/" },
+              { "@type": "ListItem", position: 2, name: "خرید واحد در سرعین", item: SITE + "/properties" },
+              { "@type": "ListItem", position: 3, name: data.title, item: SITE + path },
+            ],
+          },
+        ],
+      });
+      const { data: sim } = await supabase.from("public_properties").select("*").eq("deal", data.deal).neq("id", data.id).order("updated_at", { ascending: false }).limit(3);
       if (!cancelled) setSimilar(sim || []);
     })();
     return () => { cancelled = true; };
   }, [slug]);
 
-  if (state === "loading") return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: pc.bg }}>
-      <PublicHeader navigate={navigate} onSearchClick={() => navigate("/properties")} />
-      <div className="flex items-center justify-center" style={{ padding: 100 }}><Loader2 size={22} className="animate-spin" color={pc.muted} /></div>
+  const shell = (children) => (
+    <div dir="rtl" style={{ minHeight: "100vh", background: pc.bg, fontFamily: "'Vazirmatn', sans-serif", color: pc.ink }}>
+      <PublicHeader navigate={navigate} />
+      {children}
     </div>
   );
-  if (state === "error" || !p) return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: pc.bg, fontFamily: "'Vazirmatn', sans-serif" }}>
-      <PublicHeader navigate={navigate} onSearchClick={() => navigate("/properties")} />
-      <div style={{ textAlign: "center", padding: 100 }}>
-        <p style={{ fontSize: 14, color: pc.muted, marginBottom: 16 }}>این فایل پیدا نشد یا دیگر منتشر نیست.</p>
-        <NavLink to="/properties" navigate={navigate} style={{ fontSize: 13, color: pc.accent, fontWeight: 700, textDecoration: "none" }}>بازگشت به فایل‌ها</NavLink>
-      </div>
+  if (state === "loading") return shell(<div className="flex items-center justify-center" style={{ padding: 120 }}><Loader2 size={22} className="animate-spin" color={pc.muted} /></div>);
+  if (state === "error" || !p) return shell(
+    <div style={{ textAlign: "center", padding: 100 }}>
+      <p style={{ fontSize: 15, color: pc.muted, marginBottom: 20 }}>این فایل پیدا نشد یا دیگر منتشر نیست.</p>
+      <NavLink to="/properties" navigate={navigate} className="fp-btn fp-btn-brand">بازگشت به فایل‌ها</NavLink>
     </div>
   );
 
   const images = [p.cover_path, ...(p.gallery_paths || []).filter((g) => g !== p.cover_path)].filter(Boolean).map(publicImageUrl);
-  const waLink = p.agent_phone ? `https://wa.me/${p.agent_phone.replace(/\D/g, "")}?text=${encodeURIComponent(`سلام، درباره‌ی «${p.title}» توی Flora سؤال داشتم.`)}` : null;
+  const go = (d) => setActiveImg((i) => (i + d + images.length) % images.length);
+  const specs = detailSpecs(p);
+  const hasGeo = Number.isFinite(p.lat) && Number.isFinite(p.lng);
+  const exact = p.price ? `${Number(p.price).toLocaleString("fa-IR")} تومان` : null;
 
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: pc.bg, fontFamily: "'Vazirmatn', sans-serif", color: pc.ink }}>
-      <PublicHeader navigate={navigate} onSearchClick={() => navigate("/properties")} />
-
-      {/* Gallery */}
-      <div style={{ maxWidth: 1320, margin: "0 auto", padding: "20px 20px 0" }}>
-        <div onClick={() => setFullscreen(true)} style={{ width: "100%", aspectRatio: "16 / 10", overflow: "hidden", background: pc.accentSoft, cursor: "zoom-in", position: "relative" }}>
-          {images[activeImg] ? <img src={images[activeImg]} alt={p.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
-            <div className="w-full h-full flex items-center justify-center"><Building2 size={40} color={pc.muted} /></div>
-          )}
-          {images.length > 1 && (
-            <span style={{ position: "absolute", bottom: 12, left: 12, background: "rgba(14,20,37,0.65)", color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 2, padding: "4px 10px" }}>{faDigits(activeImg + 1)} / {faDigits(images.length)}</span>
-          )}
-        </div>
-        {images.length > 1 && (
-          <div className="flex" style={{ gap: 8, marginTop: 10, overflowX: "auto" }}>
-            {images.map((src, i) => (
-              <button key={i} onClick={() => setActiveImg(i)} style={{ width: 64, height: 64, borderRadius: 2, overflow: "hidden", flexShrink: 0, border: i === activeImg ? `2px solid ${pc.accent}` : `1px solid ${pc.border}`, padding: 0 }}>
-                <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+    <div dir="rtl" style={{ minHeight: "100vh", background: pc.bg, fontFamily: "'Vazirmatn', sans-serif", color: pc.ink, paddingBottom: 0 }}>
+      <PublicHeader navigate={navigate} />
 
       {/* Breadcrumb */}
-      <div style={{ maxWidth: 1320, margin: "0 auto", padding: "20px 20px 0" }}>
-        <nav className="flex items-center flex-wrap" style={{ gap: 6, fontSize: 11, color: pc.muted }}>
-          <NavLink to="/site" navigate={navigate} style={{ color: pc.muted, textDecoration: "none" }}>خانه</NavLink>
-          <span>/</span>
-          <NavLink to="/properties" navigate={navigate} style={{ color: pc.muted, textDecoration: "none" }}>فایل‌ها</NavLink>
-          <span>/</span>
-          <span style={{ color: pc.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{p.title}</span>
+      <div className="fp-shell" style={{ paddingTop: 20 }}>
+        <nav aria-label="مسیر" className="flex items-center flex-wrap" style={{ gap: 8, fontSize: 12.5, color: pc.muted }}>
+          <NavLink to="/" navigate={navigate} style={{ color: pc.muted, textDecoration: "none" }}>خانه</NavLink>
+          <ChevronLeft size={13} />
+          <NavLink to="/properties" navigate={navigate} style={{ color: pc.muted, textDecoration: "none" }}>خرید واحد در سرعین</NavLink>
+          <ChevronLeft size={13} />
+          <span style={{ color: pc.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }}>{p.title}</span>
         </nav>
       </div>
 
-      {/* Two-column body: content + sticky agent sidebar (desktop) */}
-      <div style={{ maxWidth: 1320, margin: "0 auto", padding: "20px 20px 0" }}>
-        <style>{`@media (min-width: 860px) { .flora-pd-grid { grid-template-columns: 1fr 320px !important; align-items: start; } .flora-pd-aside { position: sticky; top: 96px; } }`}</style>
-        <div className="flora-pd-grid" style={{ display: "grid", gap: 32, gridTemplateColumns: "1fr" }}>
-          {/* Main column */}
-          <div>
-            <div className="flex flex-wrap items-center" style={{ gap: 10, marginBottom: 14 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: pc.accent, background: pc.accentSoft, borderRadius: 2, padding: "4px 10px" }}>{p.deal}</span>
-              {p.property_type && <span style={{ fontSize: 10.5, fontWeight: 600, color: pc.muted }}>{p.property_type}</span>}
-            </div>
-            <h1 style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.6 }}>{p.title}</h1>
-            {p.address && <p className="flex items-center" style={{ gap: 5, fontSize: 12.5, color: pc.muted, marginTop: 8 }}><MapPin size={12} /> {p.address}</p>}
+      {/* Gallery */}
+      <section className="fp-shell" style={{ paddingTop: 16 }}>
+        <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", maxHeight: 640, overflow: "hidden", background: pc.soft }}>
+          {images[activeImg] ? (
+            <img src={images[activeImg]} alt={`${p.title} — تصویر ${faDigits(activeImg + 1)}`} fetchpriority={activeImg === 0 ? "high" : "auto"} decoding="async" onClick={() => setFullscreen(true)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "zoom-in" }} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center"><Building2 size={44} color={pc.muted} /></div>
+          )}
+          {images.length > 0 && (
+            <span className="flex items-center" style={{ position: "absolute", top: 14, right: 14, gap: 8, height: 38, padding: "0 14px", background: "rgba(14,20,37,0.7)", color: "#fff", fontSize: 13, fontWeight: 700, borderRadius: 2 }}><Images size={15} /> تصاویر {faDigits(images.length)} مورد</span>
+          )}
+          {images.length > 0 && <button type="button" aria-label="تمام‌صفحه" onClick={() => setFullscreen(true)} className="fp-gbtn" style={{ position: "absolute", top: 14, left: 14 }}><Maximize2 size={17} /></button>}
+          {images.length > 1 && (
+            <>
+              <button type="button" aria-label="قبلی" onClick={() => go(-1)} className="fp-gbtn" style={{ position: "absolute", top: "50%", right: 14, transform: "translateY(-50%)" }}><ChevronRight size={20} /></button>
+              <button type="button" aria-label="بعدی" onClick={() => go(1)} className="fp-gbtn" style={{ position: "absolute", top: "50%", left: 14, transform: "translateY(-50%)" }}><ChevronLeft size={20} /></button>
+              <span className="numeric" style={{ position: "absolute", bottom: 14, left: 14, background: "rgba(14,20,37,0.7)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 2 }}>{faDigits(activeImg + 1)} / {faDigits(images.length)}</span>
+            </>
+          )}
+        </div>
+        {images.length > 1 && (
+          <ul className="flex" style={{ gap: 8, marginTop: 10, overflowX: "auto", paddingBottom: 4 }}>
+            {images.map((src, i) => (
+              <li key={i} className="shrink-0"><button type="button" onClick={() => setActiveImg(i)} style={{ width: 96, height: 68, overflow: "hidden", padding: 0, borderRadius: 2, border: i === activeImg ? `2px solid ${pc.brand}` : `1px solid ${pc.border}`, opacity: i === activeImg ? 1 : 0.75 }}>
+                <img src={src} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              </button></li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-            {/* Price block */}
-            <div className="flex flex-wrap items-end" style={{ gap: 28, marginTop: 20, paddingBlock: 20, borderBlock: `1px solid ${pc.border}` }}>
-              <div>
-                <p style={{ fontSize: 10.5, fontWeight: 700, color: pc.muted, letterSpacing: 1 }}>قیمت</p>
-                <p style={{ fontSize: 24, fontWeight: 800, color: pc.brandDeep, marginTop: 6 }}>{p.price ? fmtToman(p.price) : "تماس بگیرید"}</p>
+      <div className="fp-shell" style={{ paddingTop: 32 }}>
+        <style>{`@media (min-width: 860px) { .flora-pd-grid { grid-template-columns: 1fr 360px !important; align-items: start; } .flora-pd-aside { position: sticky; top: 100px; } }`}</style>
+        <div className="flora-pd-grid" style={{ display: "grid", gap: 40, gridTemplateColumns: "1fr" }}>
+          <div style={{ minWidth: 0 }}>
+            {/* Title block */}
+            <header>
+              <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
+                {p.deal && <span style={{ fontSize: 12, fontWeight: 800, color: "#fff", background: pc.brand, padding: "5px 12px", borderRadius: 2 }}>{p.deal}</span>}
+                {p.property_type && <span style={{ fontSize: 12, fontWeight: 700, color: pc.brand, background: pc.accentSoft, padding: "5px 12px", borderRadius: 2 }}>{p.property_type}</span>}
+                <span className="flex items-center" style={{ gap: 4, fontSize: 12, color: pc.muted, background: pc.soft, padding: "5px 10px", borderRadius: 2 }}>کد <b className="numeric" style={{ color: pc.ink }}>{propCode(p)}</b></span>
               </div>
-              {p.price_per_meter ? (
-                <div>
-                  <p style={{ fontSize: 10.5, fontWeight: 700, color: pc.muted, letterSpacing: 1 }}>قیمت هر متر</p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: pc.ink, marginTop: 6 }}>{fmtToman(p.price_per_meter)}</p>
+              <h1 style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.6, marginTop: 14 }}>{p.title}</h1>
+              {p.address && <p className="flex items-center" style={{ gap: 6, fontSize: 14, color: pc.inkSoft, marginTop: 8 }}><MapPin size={15} color={pc.brand} /> اردبیل، سرعین، {p.address}</p>}
+              <div className="fp-price" style={{ marginTop: 24 }}>
+                <div style={{ background: pc.surface, padding: 20 }}>
+                  <p style={{ fontSize: 12, color: pc.muted }}>{p.deal === "رهن و اجاره" ? "مبلغ" : "قیمت فروش"}</p>
+                  <p style={{ fontSize: 26, fontWeight: 800, color: pc.brandDeep, marginTop: 6 }}>{p.price ? fmtToman(p.price) : "تماس بگیرید"}</p>
+                  {exact && <p style={{ fontSize: 12, color: pc.muted, marginTop: 4 }}>{exact}</p>}
                 </div>
-              ) : null}
-            </div>
+                <div style={{ background: pc.surface, padding: 20 }}>
+                  <p style={{ fontSize: 12, color: pc.muted }}>قیمت هر متر</p>
+                  <p style={{ fontSize: 17, fontWeight: 800, marginTop: 8 }}>{p.price_per_meter ? fmtToman(p.price_per_meter) : "—"}</p>
+                </div>
+                <div style={{ background: pc.surface, padding: 20 }}>
+                  <p style={{ fontSize: 12, color: pc.muted }}>تاریخ انتشار</p>
+                  <p style={{ fontSize: 17, fontWeight: 800, marginTop: 8 }}>{jalaliShort(p.updated_at) || "—"}</p>
+                </div>
+              </div>
+            </header>
 
-            {/* Spec grid — same dt/dd pattern as the reference, filled only
-                with fields Flora's property model actually has. Nothing
-                invented to fill empty cells. */}
-            {specGrid(p).length > 0 && (
-              <div style={{ marginTop: 28 }}>
-                <h2 style={{ fontSize: 15, fontWeight: 800, marginBottom: 14 }}>مشخصات ملک</h2>
-                <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 1, background: pc.border, borderRadius: 0, overflow: "hidden" }}>
-                  {specGrid(p).map((s) => (
-                    <div key={s.label} style={{ background: pc.surface, padding: 16 }}>
-                      <p style={{ fontSize: 10.5, color: pc.muted }}>{s.label}</p>
-                      <p style={{ fontSize: 14, fontWeight: 700, color: pc.ink, marginTop: 6 }}>{s.value}</p>
+            {/* Specs */}
+            {specs.length > 0 && (
+              <section style={{ marginTop: 44 }}>
+                {sectionTitle("مشخصات ملک")}
+                <dl className="fp-dl">
+                  {specs.map(([Icon, label, value]) => (
+                    <div key={label} style={{ background: pc.surface, padding: "18px 18px" }}>
+                      <dt className="flex items-center" style={{ gap: 8, fontSize: 12.5, color: pc.muted }}><Icon size={17} color={pc.brand} strokeWidth={1.7} /> {label}</dt>
+                      <dd style={{ fontSize: 15, fontWeight: 800, marginTop: 8 }}>{value}</dd>
                     </div>
                   ))}
-                </div>
-              </div>
+                </dl>
+              </section>
             )}
 
             {/* Amenities */}
             {p.amenities?.length > 0 && (
-              <div style={{ marginTop: 28 }}>
-                <h2 style={{ fontSize: 15, fontWeight: 800, marginBottom: 14 }}>امکانات</h2>
-                <ul className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
+              <section style={{ marginTop: 44 }}>
+                {sectionTitle("امکانات")}
+                <ul className="flex flex-wrap" style={{ gap: 10 }}>
                   {p.amenities.map((a) => (
-                    <li key={a} className="flex items-center" style={{ gap: 8, fontSize: 12.5, color: pc.ink }}>
-                      <span style={{ width: 5, height: 5, borderRadius: 2, background: pc.accent, flexShrink: 0 }} />
-                      {a}
+                    <li key={a} className="flex items-center" style={{ gap: 8, fontSize: 14, fontWeight: 600, padding: "10px 16px", background: pc.surface, border: `1px solid ${pc.border}`, borderRadius: 2 }}>
+                      <Check size={15} color={pc.brand} /> {a}
                     </li>
                   ))}
                 </ul>
-              </div>
+              </section>
             )}
+
+            {/* Map */}
+            <section style={{ marginTop: 44 }}>
+              {sectionTitle("موقعیت روی نقشه")}
+              {p.address && <p className="flex items-center" style={{ gap: 6, fontSize: 14, color: pc.inkSoft, marginBottom: 14 }}><MapPin size={15} color={pc.brand} /> {p.address}</p>}
+              {hasGeo ? (
+                <>
+                  <PropertyMap lat={p.lat} lng={p.lng} />
+                  <a href={`https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`} target="_blank" rel="noreferrer" className="fp-btn fp-btn-sm fp-btn-line" style={{ marginTop: 12 }}><Navigation size={15} /> مسیریابی</a>
+                </>
+              ) : (
+                <div className="flex items-center" style={{ gap: 10, padding: 20, background: pc.surface, border: `1px dashed ${pc.border}`, fontSize: 14, color: pc.inkSoft }}><MapIcon size={18} color={pc.brand} /> موقعیت دقیق این فایل را از {OFFICE.agent} بپرسید: <a href={`tel:${OFFICE.phone}`} className="numeric" style={{ color: pc.brand, fontWeight: 800, textDecoration: "none" }}>{OFFICE.phoneFa}</a></div>
+              )}
+            </section>
+
+            {/* Visit request (inline, desktop + mobile) */}
+            <section id="visit" style={{ marginTop: 44, padding: 24, background: pc.surface, border: `1px solid ${pc.border}` }}>
+              {sectionTitle("درخواست بازدید")}
+              <p style={{ fontSize: 14, color: pc.inkSoft, lineHeight: 2, marginTop: -8, marginBottom: 18 }}>شماره‌ی خود را بگذارید تا برای هماهنگی زمان بازدید با شما تماس بگیریم.</p>
+              <VisitRequestForm p={p} />
+            </section>
           </div>
 
-          {/* Agent sidebar */}
-          <aside className="flora-pd-aside">
-            <div style={{ border: `1px solid ${pc.border}`, borderRadius: 2, padding: 22, background: pc.surface }}>
-              <p style={{ fontSize: 10.5, fontWeight: 700, color: pc.accent, letterSpacing: 1, marginBottom: 14 }}>تماس با مشاور</p>
-              <p style={{ fontSize: 16, fontWeight: 800 }}>{p.agent_name || "مشاور Flora"}</p>
-              {p.agency_name && <p style={{ fontSize: 12, color: pc.muted, marginTop: 3 }}>{p.agency_name}</p>}
-              <div className="flex flex-col" style={{ gap: 10, marginTop: 18 }}>
-                {p.agent_phone && <a href={`tel:${p.agent_phone}`} className="flex items-center justify-center" style={{ gap: 6, padding: "13px", borderRadius: 2, background: pc.brand, color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none" }}><Phone size={14} /> تماس</a>}
-                {waLink && <a href={waLink} target="_blank" rel="noreferrer" className="flex items-center justify-center" style={{ gap: 6, padding: "13px", borderRadius: 2, background: "#25D366", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none" }}><MessageCircle size={14} /> گفتگو در واتساپ</a>}
-              </div>
-            </div>
-          </aside>
+          <aside className="flora-pd-aside"><OfficeCard p={p} onVisit={() => setVisitOpen(true)} /></aside>
         </div>
       </div>
 
       {/* Similar */}
       {similar.length > 0 && (
-        <div style={{ maxWidth: 1320, margin: "0 auto", padding: "56px 20px 0" }}>
+        <section className="fp-shell" style={{ paddingTop: 72 }}>
           <p className="fp-eyebrow">پیشنهاد</p>
-          <h2 className="fp-h2" style={{ marginTop: 12, marginBottom: 28, fontSize: 26 }}>فایل‌های مشابه</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 24 }}>
-            {similar.map((s) => <PropertyCardPublic key={s.id} p={s} navigate={navigate} />)}
+          <h2 className="fp-h2" style={{ marginTop: 12, marginBottom: 28, fontSize: 26 }}>املاک مشابه</h2>
+          <div className="fp-cards">{similar.map((s) => <PropertyCardPublic key={s.id} p={s} navigate={navigate} />)}</div>
+        </section>
+      )}
+
+      <PublicFooter navigate={navigate} />
+      <div className="fp-mbar" style={{ height: 76 }} />
+
+      {/* Mobile sticky action bar */}
+      <div className="fp-mbar" style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 45, gap: 8, padding: "10px 12px calc(10px + env(safe-area-inset-bottom))", background: "rgba(255,255,255,0.97)", borderTop: `1px solid ${pc.border}`, boxShadow: "0 -8px 24px -16px rgba(14,20,37,.3)" }}>
+        <a href={`tel:${OFFICE.phone}`} className="fp-btn fp-btn-brand" style={{ flex: 1, height: 50, padding: 0 }}><Phone size={16} /> تماس</a>
+        <button type="button" onClick={() => setVisitOpen(true)} className="fp-btn fp-btn-soft" style={{ flex: 1.4, height: 50, padding: 0 }}><CalendarDays size={16} /> درخواست بازدید</button>
+      </div>
+
+      {visitOpen && (
+        <div onClick={() => setVisitOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 70, background: "rgba(14,20,37,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto", background: pc.surface, padding: 24, position: "relative" }}>
+            <button type="button" aria-label="بستن" onClick={() => setVisitOpen(false)} style={{ position: "absolute", top: 14, left: 14, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", background: pc.soft, borderRadius: 2 }}><X size={16} /></button>
+            <p style={{ fontSize: 18, fontWeight: 800 }}>درخواست بازدید</p>
+            <p style={{ fontSize: 13, color: pc.inkSoft, marginTop: 4, marginBottom: 18, lineHeight: 1.9 }}>{p.title}</p>
+            <VisitRequestForm p={p} compact />
           </div>
         </div>
       )}
 
-      <PublicFooter navigate={navigate} />
-
       {fullscreen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setFullscreen(false)}>
-          <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 16, left: 16, width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={16} color="#fff" /></button>
+          <button aria-label="بستن" onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 16, left: 16, width: 40, height: 40, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2 }}><X size={18} color="#fff" /></button>
           {images.length > 1 && (
             <>
-              <button onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i - 1 + images.length) % images.length); }} style={{ position: "absolute", right: 16, width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronRight size={18} color="#fff" /></button>
-              <button onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i + 1) % images.length); }} style={{ position: "absolute", left: 16, width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronLeft size={18} color="#fff" /></button>
+              <button aria-label="قبلی" onClick={(e) => { e.stopPropagation(); go(-1); }} style={{ position: "absolute", right: 16, width: 44, height: 44, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2 }}><ChevronRight size={20} color="#fff" /></button>
+              <button aria-label="بعدی" onClick={(e) => { e.stopPropagation(); go(1); }} style={{ position: "absolute", left: 16, width: 44, height: 44, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2 }}><ChevronLeft size={20} color="#fff" /></button>
             </>
           )}
-          <img src={images[activeImg]} alt="" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "94%", maxHeight: "88%", objectFit: "contain" }} />
+          <img src={images[activeImg]} alt={p.title} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "96%", maxHeight: "90%", objectFit: "contain" }} />
+          <span className="numeric" style={{ position: "absolute", bottom: 20, color: "#fff", fontSize: 13 }}>{faDigits(activeImg + 1)} / {faDigits(images.length)}</span>
         </div>
       )}
     </div>
@@ -736,14 +1021,14 @@ function PublicPropertyDetailView({ slug, navigate }) {
 }
 
 function PublicAboutView({ navigate }) {
-  useEffect(() => { setMeta("درباره ما — Flora", "Flora ابزار مدیریت فایل ملکی برای مشاوران املاک سرعین."); }, []);
+  useEffect(() => { setMeta(`درباره ما — ${OFFICE.name}`, `${OFFICE.name}، ${OFFICE.tagline} با مدیریت ${OFFICE.agent}.`, { path: "/about" }); }, []);
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: pc.bg, fontFamily: "'Vazirmatn', sans-serif", color: pc.ink }}>
       <PublicHeader navigate={navigate} onSearchClick={() => navigate("/properties")} />
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "60px 20px" }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 20 }}>درباره‌ی Flora</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 20 }}>درباره‌ی {OFFICE.name}</h1>
         <p style={{ fontSize: 14, color: pc.muted, lineHeight: 2.2 }}>
-          Flora ابزاری‌ست که مشاوران املاک با آن فایل‌های ملکی، مشتریان و قراردادهایشان را مدیریت می‌کنند. این صفحه، فایل‌هایی رو نشون می‌ده که خودِ مشاور تصمیم گرفته عمومی و قابل‌مشاهده باشن — مستقیم از همون دفتری که فایل رو ثبت کرده.
+          {OFFICE.name} با مدیریت {OFFICE.agent}، در زمینه‌ی خرید و فروش واحد آپارتمانی، ویلا، زمین و پروژه‌های پیش‌فروش در سرعین فعالیت می‌کند. همه‌ی فایل‌ها پیش از انتشار بازدید می‌شوند و تا پایان معامله کنار خریدار و فروشنده هستیم. آدرس دفتر: {OFFICE.address}.
         </p>
       </div>
       <PublicFooter navigate={navigate} />
@@ -752,14 +1037,22 @@ function PublicAboutView({ navigate }) {
 }
 
 function PublicContactView({ navigate }) {
-  useEffect(() => { setMeta("تماس با ما — Flora", "راه‌های ارتباط با Flora."); }, []);
+  useEffect(() => { setMeta(`تماس با ما — ${OFFICE.name}`, `تماس با ${OFFICE.name}: ${OFFICE.phoneFa} — ${OFFICE.address}`, { path: "/contact" }); }, []);
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: pc.bg, fontFamily: "'Vazirmatn', sans-serif", color: pc.ink }}>
       <PublicHeader navigate={navigate} onSearchClick={() => navigate("/properties")} />
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "60px 20px" }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 20 }}>تماس با ما</h1>
-        <p style={{ fontSize: 14, color: pc.muted, lineHeight: 2.2, marginBottom: 20 }}>برای هر فایل، اطلاعات تماس همون مشاوری که فایل رو منتشر کرده، پایین صفحه‌ی همون فایل هست.</p>
-        <p style={{ fontSize: 13, color: pc.ink }}>ایمیل: <span dir="ltr">support@flora-crm.app</span></p>
+        <div style={{ border: `1px solid ${pc.border}`, background: pc.surface, padding: 28 }}>
+          <p style={{ fontSize: 18, fontWeight: 800 }}>{OFFICE.name}</p>
+          <p style={{ fontSize: 14, color: pc.inkSoft, marginTop: 4 }}>{OFFICE.tagline}</p>
+          <p className="flex items-center" style={{ gap: 10, fontSize: 15, marginTop: 22 }}><User size={16} color={pc.brand} /> {OFFICE.agent}</p>
+          <p className="flex items-start" style={{ gap: 10, fontSize: 15, marginTop: 14, lineHeight: 2 }}><MapPin size={16} color={pc.brand} className="shrink-0" style={{ marginTop: 6 }} /> {OFFICE.address}</p>
+          <div className="flex flex-wrap" style={{ gap: 10, marginTop: 24 }}>
+            <a href={`tel:${OFFICE.phone}`} className="fp-btn fp-btn-brand"><Phone size={16} /> <span className="numeric">{OFFICE.phoneFa}</span></a>
+            <a href={`https://wa.me/${OFFICE.wa}`} target="_blank" rel="noreferrer" className="fp-btn fp-btn-line"><MessageCircle size={16} /> واتس‌اپ</a>
+          </div>
+        </div>
       </div>
       <PublicFooter navigate={navigate} />
     </div>

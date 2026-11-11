@@ -3,7 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-    <title>Flora CRM — نرم‌افزار مدیریت املاک | مشاوران سرعین</title>
+    <title>خرید واحد در سرعین | خرید آپارتمان و ویلا — Flora</title>
+    <!-- Non-render-blocking font load (was a blocking @import). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap" media="print" onload="this.media='all'" />
+    <link rel="preconnect" href="https://grbtuoaoygpbtjrmxbkp.supabase.co" crossorigin />
+    <script>
+      // Marks public-site routes (hides the CRM splash at once); CRM routes get
+      // the app title and noindex. Must match the routing in src/main.jsx.
+      (function () {
+        var p = location.pathname, q = location.search;
+        var isPublic = !(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) &&
+          (p === "/" ? !/[?&](share|legal|code|error)=/.test(q) && location.hash.indexOf("access_token") < 0
+                     : /^\/(properties|about|contact)(\/|$)/.test(p));
+        if (isPublic) { document.documentElement.classList.add("public-route"); return; }
+        // Agent CRM (/site, share links, …): app title, not indexed.
+        document.title = "Flora CRM — ورود مشاوران املاک";
+        document.addEventListener("DOMContentLoaded", function () {
+          var r = document.querySelector('meta[name="robots"]'); if (r) r.content = "noindex";
+        });
+      })();
+    </script>
 
     <!-- Makes it behave like an installed app when added to the iPhone home screen -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,7 +35,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <meta name="application-name" content="Flora CRM" />
-    <meta name="description" content="فلورا، نرم‌افزار مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب برای مشاوران املاک — با دستیار هوش مصنوعی، بکاپ ابری و ابزارهای اختصاصی بازار سرعین." />
+    <meta name="description" content="خرید واحد و آپارتمان در سرعین با Flora: فایل‌های به‌روز فروش آپارتمان، ویلا و پیش‌فروش با قیمت، عکس و موقعیت روی نقشه. مشاوره و بازدید: ۰۹۳۰۰۱۵۱۵۷۹" />
 
     <!-- Canonical host: www.florapro.ir is the one Vercel actually serves
          (florapro.ir redirects to it) — this just makes explicit what's
@@ -28,15 +49,15 @@
          the app) gets a real title/description/image instead of a blank
          card when pasted into WhatsApp, Telegram, or Twitter. -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Flora CRM" />
-    <meta property="og:title" content="Flora CRM — نرم‌افزار مدیریت املاک" />
-    <meta property="og:description" content="مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب دفتر املاک — با دستیار هوش مصنوعی." />
+    <meta property="og:site_name" content="Flora" />
+    <meta property="og:title" content="خرید واحد در سرعین | خرید آپارتمان و ویلا — Flora" />
+    <meta property="og:description" content="خرید واحد و آپارتمان در سرعین با Flora: فایل‌های به‌روز فروش آپارتمان، ویلا و پیش‌فروش با قیمت، عکس و موقعیت روی نقشه. مشاوره و بازدید: ۰۹۳۰۰۱۵۱۵۷۹" />
     <meta property="og:image" content="https://www.florapro.ir/icon-512.png" />
     <meta property="og:url" content="https://www.florapro.ir/" />
     <meta property="og:locale" content="fa_IR" />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Flora CRM — نرم‌افزار مدیریت املاک" />
-    <meta name="twitter:description" content="مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب دفتر املاک." />
+    <meta name="twitter:title" content="خرید واحد در سرعین | خرید آپارتمان و ویلا — Flora" />
+    <meta name="twitter:description" content="خرید واحد و آپارتمان در سرعین با Flora: فایل‌های به‌روز فروش آپارتمان، ویلا و پیش‌فروش با قیمت، عکس و موقعیت روی نقشه. مشاوره و بازدید: ۰۹۳۰۰۱۵۱۵۷۹" />
     <meta name="twitter:image" content="https://www.florapro.ir/icon-512.png" />
 
     <!-- Organization + WebSite structured data. Deliberately NOT a
@@ -47,23 +68,26 @@
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "Flora CRM",
-      "applicationCategory": "BusinessApplication",
-      "operatingSystem": "Web, iOS, Android",
+      "@type": "RealEstateAgent",
+      "@id": "https://www.florapro.ir/#agency",
+      "name": "Flora",
+      "description": "خرید واحد، آپارتمان و ویلا در سرعین — خرید و فروش املاک در سرعین",
       "url": "https://www.florapro.ir/",
-      "description": "نرم‌افزار مدیریت فایل‌های ملکی، مشتریان و حساب‌کتاب برای مشاوران املاک"
+      "telephone": "+989300151579",
+      "image": "https://www.florapro.ir/icon-512.png",
+      "address": { "@type": "PostalAddress", "streetAddress": "میدان دانش، جنب رستوران خاتای", "addressLocality": "سرعین", "addressRegion": "اردبیل", "addressCountry": "IR" },
+      "areaServed": { "@type": "City", "name": "سرعین" }
     }
     </script>
 
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@600;800&display=swap');
       @font-face {
         font-family: 'Dana';
         src: url('https://cdn.karlancer.com/assets/fonts/Dana-Pro/variable%20fonts/variable2%20webfont/DanaVF.woff2') format('woff2');
         font-weight: 100 900;
         font-display: swap;
       }
+      html.public-route #flora-splash { display: none !important; }
       #flora-splash {
         position: fixed; inset: 0; z-index: 9999;
         display: flex; flex-direction: column; align-items: center; justify-content: center;

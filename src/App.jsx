@@ -114,7 +114,7 @@ export default function FloraCRM() {
     window.scrollTo(0, 0);
   };
 
-  if (path === "/site") return <PublicHomeView navigate={navigate} />;
+  // "/site" is now the Agent CRM entry; the public home lives at "/" (PublicApp.jsx).
   if (path === "/properties") return <PublicPropertiesListView navigate={navigate} />;
   if (path.startsWith("/properties/")) return <PublicPropertyDetailView slug={decodeURIComponent(path.slice("/properties/".length))} navigate={navigate} />;
   if (path.startsWith("/share/")) return <PublicShareView token={path.slice("/share/".length)} />;

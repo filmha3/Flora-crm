@@ -16,8 +16,10 @@ import { supabase } from "./supabaseClient.js";
 import { uid } from "./format.js";
 
 export const BUCKET = "property-photos";
-const FULL_MAX_DIM = 1600, FULL_QUALITY = 0.78;
-const THUMB_MAX_DIM = 360, THUMB_QUALITY = 0.68;
+// Raised for the public site: full photos are shown edge-to-edge on desktop
+// and retina screens, where 1600px@0.78 looked soft.
+const FULL_MAX_DIM = 2560, FULL_QUALITY = 0.86;
+const THUMB_MAX_DIM = 720, THUMB_QUALITY = 0.8;
 
 let _webpOk = null;
 function supportsWebp() {
@@ -54,9 +56,11 @@ export function encodeCanvas(img, maxDim, quality) {
   const height = Math.max(1, Math.round(img.height * scale));
   const canvas = document.createElement("canvas");
   canvas.width = width; canvas.height = height;
-  canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, width, height);
   const mime = supportsWebp() ? "image/webp" : "image/jpeg";
-  const q = supportsWebp() ? quality : Math.min(0.85, quality + 0.1);
+  const q = supportsWebp() ? quality : Math.min(0.92, quality + 0.06);
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve({ blob, width, height, mime }), mime, q);
   });

@@ -2,7 +2,7 @@ import { uid } from "./format.js";
 
 // Phone photos are 3-8MB each. Storing them raw made IndexedDB huge and every save slow,
 // so images are downscaled to <=1280px and re-encoded as JPEG before they're ever saved.
-const MAX_IMAGE_DIM = 1280, IMAGE_QUALITY = 0.72;
+const MAX_IMAGE_DIM = 2048, IMAGE_QUALITY = 0.85;
 // iOS Safari accepts canvas.toDataURL("image/webp",...) without throwing, but silently
 // returns a PNG instead of encoding — so testing once here is the only reliable way to
 // know if WebP will actually work. When it won't, fall back to a tighter JPEG so photos
@@ -16,7 +16,7 @@ const supportsWebp = () => {
   } catch { _webpOk = false; }
   return _webpOk;
 };
-const FALLBACK_DIM = 1280, FALLBACK_QUALITY = 0.78; // used only when WebP isn't actually supported
+const FALLBACK_DIM = 2048, FALLBACK_QUALITY = 0.86; // used only when WebP isn't actually supported
 const compressImage = (file) => new Promise((resolve) => {
   const reader = new FileReader();
   reader.onload = () => {
