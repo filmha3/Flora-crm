@@ -72,7 +72,7 @@ async function publishProperty({ userId, property, agentName, agencyName, agentP
     price_per_meter: property.pricePerMeter || (property.price && property.area && property.deal !== "رهن و اجاره" ? Math.round(property.price / property.area) : null),
     amenities: [
       ...extractAmenities(property.desc),
-      ...(property.furnished === "با لوازم" ? ["فرنیش کامل"] : []),
+      ...(property.furnished === "با لوازم" ? ["فرنیش کامل"] : property.furnished === "با نصبیات" ? ["با نصبیات"] : []),
     ],
     cover_path: cover?.storagePath || null,
     cover_thumb_path: cover?.thumbnailPath || null,

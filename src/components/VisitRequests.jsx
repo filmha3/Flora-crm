@@ -2,7 +2,7 @@
 // (stored by the visit-request edge function in public.visit_requests, RLS:
 // each agent only sees rows for their own published properties).
 import React, { useEffect, useState, useCallback } from "react";
-import { CalendarCheck, Phone, MessageCircle, ChevronDown, Check, Clock, Home, RefreshCw } from "lucide-react";
+import { CalendarCheck, Phone, MessageCircle, ChevronDown, Check, Clock, Home, RefreshCw, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient.js";
 import { faDigits, fmtJalali } from "../lib/format.js";
 import { glass } from "../lib/theme.js";
@@ -12,7 +12,9 @@ const LAST_SEEN_KEY = "flora:visitRequests:lastSeen";
 async function fetchRequests() {
   const { data, error } = await supabase.from("visit_requests").select("*").order("created_at", { ascending: false }).limit(200);
   if (error) throw error;
-  return data || [];
+  // "dismissed" = cleared by the agent (fallback when the DB delete policy
+  // isn't installed yet) — never shown again.
+  return (data || []).filter((r) => r.status !== "dismissed");
 }
 const timeOf = (iso) => { try { return new Date(iso).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
 const waLink = (phone) => `https://wa.me/98${String(phone).replace(/^0/, "")}`;
@@ -71,6 +73,20 @@ export function VisitRequestsCard({ c, notify }) {
     const { error } = await supabase.from("visit_requests").update({ status }).eq("id", id);
     if (error) { notify?.("ذخیره نشد — دوباره امتحان کن"); load(); }
   };
+  // Clear a handled request from the list. Tries a real delete first; if the
+  // delete policy isn't installed yet (0 rows removed), falls back to marking
+  // it "dismissed" (allowed by the existing update policy) so it still disappears.
+  const removeItem = async (id) => {
+    const prev = items;
+    setItems((list) => list.filter((r) => r.id !== id));
+    try {
+      const { data, error } = await supabase.from("visit_requests").delete().eq("id", id).select("id");
+      if (error || !data?.length) {
+        const { error: upErr } = await supabase.from("visit_requests").update({ status: "dismissed" }).eq("id", id);
+        if (upErr) throw upErr;
+      }
+    } catch (e) { setItems(prev); notify?.("پاک نشد — دوباره امتحان کن"); }
+  };
   const newCount = (items || []).filter((r) => r.status === "new").length;
 
   return (
@@ -98,6 +114,20 @@ export function VisitRequestsCard({ c, notify }) {
           <div className="flex flex-col" style={{ gap: 10 }}>
             {(items || []).map((r) => {
               const isNew = r.status === "new";
+              // Handled requests collapse to a single compact line with a
+              // clear (×) button — only new ones keep the full card.
+              if (!isNew) return (
+                <div key={r.id} className="flex items-center" style={{ gap: 8, borderRadius: 12, padding: "7px 10px", border: `1px solid ${c.border}`, minHeight: 40 }}>
+                  <Check size={13} color={c.success} style={{ flexShrink: 0 }} />
+                  <p style={{ flex: 1, minWidth: 0, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <b style={{ fontWeight: 700 }}>{r.name || "بدون نام"}</b>
+                    <span dir="ltr" style={{ color: c.muted, margin: "0 6px" }}>{r.phone}</span>
+                    {r.property_title && <span style={{ color: c.muted }}>— {r.property_title}</span>}
+                  </p>
+                  <button onClick={() => setStatus(r.id, "new")} className="press shrink-0" style={{ fontSize: 10.5, fontWeight: 700, color: c.primary, padding: "4px 6px" }}>جدید</button>
+                  <button onClick={() => removeItem(r.id)} aria-label="پاک کردن" title="پاک کردن" className="press shrink-0 flex items-center justify-center" style={{ width: 28, height: 28, borderRadius: 999, background: c.surface2 || "rgba(127,127,127,0.12)" }}><X size={14} color={c.danger || "#E5484D"} /></button>
+                </div>
+              );
               return (
                 <div key={r.id} style={{ borderRadius: 14, padding: 12, background: isNew ? c.primarySoft : "transparent", border: `1px solid ${isNew ? c.primary + "55" : c.border}` }}>
                   <div className="flex items-center justify-between" style={{ gap: 8 }}>

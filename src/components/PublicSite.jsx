@@ -797,6 +797,15 @@ function PublicPropertyDetailView({ slug, navigate }) {
       if (error || !data) { setState("error"); return; }
       setP(data); setActiveImg(0);
       setState("ready");
+      // Site-view counter for the agent's «آمار هفته» — once per property per
+      // browser session, fire-and-forget (never blocks or breaks the page).
+      try {
+        const k = "flora:viewed:" + data.id;
+        if (!sessionStorage.getItem(k)) {
+          sessionStorage.setItem(k, "1");
+          supabase.rpc("log_property_view", { p_property_id: data.id }).then(() => {}, () => {});
+        }
+      } catch (e) { /* storage blocked — skip */ }
       const type = data.property_type || "ملک";
       const verb = dealVerb(data.deal);
       const path = `/properties/${encodeURIComponent(data.slug)}`;

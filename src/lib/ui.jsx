@@ -171,8 +171,24 @@ function MediaThumb({ item, alt = "", style, className, onLoad, kenBurns = false
 // one of several drifting photos on screen at once.
 function MediaFull({ item, alt = "", style, className, kenBurns = false }) {
   if (!item) return null;
+  if (item.storagePath && item.thumbnailPath) return <ProgressiveCloudImage thumb={item.thumbnailPath} full={item.storagePath} alt={alt} style={style} className={className} kenBurns={kenBurns} />;
   if (item.storagePath) return <CloudImage path={item.storagePath} alt={alt} style={style} className={className} eager kenBurns={kenBurns} />;
   return <img src={item.url} alt={alt} style={style} className={className} />;
+}
+
+// Agent-side lightbox: the small compressed thumbnail (usually already in
+// cache) shows instantly; the full-quality copy loads in the background and
+// swaps in only once it's ready — no waiting on a 2048px download to see the photo.
+function ProgressiveCloudImage({ thumb, full, alt, style, className, kenBurns }) {
+  const [fullSrc, setFullSrc] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    setFullSrc(null);
+    getImageObjectUrl(full).then((url) => { if (!cancelled) setFullSrc(url); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [full]);
+  if (fullSrc) return <img src={fullSrc} alt={alt} decoding="async" style={style} className={[className, "flora-img", "flora-img-loaded", kenBurns ? "flora-kenburns" : ""].filter(Boolean).join(" ")} />;
+  return <CloudImage path={thumb} alt={alt} style={style} className={className} eager kenBurns={kenBurns} />;
 }
 
 // A plain numeric field that grows a live "۱۰ میلیارد تومان"-style hint

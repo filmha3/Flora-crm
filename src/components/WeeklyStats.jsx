@@ -1,11 +1,10 @@
-import React from "react";
-import { BarChart3, X, PhoneCall, Users, Building2 } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { BarChart3, X, Eye, Inbox, Loader2 } from "lucide-react";
+import { supabase } from "../lib/supabaseClient.js";
 import { SP, RAD, FS, FW, glass, glassLite } from "../lib/theme.js";
 import { BodyPortal, FLORA_GOLD } from "../lib/ui.jsx";
 import { faDigits } from "../lib/format.js";
 
-const daysAgoISO = (d) => new Date(Date.now() - d * 86400000).toISOString();
-const todayISO = () => new Date().toISOString().slice(0, 10);
 
 // ---------- Home dashboard entry point ----------
 function WeeklyStatsTile({ ctx }) {
@@ -20,21 +19,6 @@ function WeeklyStatsTile({ ctx }) {
 
 // ---------- Small chart primitives, all real-data-driven ----------
 
-// A ring of dots, like a dosimeter — the first `pct`% of dots are lit.
-function DotRing({ pct, color, size = 96, dots = 40 }) {
-  const r = size / 2 - 6;
-  const cx = size / 2, cy = size / 2;
-  const lit = Math.round((pct / 100) * dots);
-  return (
-    <svg width={size} height={size}>
-      {Array.from({ length: dots }, (_, i) => {
-        const angle = (i / dots) * 2 * Math.PI - Math.PI / 2;
-        const x = cx + r * Math.cos(angle), y = cy + r * Math.sin(angle);
-        return <circle key={i} cx={x} cy={y} r={i < lit ? 2.4 : 1.6} fill={i < lit ? color : "rgba(120,120,130,0.28)"} />;
-      })}
-    </svg>
-  );
-}
 
 // A zigzag polyline through 7 daily values, with a dot on the last point —
 // same "trend at a glance" shape as the reference's HRV chart.
@@ -57,60 +41,70 @@ function TrendZigzag({ values, color, width = 130, height = 46 }) {
   );
 }
 
-// A vertical gauge — this week's level against last week's, marked with a tick.
-function VerticalGauge({ value, compare, color, height = 78, width = 28 }) {
-  const max = Math.max(1, value, compare) * 1.15;
-  const fillH = Math.max(3, (value / max) * height);
-  const markY = height - (compare / max) * height;
+
+// ---------- Main screen ----------
+// Only two numbers, both from the public site: «ورودی» (visit requests that
+// came in from the site) and «بازدید سایت» (views of the agent's published
+// property pages). Fetched once when the screen opens — nothing else runs.
+const dayKey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`; };
+function startOfDay(daysAgo) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - daysAgo); return d; }
+
+async function fetchCreatedAt(table, sinceIso) {
+  const { data, error } = await supabase.from(table).select("created_at").gte("created_at", sinceIso).order("created_at", { ascending: false }).limit(5000);
+  if (error) throw error;
+  return (data || []).map((r) => r.created_at);
+}
+
+function MetricCard({ c, title, icon: Icon, color, thisWeek, prevWeek, days, unavailable, note }) {
+  const pct = prevWeek > 0 ? Math.round(((thisWeek - prevWeek) / prevWeek) * 100) : (thisWeek > 0 ? 100 : 0);
   return (
-    <svg width={width} height={height + 4}>
-      <rect x={0} y={0} width={width} height={height} rx={8} fill="rgba(120,120,130,0.16)" />
-      <rect x={0} y={height - fillH} width={width} height={fillH} rx={8} fill={color} />
-      <rect x={-3} y={markY - 1} width={width + 6} height={2} fill="rgba(255,255,255,0.75)" />
-    </svg>
+    <div className="rounded-2xl" style={{ padding: SP.lg, ...glassLite(c, 20) }}>
+      <div className="flex items-center" style={{ gap: 8 }}>
+        <div className="flex items-center justify-center" style={{ width: 34, height: 34, borderRadius: 11, background: `${color}22` }}><Icon size={17} color={color} /></div>
+        <p style={{ fontSize: 13, fontWeight: FW.heavy, flex: 1 }}>{title}</p>
+      </div>
+      {unavailable ? (
+        <p style={{ fontSize: 11.5, color: c.muted, marginTop: 12, lineHeight: 1.9 }}>{note}</p>
+      ) : (
+        <div className="flex items-end justify-between" style={{ marginTop: 12 }}>
+          <div>
+            <span style={{ fontSize: 36, fontWeight: FW.heavy, color: c.ink, lineHeight: 1 }}>{faDigits(thisWeek)}</span>
+            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 6 }}>هفته‌ی قبل: {faDigits(prevWeek)}{thisWeek || prevWeek ? ` — ${pct >= 0 ? "▲" : "▼"} ${faDigits(Math.abs(pct))}٪` : ""}</p>
+          </div>
+          <TrendZigzag values={days} color={color} width={120} height={42} />
+        </div>
+      )}
+    </div>
   );
 }
 
-// ---------- Main screen ----------
 function WeeklyStatsHome({ ctx }) {
-  const { c, calls, appointments, deals, properties, setWeeklyStatsOpen } = ctx;
+  const { c, setWeeklyStatsOpen } = ctx;
+  const [stats, setStats] = useState(null);
 
-  const weekStart = daysAgoISO(new Date().getDay()).slice(0, 10);
-  const prevWeekStart = daysAgoISO(new Date().getDay() + 7).slice(0, 10);
+  useEffect(() => {
+    let cancelled = false;
+    // Iranian week starts Saturday: JS getDay() Sat=6 → 0 days back.
+    const sinceSat = (new Date().getDay() + 1) % 7;
+    const weekStart = startOfDay(sinceSat), prevStart = startOfDay(sinceSat + 7);
+    const since = startOfDay(Math.max(13, sinceSat + 7)).toISOString();
+    const summarize = (list) => {
+      const t = list.map((iso) => new Date(iso));
+      const days = Array.from({ length: 7 }, (_, i) => { const k = dayKey(startOfDay(6 - i)); return t.filter((d) => dayKey(d) === k).length; });
+      return { thisWeek: t.filter((d) => d >= weekStart).length, prevWeek: t.filter((d) => d >= prevStart && d < weekStart).length, days };
+    };
+    (async () => {
+      const [req, views] = await Promise.allSettled([fetchCreatedAt("visit_requests", since), fetchCreatedAt("property_views", since)]);
+      if (cancelled) return;
+      setStats({
+        requests: req.status === "fulfilled" ? summarize(req.value) : null,
+        views: views.status === "fulfilled" ? summarize(views.value) : null,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
-  const inThisWeek = (iso) => (iso || "") >= weekStart;
-  const inPrevWeek = (iso) => (iso || "") >= prevWeekStart && (iso || "") < weekStart;
-
-  const callsThisWeek = calls.filter((cl) => inThisWeek(cl.date));
-  const visitsThisWeek = appointments.filter((a) => inThisWeek(a.date));
-  const visitsPrevWeek = appointments.filter((a) => inPrevWeek(a.date));
-  const filesThisWeek = properties.filter((p) => inThisWeek((p.createdAt || "").slice(0, 10)));
-  const dealsThisWeek = deals.filter((d) => inThisWeek((d.createdAt || "").slice(0, 10)));
-
-  // Same "daily activity" shape used elsewhere on the home screen (calls +
-  // visits + new files per day) — reused here for the trend card instead of
-  // a second, different definition of "activity."
-  const countFor = (iso) =>
-    appointments.filter((a) => a.date === iso).length +
-    calls.filter((cl) => cl.date === iso).length +
-    properties.filter((p) => p.createdAt && p.createdAt.slice(0, 10) === iso).length;
-  const dayCounts = Array.from({ length: 7 }, (_, i) => countFor(daysAgoISO(6 - i).slice(0, 10)));
-  const thisWeekTotal = dayCounts.reduce((a, b) => a + b, 0);
-  const prevWeekTotal = Array.from({ length: 7 }, (_, i) => daysAgoISO(13 - i).slice(0, 10)).reduce((sum, iso) => sum + countFor(iso), 0);
-  const pct = prevWeekTotal > 0 ? Math.round(((thisWeekTotal - prevWeekTotal) / prevWeekTotal) * 100) : (thisWeekTotal > 0 ? 100 : 0);
-  const trendLabel = thisWeekTotal === 0 ? "بدون فعالیت" : pct >= 15 ? "عالی" : pct >= 0 ? "خوب" : "رو به کاهش";
-  const trendColor = thisWeekTotal === 0 ? c.muted : pct >= 0 ? c.success : c.attn;
-
-  const callsDone = callsThisWeek.filter((cl) => cl.status === "انجام‌شد").length;
-  const answerRate = callsThisWeek.length ? Math.round((callsDone / callsThisWeek.length) * 100) : 0;
-
-  const mix = [
-    { label: "تماس", value: callsThisWeek.length, color: FLORA_GOLD },
-    { label: "بازدید", value: visitsThisWeek.length, color: c.primary },
-    { label: "فایل جدید", value: filesThisWeek.length, color: c.success },
-  ];
-  const mixTotal = Math.max(1, mix.reduce((s, m) => s + m.value, 0));
-
+  const empty = { thisWeek: 0, prevWeek: 0, days: [0, 0, 0, 0, 0, 0, 0] };
   return (
     <BodyPortal>
       <div className="fixed inset-0 z-[95] overflow-y-auto" style={{ background: c.bg }}>
@@ -118,85 +112,18 @@ function WeeklyStatsHome({ ctx }) {
           <button onClick={() => setWeeklyStatsOpen(false)} className="press w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
           <div className="flex-1">
             <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>آمار هفته</p>
-            <p style={{ fontSize: 11, color: c.muted }}>از شنبه تا امروز — {faDigits(todayISO().slice(8, 10))}</p>
+            <p style={{ fontSize: 11, color: c.muted }}>از شنبه تا امروز — سایت عمومی</p>
           </div>
         </div>
-
         <div className="px-4 pb-10 flex flex-col" style={{ gap: SP.md }}>
-          {/* Hero — total activity, big number, tiny sparkline. Flora's own
-              brand gradient, not a generic dashboard orange. */}
-          <div className="rounded-2xl relative overflow-hidden" style={{ padding: SP.xl, background: c.gradientPrimary }}>
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", fontWeight: 700 }}>فعالیت این هفته</p>
-            <div className="flex items-end justify-between" style={{ marginTop: 6 }}>
-              <div className="flex items-baseline" style={{ gap: 6 }}>
-                <span style={{ fontSize: 44, fontWeight: FW.heavy, color: "#fff", lineHeight: 1 }}>{faDigits(thisWeekTotal)}</span>
-                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontWeight: 700 }}>مورد</span>
-              </div>
-              <TrendZigzag values={dayCounts} color="#fff" width={110} height={40} />
-            </div>
-            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", marginTop: 8, lineHeight: 1.8 }}>
-              تماس + بازدید + فایل جدید، نسبت به هفته‌ی قبل {pct >= 0 ? `${faDigits(Math.abs(pct))}٪ بیشتر` : `${faDigits(Math.abs(pct))}٪ کمتر`}
-            </p>
-          </div>
-
-          {/* 2x2 grid */}
-          <div className="grid grid-cols-2" style={{ gap: SP.md }}>
-            <div className="rounded-2xl flex flex-col items-center justify-center" style={{ padding: SP.lg, ...glassLite(c, 20) }}>
-              <p style={{ fontSize: 11, color: c.muted, fontWeight: 700, alignSelf: "flex-start" }}>نرخ پاسخ‌گویی تماس</p>
-              <div className="relative flex items-center justify-center" style={{ marginTop: 6 }}>
-                <DotRing pct={answerRate} color={FLORA_GOLD} size={92} />
-                <div className="absolute flex flex-col items-center">
-                  <span style={{ fontSize: 22, fontWeight: FW.heavy, color: c.ink }}>{faDigits(answerRate)}٪</span>
-                  <span style={{ fontSize: 9, color: c.muted }}>{faDigits(callsDone)} از {faDigits(callsThisWeek.length)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl" style={{ padding: SP.lg, ...glassLite(c, 20) }}>
-              <p style={{ fontSize: 11, color: c.muted, fontWeight: 700 }}>بازدیدهای این هفته</p>
-              <div className="flex items-end justify-between" style={{ marginTop: 10 }}>
-                <div>
-                  <span style={{ fontSize: 26, fontWeight: FW.heavy, color: c.ink }}>{faDigits(visitsThisWeek.length)}</span>
-                  <p style={{ fontSize: 10, color: c.muted, marginTop: 2 }}>هفته‌ی قبل: {faDigits(visitsPrevWeek.length)}</p>
-                </div>
-                <VerticalGauge value={visitsThisWeek.length} compare={visitsPrevWeek.length} color={c.primary} />
-              </div>
-            </div>
-
-            <div className="rounded-2xl" style={{ padding: SP.lg, ...glassLite(c, 20) }}>
-              <p style={{ fontSize: 11, color: c.muted, fontWeight: 700 }}>روند فعالیت روزانه</p>
-              <div style={{ marginTop: 8 }}><TrendZigzag values={dayCounts} color={trendColor} width={132} height={44} /></div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: trendColor, marginTop: 4 }}>{trendLabel}</p>
-            </div>
-
-            <div className="rounded-2xl" style={{ padding: SP.lg, ...glassLite(c, 20) }}>
-              <p style={{ fontSize: 11, color: c.muted, fontWeight: 700 }}>ترکیب فعالیت</p>
-              <div className="flex w-full rounded-full overflow-hidden" style={{ height: 10, marginTop: 12 }}>
-                {mix.map((m, i) => <div key={i} style={{ width: `${(m.value / mixTotal) * 100}%`, background: m.color }} />)}
-              </div>
-              <div className="flex flex-col" style={{ gap: 4, marginTop: 10 }}>
-                {mix.map((m, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <span className="flex items-center" style={{ gap: 5, fontSize: 10, color: c.muted }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color }} />{m.label}</span>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: c.ink }}>{faDigits(m.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Deals — a small footer line, not another big card; closing a
-              deal is rarer than a call/visit and doesn't need equal visual weight. */}
-          <div className="flex items-center rounded-xl" style={{ gap: SP.sm, padding: SP.md, ...glassLite(c, RAD.md) }}>
-            <Building2 size={14} color={c.success} />
-            <span style={{ fontSize: 12, color: c.ink }}>{faDigits(dealsThisWeek.length)} قرارداد این هفته</span>
-            <span style={{ flex: 1 }} />
-            <Users size={14} color={c.primary} />
-            <span style={{ fontSize: 12, color: c.ink }}>{faDigits(filesThisWeek.length)} فایل جدید</span>
-            <span style={{ flex: 1 }} />
-            <PhoneCall size={14} color={FLORA_GOLD} />
-            <span style={{ fontSize: 12, color: c.ink }}>{faDigits(callsThisWeek.length)} تماس</span>
-          </div>
+          {!stats ? (
+            <div className="flex items-center justify-center" style={{ padding: 40, gap: 8, color: c.muted, fontSize: 12 }}><Loader2 size={16} className="animate-spin" /> در حال بارگذاری…</div>
+          ) : (
+            <>
+              <MetricCard c={c} title="ورودی (درخواست بازدید از سایت)" icon={Inbox} color={FLORA_GOLD} {...(stats.requests || empty)} unavailable={!stats.requests} note="آمار ورودی در دسترس نیست — اتصال اینترنت را بررسی کن." />
+              <MetricCard c={c} title="بازدید از سایت" icon={Eye} color={c.primary} {...(stats.views || empty)} unavailable={!stats.views} note="شمارش بازدید سایت هنوز فعال نشده (فایل SQL «property_views» را یک بار در Supabase اجرا کن)." />
+            </>
+          )}
         </div>
       </div>
     </BodyPortal>

@@ -42,7 +42,7 @@ export function toCustomerView(property, opts = {}) {
     bedrooms: property.rooms ?? null,
     floor: property.floor ?? null,
     features: [
-      property.furnished === "با لوازم" ? "با لوازم" : null,
+      property.furnished === "با لوازم" || property.furnished === "با نصبیات" ? property.furnished : null,
       property.type || null,
     ].filter(Boolean),
     description: property.desc || "",

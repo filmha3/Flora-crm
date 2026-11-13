@@ -26,20 +26,37 @@ import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputSt
 import { uploadPropertyImageBatch, migrateLegacyMediaItem, deletePropertyPhotoPaths, deletePropertyFolder } from "./lib/imageStore.js";
 import { AuthPhoneField, PasswordBoxes, AuthScreen, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
-import { LegalTile, LegalHome } from "./components/Legal.jsx";
 import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
 import { VisitRequestsCard, VisitRequestWatcher } from "./components/VisitRequests.jsx";
-import { PropertyShareModal, PublicShareView } from "./components/PropertyShare.jsx";
-import { PrivacyPolicyView, TermsOfServiceView } from "./components/LegalPages.jsx";
-import { PublicHomeView, PublicPropertiesListView, PublicPropertyDetailView, PublicAboutView, PublicContactView } from "./components/PublicSite.jsx";
 import { publishProperty, unpublishProperty, isPropertyPublished } from "./lib/publicPropertiesApi.js";
 import { DEFAULT_MATERIAL_COEFFICIENTS } from "./lib/materialEstimate.js";
-import { NotificationsView } from "./components/Notifications.jsx";
 import { SIZE_CATEGORIES, sizeCategoryOf, getPriceForDisplay } from "./lib/customerMode.js";
 import { SAREIN_CENTER, DARK_TILE_URL, LIGHT_TILE_URL, DARK_TILE_FILTER, loadLeaflet, reverseGeocodeAddress } from "./lib/geo.js";
-import { FloraValuationSheet } from "./components/Valuation.jsx";
-import { ConstructionHome } from "./components/Construction.jsx";
-import { ChecksHome } from "./components/Checks.jsx";
+
+// Speed: screens the agent opens only occasionally are split into their own
+// small files and downloaded on first open, instead of all being part of
+// the CRM's startup download. Each one carries its own Suspense boundary
+// (fallback: nothing) so opening one never blanks the rest of the app.
+function lazyNamed(loader, name) {
+  const Lazy = React.lazy(() => loader().then((m) => ({ default: m[name] })));
+  const Wrapped = (props) => <React.Suspense fallback={null}><Lazy {...props} /></React.Suspense>;
+  Wrapped.displayName = `Lazy(${name})`;
+  return Wrapped;
+}
+const loadShare = () => import("./components/PropertyShare.jsx");
+const PropertyShareModal = lazyNamed(loadShare, "PropertyShareModal");
+const PublicShareView = lazyNamed(loadShare, "PublicShareView");
+const loadLegalPages = () => import("./components/LegalPages.jsx");
+const PrivacyPolicyView = lazyNamed(loadLegalPages, "PrivacyPolicyView");
+const TermsOfServiceView = lazyNamed(loadLegalPages, "TermsOfServiceView");
+const loadPublicSite = () => import("./components/PublicSite.jsx");
+const PublicPropertiesListView = lazyNamed(loadPublicSite, "PublicPropertiesListView");
+const PublicPropertyDetailView = lazyNamed(loadPublicSite, "PublicPropertyDetailView");
+const PublicAboutView = lazyNamed(loadPublicSite, "PublicAboutView");
+const PublicContactView = lazyNamed(loadPublicSite, "PublicContactView");
+const NotificationsView = lazyNamed(() => import("./components/Notifications.jsx"), "NotificationsView");
+const ConstructionHome = lazyNamed(() => import("./components/Construction.jsx"), "ConstructionHome");
+const ChecksHome = lazyNamed(() => import("./components/Checks.jsx"), "ChecksHome");
 
 // ---------- Local persistence (IndexedDB) — keeps data on this device between visits ----------
 
@@ -91,6 +108,10 @@ const seedOfficeIncomes = [
 // Auto-inserts the dashes as you type: 0912-000-0000. Internally the app
 // only ever works with the raw digits / E.164 form — the dashes are purely
 // a display convenience.
+
+// Old «اسناد و مدارک» attachments (feature removed) were stored as base64
+// inside each investment and re-uploaded with every sync — dropped on load.
+const stripInvDocs = (list) => (list || []).map(({ documents, ...x }) => x);
 
 export default function FloraCRM() {
   // The public site (/, /properties, /properties/:slug, /share/:token,
@@ -229,7 +250,6 @@ export default function FloraCRM() {
       if (data.type === "property" && data.id) setDetail({ type: "property", id: data.id });
       else if (data.type === "customer" && data.id) setDetail({ type: "customer", id: data.id });
       else if (data.type === "finance") setTab("finance");
-      else if (data.type === "legal") setLegalOpen(true);
       else setTab("home");
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
@@ -302,7 +322,6 @@ export default function FloraCRM() {
   // simple and avoids a storage-growth concern nobody asked to take on.
   const [constructionProjects, setConstructionProjects] = useState([]);
   const [constructionTransactions, setConstructionTransactions] = useState([]);
-  const [legalConversations, setLegalConversations] = useState([]);
   const [materialCoefficients, setMaterialCoefficients] = useState(DEFAULT_MATERIAL_COEFFICIENTS);
   const [materialEstimates, setMaterialEstimates] = useState([]);
   const [constructionCostEstimates, setConstructionCostEstimates] = useState([]);
@@ -310,10 +329,7 @@ export default function FloraCRM() {
   const [tours, setTours] = useState([]); // Showing / Tour Mode
   const [tourBuilder, setTourBuilder] = useState(null); // { step, customerId, customerName, customerPhone, propertyIds, items }
   const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
-  const [divarSearchOpen, setDivarSearchOpen] = useState(false);
-  const [legalOpen, setLegalOpen] = useState(false);
   const [weeklyStatsOpen, setWeeklyStatsOpen] = useState(false);
-  const [quickValuationOpen, setQuickValuationOpen] = useState(false);
   const [constructionOpen, setConstructionOpen] = useState(false);
   const [checksOpen, setChecksOpen] = useState(false);
   // One-shot hand-off from Quick Valuation to the real property form, so
@@ -400,13 +416,12 @@ export default function FloraCRM() {
     setPayments(d?.payments || []);
     setExpenses(d?.expenses || []);
     setOfficeIncomes(d?.officeIncomes || []);
-    setInvestments(d?.investments || []);
+    setInvestments(stripInvDocs(d?.investments));
     setChecks(d?.checks || []);
     setStreetPrices(d?.streetPrices || []);
     setConstructionProjects(d?.constructionProjects || []);
     setConstructionTransactions(d?.constructionTransactions || []);
     setTours(d?.tours || []);
-    setLegalConversations(d?.legalConversations || []);
     if (d?.materialCoefficients !== undefined) setMaterialCoefficients(d.materialCoefficients);
     if (d?.materialEstimates !== undefined) setMaterialEstimates(d.materialEstimates);
     if (d?.constructionCostEstimates !== undefined) setConstructionCostEstimates(d.constructionCostEstimates);
@@ -502,7 +517,7 @@ export default function FloraCRM() {
     const t = setTimeout(() => {
       const now = Date.now();
       const core = {
-        properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates, constructionCostEstimates,
+        properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, materialCoefficients, materialEstimates, constructionCostEstimates,
         // Profile + AI settings — folded into the same cloud-synced blob as
         // everything else (previously a separate, local-only key) so
         // setting your name or AI key on one device actually shows up on
@@ -516,7 +531,7 @@ export default function FloraCRM() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, legalConversations, materialCoefficients, materialEstimates, constructionCostEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText, agentPhone]);
+  }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, materialCoefficients, materialEstimates, constructionCostEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText, agentPhone]);
 
   // Live cross-device convergence: if a second signed-in device (or this
   // same account on the web) pushes a newer flora_data row while this tab
@@ -942,7 +957,7 @@ export default function FloraCRM() {
     if (data.payments) setPayments(data.payments);
     if (data.expenses) setExpenses(data.expenses);
     if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
-    if (data.investments) setInvestments(data.investments);
+    if (data.investments) setInvestments(stripInvDocs(data.investments));
         if (data.checks) setChecks(data.checks);
         if (data.streetPrices) setStreetPrices(data.streetPrices);
         if (data.constructionProjects) setConstructionProjects(data.constructionProjects);
@@ -979,7 +994,7 @@ export default function FloraCRM() {
         if (data.payments) setPayments(data.payments);
         if (data.expenses) setExpenses(data.expenses);
         if (data.officeIncomes) setOfficeIncomes(data.officeIncomes);
-        if (data.investments) setInvestments(data.investments);
+        if (data.investments) setInvestments(stripInvDocs(data.investments));
         if (data.checks) setChecks(data.checks);
         if (data.streetPrices) setStreetPrices(data.streetPrices);
         if (data.constructionProjects) setConstructionProjects(data.constructionProjects);
@@ -1001,9 +1016,9 @@ export default function FloraCRM() {
     c, dark, session, signOut: () => supabase.auth.signOut(), isOnline,
     properties, setProperties, owners, setOwners, builders, setBuilders,
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
-    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, legalConversations, setLegalConversations, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates, constructionCostEstimates, setConstructionCostEstimates, splitShares, setSplitShares, simpleMode, setSimpleMode, largeText, setLargeText,
+    deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates, constructionCostEstimates, setConstructionCostEstimates, splitShares, setSplitShares, simpleMode, setSimpleMode, largeText, setLargeText,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    divarSearchOpen, setDivarSearchOpen, legalOpen, setLegalOpen, weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, quickValuationOpen, setQuickValuationOpen, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
+    weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agentPhone, setAgentPhone, publishUnlocked, setPublishUnlocked, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -1254,11 +1269,8 @@ export default function FloraCRM() {
             turns any position:fixed descendant into "fixed relative to the
             rail" instead of the viewport — the sheet would render squeezed
             into the rail's own box instead of covering the screen. */}
-        {divarSearchOpen && <DivarSearchSheet ctx={ctx} onClose={() => setDivarSearchOpen(false)} />}
-        {legalOpen && <LegalHome ctx={ctx} />}
         {weeklyStatsOpen && <WeeklyStatsHome ctx={ctx} />}
         <VisitRequestWatcher userId={session?.user?.id} notify={notify} />
-        {quickValuationOpen && <FloraValuationSheet ctx={ctx} onClose={() => setQuickValuationOpen(false)} />}
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
         {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
@@ -1933,382 +1945,6 @@ function SalesCoachTile({ ctx }) {
   );
 }
 
-// Standalone entry — no property attached, so the source photos never go
-// through the app's own compression pipeline and results are just downloaded,
-// not stored in the app's own (size-limited) data store.
-// The document catalogue from the spec — nine categories an Iranian estate
-// agent actually needs. The app supplies structure, auto-fill and printing;
-// the wording of each contract is AI-drafted and then edited by the agent,
-// because shipping ~55 pre-written legal texts would be irresponsible.
-const DOC_CATEGORIES = [
-  { id: "sale", label: "خرید و فروش", icon: FileText, tone: "primary", docs: ["مبایعه‌نامه", "قولنامه", "قرارداد پیش‌فروش", "قرارداد خرید آپارتمان", "قرارداد خرید زمین", "قرارداد خرید ویلا", "قرارداد خرید مغازه", "قرارداد خرید دفتر اداری"] },
-  { id: "rent", label: "اجاره", icon: Home, tone: "success", docs: ["قرارداد اجاره مسکونی", "قرارداد اجاره تجاری", "قرارداد اجاره اداری", "تمدید اجاره", "فسخ اجاره", "تخلیه"] },
-  { id: "build", label: "مشارکت در ساخت", icon: Building2, tone: "purple", docs: ["قرارداد مشارکت در ساخت", "الحاقیه", "تقسیم واحدها", "توافق‌نامه تغییرات", "صورت‌جلسه تحویل"] },
-  { id: "contractor", label: "پیمانکاری", icon: Hammer, tone: "attn", docs: ["قرارداد پیمانکاری", "قرارداد بازسازی", "قرارداد دکوراسیون", "قرارداد برق", "قرارداد لوله‌کشی", "قرارداد کابینت", "قرارداد نما", "قرارداد نظارت"] },
-  { id: "invest", label: "سرمایه‌گذاری و شراکت", icon: TrendingUp, tone: "purple", docs: ["قرارداد شراکت", "قرارداد سرمایه‌گذاری", "تقسیم سود", "تسویه شرکا", "مشارکت مالی"] },
-  { id: "agency", label: "خدمات مشاور املاک", icon: Landmark, tone: "primary", docs: ["قرارداد حق‌الزحمه", "قرارداد انحصاری فروش", "قرارداد انحصاری اجاره", "قرارداد معرفی خریدار", "قرارداد معرفی مستأجر", "قرارداد بازاریابی ملک"] },
-  { id: "admin", label: "فرم‌های اداری", icon: FileCheck, tone: "muted", docs: ["رسید دریافت وجه", "رسید دریافت چک", "رسید بیعانه", "تعهدنامه", "رضایت‌نامه", "اقرارنامه", "وکالت‌نامه عادی", "صورت‌جلسه", "استشهادیه"] },
-  { id: "visit", label: "فرم‌های بازدید", icon: Eye, tone: "success", docs: ["فرم بازدید ملک", "تحویل کلید", "تحویل ملک", "تحویل پارکینگ", "تحویل انباری"] },
-  { id: "pay", label: "پرداخت", icon: Wallet, tone: "attn", docs: ["برنامه اقساط", "تسویه حساب", "صورت‌حساب", "رسید پرداخت", "رسید چک"] },
-];
-
-// Entry tile. Same compact dock treatment as the rest of the rail — the
-// stacked-paper fan animation this used to have doesn't read at 54px, so
-// craft here means one clean icon, consistent with its neighbors, not a
-// shrunk-down version of a bigger card's decoration.
-function DocumentsTile({ ctx }) {
-  const { c, setDetail } = ctx;
-  return (
-    <button onClick={() => setDetail({ type: "documents" })} className="press flex flex-col items-center" style={{ gap: 7, flex: 1 }}>
-      <div className="flex items-center justify-center" style={{ width: 54, height: 54, borderRadius: 18, background: c.primarySoft }}><FileText size={22} color={c.primary} /></div>
-      <p style={{ fontSize: 11, fontWeight: FW.medium, color: c.muted, textAlign: "center" }}>اسناد و قراردادها</p>
-    </button>
-  );
-}
-
-// Entry tile for a real Perplexity-powered chat — search-grounded, so it can
-// genuinely look things up on the web (including Divar listings), not just
-// answer from training data like the app's other AI features.
-function DivarSearchTile({ ctx }) {
-  const { c, setDivarSearchOpen } = ctx;
-  return (
-    <button onClick={() => setDivarSearchOpen(true)} className="press text-right flora-tile shrink-0" style={{ width: 148, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-      <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: RAD.md, background: c.primarySoft, marginBottom: SP.md }}><Search size={20} color={c.primary} /></div>
-      <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>جستجوی دیوار</p>
-      <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2, lineHeight: 1.6 }}>تحلیل آگهی‌ها با AI</p>
-    </button>
-  );
-}
-
-// Defined at the top level on purpose: an input row like this must NOT be
-// declared inside DivarSearchSheet's own function body. If it were, every
-// keystroke (which changes `input` state and re-renders the parent) would
-// redefine this as a "new" component type, so React would unmount and
-// remount the real <input> DOM node on every character — which is exactly
-// what drops keyboard focus after a single letter.
-function DivarSearchInputRow({ c, input, setInput, send, loading, style }) {
-  // RTL fields can silently inject invisible bidi-control characters around
-  // pasted LTR text (like a URL) — harmless to look at, but it breaks a plain
-  // string match like /divar\.ir\/v\// against the value. Switching to ltr for
-  // link-looking input avoids the browser inserting them in the first place;
-  // stripping known bidi marks on top of that covers whatever's already there.
-  const looksLikeLink = /^https?:\/\//i.test(input.trim()) || /divar\.ir/i.test(input);
-  return (
-    <div className="flex items-center" style={{ gap: SP.sm, width: "100%", ...style }}>
-      <input value={input} dir={looksLikeLink ? "ltr" : "rtl"} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="هرچی می‌خوای بپرس..." style={{ ...inputStyle(c), flex: 1 }} />
-      <button onClick={send} disabled={loading || !input.trim()} className="press flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: "50%", background: c.primary }}><Send size={17} color="#fff" /></button>
-    </div>
-  );
-}
-
-function DivarSearchSheet({ ctx, onClose }) {
-  const { c, perplexityKey, agencyCity, notify, setSheet, canStage, avalaiKey, avalaiModel } = ctx;
-  const [messages, setMessages] = useState([]);
-  const [loadedHistory, setLoadedHistory] = useState(false);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [adShots, setAdShots] = useState([]); // up to 3 screenshots for ad diagnosis
-  const [linkForDiagnosis, setLinkForDiagnosis] = useState("");
-  const [viewCountInput, setViewCountInput] = useState("");
-  const scrollRef = useRef(null);
-  const shotRef = useRef(null);
-  const DIVAR_URL_RE = /https?:\/\/(www\.)?divar\.ir\/v\/\S+/g;
-
-  // Chat survives closing the sheet — cleared only by the trash button.
-  useEffect(() => {
-    (async () => {
-      try { const saved = await dbGet(DIVAR_CHAT_KEY); if (saved?.messages) setMessages(saved.messages); } catch (e) {}
-      setLoadedHistory(true);
-    })();
-  }, []);
-  useEffect(() => { if (loadedHistory) dbSet(DIVAR_CHAT_KEY, { messages }).catch(() => {}); }, [loadedHistory, messages]);
-
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, loading]);
-
-  const clearChat = () => {
-    if (messages.length === 0) return;
-    setMessages([]);
-    dbSet(DIVAR_CHAT_KEY, { messages: [] }).catch(() => {});
-    notify("گفتگو پاک شد");
-  };
-
-  const addLinkToFiles = (url) => {
-    onClose();
-    setSheet({ kind: "property", prefillDivarLink: url });
-  };
-
-  const addShots = async (fileList) => {
-    const room = 3 - adShots.length;
-    if (room <= 0) { notify("حداکثر ۳ عکس"); return; }
-    const files = Array.from(fileList).slice(0, room);
-    const items = await Promise.all(files.map(async (f) => ({ id: uid(), url: await compressImage(f) })));
-    setAdShots((prev) => [...prev, ...items]);
-  };
-
-  // Ad diagnosis runs on AvalAI's vision model, not Perplexity: Perplexity's
-  // sonar models are search-grounded and don't accept image input, so sending
-  // screenshots there would silently do nothing useful.
-  const diagnoseAd = async () => {
-    if (adShots.length === 0) return;
-    if (!canStage) { notify("این قابلیت به کلید AvalAI نیاز دارد — در تنظیمات هوش مصنوعی واردش کن"); return; }
-    setMessages((prev) => [...prev, { role: "user", text: `تحلیل آگهی از روی ${faDigits(adShots.length)} عکس`, shots: adShots.map((s) => s.url) }]);
-    const shots = adShots;
-    setAdShots([]);
-    setLoading(true);
-    try {
-      const content = [
-        { type: "text", text: `این تصاویر اسکرین‌شات یک آگهی ملکی در دیوار است (عنوان و قیمت، متن آگهی، و آمار بازدید/تماس). به‌عنوان یک متخصص فروش املاک تحلیل کن که چرا این آگهی با وجود بازدید، تماس کمی گرفته.
-
-این آگهی را دقیقاً با این معیارها بسنج:
-- قانون اوگیلوی: آیا کلمات توخالی («سوپرلوکس»، «سلطنتی»، «بی‌نظیر») دارد؟ هر ادعای بدون عدد یا جنس مشخص را نام ببر و جایگزین واقعی پیشنهاد بده.
-- سه ترس خریدار ایرانی: آیا به واقعی‌بودن عکس‌ها، وضعیت سند، و شفافیت شرایط پرداخت اشاره شده؟ هرکدام که غایب است را بگو.
-- قانون ۳ ثانیه: آیا با بولت و شکست خط در ۳ ثانیه اسکن می‌شود یا پاراگراف طولانی و خسته‌کننده است؟
-- دعوت به اقدام: آیا دلیل مشخصی برای تماس داده (ویدیو، بررسی سند، بازدید) یا فقط شماره گذاشته؟
-
-سپس دقیقاً به این موارد بپرداز:
-۱. عنوان: آیا لوکیشن + مشخصه‌ی یکتا + قلاب مالی را دارد؟ عنوان بهتر را دقیقاً بنویس.
-۲. قیمت: نسبت به بازار چطور به‌نظر می‌رسد؟
-۳. متن آگهی: چه چیزی کم دارد، چه چیزی زیادی است، لحنش چطور است؟
-۴. آمار: نسبت بازدید به تماس چه می‌گوید؟
-۵. سه اقدام مشخص و فوری که همین امروز باید انجام دهد.
-کوتاه، صریح و به فارسی جواب بده — بدون تعارف.` },
-        ...shots.map((s) => ({ type: "image_url", image_url: { url: s.url } })),
-      ];
-      const res = await fetch("https://api.avalai.ir/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
-        body: JSON.stringify({ model: avalaiModel && avalaiModel.startsWith("gpt-4o") ? avalaiModel : "gpt-4o", messages: [{ role: "user", content }] }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error?.message || `خطا (کد ${res.status})`);
-      const text = data?.choices?.[0]?.message?.content || "پاسخی دریافت نشد";
-      setMessages((prev) => [...prev, { role: "assistant", text }]);
-    } catch (e) {
-      setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}`, error: true }]);
-    }
-    setLoading(false);
-  };
-
-  // Same diagnostic questions as the screenshot version, but sourced from
-  // real extracted data (via the already-hardened import-divar pipeline)
-  // instead of asking the agent to screenshot three separate things. Real
-  // photos get attached too when available, so the AI can still critique
-  // them visually — this ends up more reliable than screenshots, not less,
-  // since the text fields are exact extracted values, not an OCR guess off
-  // a photo of a phone screen.
-  const diagnoseAdFromLink = async () => {
-    const url = linkForDiagnosis.trim();
-    if (!/^https?:\/\/(www\.)?divar\.ir\/v\//i.test(url)) { notify("لینک آگهی دیوار معتبر نیست"); return; }
-    if (!canStage) { notify("این قابلیت به کلید AvalAI نیاز دارد — در تنظیمات هوش مصنوعی واردش کن"); return; }
-    const views = viewCountInput.trim();
-    setMessages((prev) => [...prev, { role: "user", text: `تحلیل آگهی از روی لینک${views ? ` (بازدید: ${faDigits(views)})` : ""}` }]);
-    setLinkForDiagnosis(""); setViewCountInput("");
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("import-divar", { body: { url } });
-      if (error || !data?.ok) {
-        const code = data?.code;
-        const msg = code === "LINK_INVALID" ? "این لینک، لینک معتبر آگهی دیوار نیست."
-          : code === "PAGE_NOT_ACCESSIBLE" ? "این آگهی الان در دسترس نیست — ممکنه حذف شده باشه."
-          : code === "EXTRACTION_FAILED" ? "نتونستم اطلاعاتی از این آگهی استخراج کنم."
-          : code === "RATE_LIMITED" ? "درخواست زیاده — چند لحظه صبر کن."
-          : "خطا در دریافت اطلاعات آگهی.";
-        throw new Error(msg);
-      }
-      const d = data.data;
-      const facts = [
-        `عنوان: ${d.title || "نامشخص"}`,
-        d.price ? `قیمت کل: ${fmtToman(d.price)}` : null,
-        d.area ? `متراژ: ${faDigits(d.area)} متر` : null,
-        d.rooms != null ? `تعداد خواب: ${faDigits(d.rooms)}` : null,
-        d.floor != null ? `طبقه: ${faDigits(d.floor)}` : null,
-        d.parking != null ? `پارکینگ: ${d.parking ? "دارد" : "ندارد"}` : null,
-        d.elevator != null ? `آسانسور: ${d.elevator ? "دارد" : "ندارد"}` : null,
-        d.storage != null ? `انباری: ${d.storage ? "دارد" : "ندارد"}` : null,
-        `تعداد عکس: ${faDigits(d.images?.length || 0)}`,
-        d.description ? `متن آگهی: ${d.description}` : null,
-        views ? `بازدید آگهی: ${faDigits(views)}` : null,
-      ].filter(Boolean).join("\n");
-
-      const availableImages = (d.images || []).filter((im) => im.base64).slice(0, 3);
-      const content = [
-        { type: "text", text: `این اطلاعات واقعی یک آگهی ملکی در دیوار است (استخراج‌شده مستقیم از خود آگهی، نه حدسی):
-${facts}
-
-به‌عنوان یک متخصص فروش املاک تحلیل کن که چرا این آگهی${views ? " با وجود این میزان بازدید" : ""} تماس کمی می‌گیرد.
-
-این آگهی را دقیقاً با این معیارها بسنج:
-- قانون اوگیلوی: آیا کلمات توخالی («سوپرلوکس»، «سلطنتی»، «بی‌نظیر») دارد؟ هر ادعای بدون عدد یا جنس مشخص را نام ببر و جایگزین واقعی پیشنهاد بده.
-- سه ترس خریدار ایرانی: آیا به واقعی‌بودن عکس‌ها، وضعیت سند، و شفافیت شرایط پرداخت اشاره شده؟ هرکدام که غایب است را بگو.
-- قانون ۳ ثانیه: آیا با بولت و شکست خط در ۳ ثانیه اسکن می‌شود یا پاراگراف طولانی و خسته‌کننده است؟
-- دعوت به اقدام: آیا دلیل مشخصی برای تماس داده (ویدیو، بررسی سند، بازدید) یا فقط شماره گذاشته؟
-- تعداد عکس: کم بودن عکس (کمتر از ۵) خودش یک دلیل رایج کم‌تماسی است — اگر کم است بگو.
-${views ? "- نسبت بازدید به تماس: با توجه به بازدید داده‌شده، آیا این نرخ نرمال به‌نظر می‌رسد یا پایین است؟" : ""}
-
-سپس دقیقاً به این موارد بپرداز:
-۱. عنوان: آیا لوکیشن + مشخصه‌ی یکتا + قلاب مالی دارد؟ عنوان بهتر را دقیقاً بنویس.
-۲. قیمت: نسبت به بازار چطور به‌نظر می‌رسد؟
-۳. متن آگهی: چه چیزی کم دارد، چه چیزی زیادی است، لحنش چطور است؟
-۴. عکس‌ها: بر اساس تعداد و آنچه در تصاویر پیوست‌شده می‌بینی چطورند؟
-۵. سه اقدام مشخص و فوری که همین امروز باید انجام دهد.
-کوتاه، صریح و به فارسی جواب بده — بدون تعارف. هیچ‌چیزی که در اطلاعات بالا نیامده را حدس نزن یا نساز.` },
-        ...availableImages.map((im) => ({ type: "image_url", image_url: { url: `data:${im.contentType};base64,${im.base64}` } })),
-      ];
-      const res = await fetch("https://api.avalai.ir/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${avalaiKey}` },
-        body: JSON.stringify({ model: avalaiModel && avalaiModel.startsWith("gpt-4o") ? avalaiModel : "gpt-4o", messages: [{ role: "user", content }] }),
-      });
-      const respData = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(respData?.error?.message || `خطا (کد ${res.status})`);
-      const text = respData?.choices?.[0]?.message?.content || "پاسخی دریافت نشد";
-      setMessages((prev) => [...prev, { role: "assistant", text }]);
-    } catch (e) {
-      setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}`, error: true }]);
-    }
-    setLoading(false);
-  };
-
-  const send = async () => {
-    const q = input.trim().replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, "");
-    if (!q) return;
-    if (!perplexityKey) { notify("اول کلید Perplexity را در تنظیمات هوش مصنوعی وارد کن"); return; }
-    setMessages((prev) => [...prev, { role: "user", text: q }]);
-    setInput("");
-    setLoading(true);
-    try {
-      const isLink = /divar\.ir\/v\//.test(q);
-      const prompt = isLink
-        ? `این لینک یک آگهی ملکی در دیوار است: ${q}\nصفحه را باز کن و آگهی را برای یک مشاور املاک تحلیل کن: عنوان، قیمت، متراژ، تعداد اتاق، طبقه، آدرس، و یک جمع‌بندی کوتاه از اینکه این قیمت نسبت به بازار منطقه منصفانه به‌نظر می‌رسد یا نه. به فارسی و خلاصه جواب بده.`
-        : `تو یه دستیار جستجوی املاک هستی که رو دیوار (divar.ir) جستجوی زنده انجام می‌دی. اگه شهرِ سوال کاربر مشخص نبود، فرض کن منظورش ${agencyCity || "سرعین"}ه. جواب رو دقیق، عملی و به فارسی بده — اگه آگهی‌های واقعی پیدا کردی، برای هرکدوم عنوان، قیمت تقریبی، و لینک مستقیم آگهی (divar.ir/v/...) رو بیار. سوال: ${q}`;
-      const res = await fetch("https://api.perplexity.ai/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${perplexityKey}` },
-        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "user", content: prompt }] }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error?.message || `خطا (کد ${res.status})`);
-      const text = data?.choices?.[0]?.message?.content || "پاسخی دریافت نشد";
-      const citations = data?.citations || data?.search_results?.map((s) => s.url) || [];
-      // Divar listing links found either in citations or written inline in the
-      // answer itself — either way, surface them as one-tap "add to files".
-      const inlineLinks = [...text.matchAll(DIVAR_URL_RE)].map((m) => m[0]);
-      const listingLinks = [...new Set([...citations.filter((u) => /divar\.ir\/v\//.test(u)), ...inlineLinks])];
-      setMessages((prev) => [...prev, { role: "assistant", text, citations, listingLinks }]);
-    } catch (e) {
-      setMessages((prev) => [...prev, { role: "assistant", text: `خطا: ${e.message || "نامشخص"}`, error: true }]);
-    }
-    setLoading(false);
-  };
-
-  return (
-    <BodyPortal onClose={onClose}>
-    <div className="fixed inset-0 z-[96] flex flex-col flora-focus-in" style={{ background: c.bg }}>
-      <div className="flex items-center justify-between shrink-0" style={{ padding: SP.lg, paddingTop: `calc(${SP.lg}px + env(safe-area-inset-top, 0px))` }}>
-        <button onClick={onClose} aria-label="بستن" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2 }}><X size={16} color={c.ink} /></button>
-        <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>جستجوی دیوار با AI</h2>
-        <button onClick={clearChat} disabled={messages.length === 0} aria-label="پاک کردن گفتگو" title="پاک کردن گفتگو" className="press w-11 h-11 rounded-full flex items-center justify-center" style={{ background: c.surface2, opacity: messages.length === 0 ? 0.5 : 1 }}><Trash2 size={16} color={messages.length === 0 ? c.muted : c.danger} /></button>
-      </div>
-
-      {messages.length === 0 ? (
-        <div className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
-          {/* Big, obvious entry to Divar's own site */}
-          <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, background: "linear-gradient(135deg,#0F5132,#1E7A4F)", boxShadow: "0 14px 30px -10px rgba(15,81,50,0.45)" }}>
-            <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: RAD.md, background: "rgba(255,255,255,0.16)" }}><DivarMark size={22} color="#fff" /></div>
-            <div className="flex-1 text-right">
-              <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, color: "#fff" }}>ورود به وب دیوار</p>
-              <p style={{ fontSize: FS.caption, color: "rgba(255,255,255,0.88)", marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
-            </div>
-            <ChevronLeft size={20} color="rgba(255,255,255,0.75)" />
-          </a>
-
-          {/* Ad diagnosis — 3 screenshots */}
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c) }}>
-            <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>چرا آگهی‌ام زنگ نمی‌خوره؟</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>سه اسکرین‌شات از آگهی دیوارت بفرست: ۱) عنوان و قیمت ۲) متن آگهی ۳) آمار بازدید — تحلیل می‌کنم چرا تماس نمی‌گیرن.</p>
-            <input ref={shotRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files?.length) addShots(e.target.files); e.target.value = ""; }} />
-            <div className="grid grid-cols-3" style={{ gap: SP.sm, marginBottom: SP.md }}>
-              {[0, 1, 2].map((i) => {
-                const shot = adShots[i];
-                const labels = ["عنوان و قیمت", "متن آگهی", "آمار بازدید"];
-                return shot ? (
-                  <button key={i} onClick={() => setAdShots((prev) => prev.filter((s) => s.id !== shot.id))} className="press relative" style={{ aspectRatio: "1", borderRadius: RAD.md, overflow: "hidden", border: `1px solid ${c.border}` }}>
-                    <img src={shot.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    <span className="absolute flex items-center justify-center" style={{ top: 4, left: 4, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)" }}><X size={10} color="#fff" /></span>
-                  </button>
-                ) : (
-                  <button key={i} onClick={() => shotRef.current?.click()} className="press flex flex-col items-center justify-center" style={{ aspectRatio: "1", borderRadius: RAD.md, background: c.surface2, border: `1px dashed ${c.border}` }}>
-                    <ImagePlus size={16} color={c.muted} />
-                    <span style={{ fontSize: 10, color: c.muted, marginTop: 4, textAlign: "center", paddingInline: 2 }}>{labels[i]}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={diagnoseAd} disabled={adShots.length === 0 || loading} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: adShots.length ? c.primary : c.surface2, color: adShots.length ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}تحلیل حرفه‌ای آگهی
-            </button>
-          </div>
-
-          {/* Ad diagnosis — real listing link, no screenshots needed */}
-          <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.xl, ...glass(c) }}>
-            <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>یا لینک آگهی رو بده</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>خودم اطلاعات واقعی آگهی رو می‌گیرم و کامل تحلیل می‌کنم — نیازی به اسکرین‌شات نیست.</p>
-            <input value={linkForDiagnosis} onChange={(e) => setLinkForDiagnosis(e.target.value)} dir="ltr" placeholder="https://divar.ir/v/..." style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: "10px 14px", fontSize: FS.body, color: c.ink, marginBottom: SP.sm }} />
-            <input value={viewCountInput} onChange={(e) => setViewCountInput(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="میزان بازدید آگهی (اختیاری)" style={{ width: "100%", background: c.surface2, border: "none", borderRadius: RAD.md, padding: "10px 14px", fontSize: FS.body, color: c.ink, marginBottom: SP.md }} />
-            <button onClick={diagnoseAdFromLink} disabled={!linkForDiagnosis.trim() || loading} className="press w-full flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: linkForDiagnosis.trim() ? c.primary : c.surface2, color: linkForDiagnosis.trim() ? "#fff" : c.muted, fontWeight: FW.bold, fontSize: FS.caption + 1 }}>
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}تحلیل کامل آگهی
-            </button>
-          </div>
-
-          {/* Search */}
-          <div className="flex flex-col items-center" style={{ textAlign: "center" }}>
-            <p style={{ fontSize: FS.body, color: c.muted, lineHeight: 1.9, maxWidth: 300, marginBottom: SP.md }}>یا بپرس، مثلاً «۵ تا فایل امروزیِ فروش آپارتمان سرعین رو بگو» — یا یه لینک آگهی پیست کن.</p>
-            <DivarSearchInputRow c={c} input={input} setInput={setInput} send={send} loading={loading} />
-          </div>
-        </div>
-      ) : (
-        <>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto" style={{ padding: SP.xl }}>
-            <div className="flex flex-col" style={{ gap: SP.md }}>
-              {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div style={{ maxWidth: "88%", padding: SP.md, borderRadius: RAD.md, background: m.role === "user" ? c.primary : c.surface2, color: m.role === "user" ? "#fff" : c.ink }}>
-                    {m.shots?.length > 0 && (
-                      <div className="flex" style={{ gap: 4, marginBottom: SP.sm }}>
-                        {m.shots.map((u, j) => <img key={j} src={u} alt="" style={{ width: 46, height: 46, borderRadius: RAD.sm, objectFit: "cover" }} />)}
-                      </div>
-                    )}
-                    <p style={{ fontSize: FS.body, lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{m.text}</p>
-                    {m.citations?.length > 0 && (
-                      <div className="flex flex-col" style={{ gap: 4, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
-                        {m.citations.slice(0, 5).map((u, j) => (
-                          <a key={j} href={u} target="_blank" rel="noreferrer" style={{ fontSize: FS.caption, color: c.primary, direction: "ltr", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u}</a>
-                        ))}
-                      </div>
-                    )}
-                    {m.listingLinks?.length > 0 && (
-                      <div className="flex flex-col" style={{ gap: SP.xs, marginTop: SP.sm, paddingTop: SP.sm, borderTop: `1px solid ${c.border}` }}>
-                        {m.listingLinks.slice(0, 5).map((u, j) => (
-                          <button key={j} onClick={() => addLinkToFiles(u)} className="press flex items-center justify-center" style={{ gap: 4, paddingBlock: 8, borderRadius: RAD.sm, background: c.primarySoft }}>
-                            <Plus size={12} color={c.primary} /><span style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>افزودن آگهی {faDigits(j + 1)} به فایل‌ها</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {loading && (
-                <div className="flex justify-start"><div style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}><Loader2 size={16} className="animate-spin" color={c.primary} /></div></div>
-              )}
-            </div>
-          </div>
-          <div className="shrink-0" style={{ padding: SP.lg, paddingBottom: `calc(${SP.lg}px + env(safe-area-inset-bottom, 0px))`, borderTop: `1px solid ${c.border}` }}>
-            <DivarSearchInputRow c={c} input={input} setInput={setInput} send={send} loading={loading} />
-          </div>
-        </>
-      )}
-    </div>
-    </BodyPortal>
-  );
-}
 
 // Voice → structured CRM entries. Records audio, transcribes with AvalAI's real
 // Whisper proxy (not the browser's unreliable built-in recognizer), then asks the
@@ -2907,190 +2543,6 @@ function AgentAvatar({ ctx, size = 52 }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Signature element: the agent's portfolio as a living skyline at dusk.
-//
-// Every tower is a real listing — height is its price relative to the largest,
-// lit windows are its bedrooms, colour is its stage. The skyline's silhouette
-// IS this agent's book of business, so it looks different for every user and
-// changes as they work. That's what separates it from decoration.
-//
-// Triggered by IntersectionObserver (a one-shot "has it been seen" flag), then
-// played entirely in CSS. Deliberately NOT scroll-position-linked: continuously
-// mapping scroll offset to animation progress proved unreliable on iOS Safari
-// inside this app's nested-scroll layout. A binary "is it visible" check is the
-// one thing that works everywhere.
-// ---------------------------------------------------------------------------
-function BuildingScrollHero({ ctx }) {
-  const { c, properties, customers, appointments, calls, setTab, goProperties, setDetail, agencyCity } = ctx;
-  const wrapRef = useRef(null);
-  const [seen, setSeen] = useState(false);
-
-  const activeProps = properties.filter((p) => p.stage !== "فروخته شد").length;
-  const todayAppts = appointments.filter((a) => a.date === todayISO()).length;
-  const pendingCalls = calls.filter((cl) => cl.status !== "انجام‌شد").length;
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-
-    // The card sits inside the app's own scrolling container, not the page.
-    // IntersectionObserver watches the viewport by default, which either never
-    // fires or fires wrongly in that setup — the root has to be that container.
-    const findScrollRoot = (node) => {
-      let n = node.parentElement;
-      while (n && n !== document.body) {
-        const oy = getComputedStyle(n).overflowY;
-        if (oy === "auto" || oy === "scroll") return n;
-        n = n.parentElement;
-      }
-      return null;
-    };
-
-    const isVisible = () => {
-      const r = el.getBoundingClientRect();
-      const root = findScrollRoot(el);
-      const rb = root ? root.getBoundingClientRect() : null;
-      // Clamp against BOTH the scroll container and the real screen. The
-      // container can be taller than the viewport, so sitting inside it is not
-      // the same as being on screen — checking only the container made this
-      // fire while the card was still far below the fold.
-      const top = Math.max(0, rb ? rb.top : 0);
-      const bottom = Math.min(window.innerHeight, rb ? rb.bottom : window.innerHeight);
-      return r.top < bottom - 40 && r.bottom > top;
-    };
-
-    if (isVisible()) { setSeen(true); return; }
-
-    // A small poll rather than IntersectionObserver. The observer's root has to
-    // be this app's scroll container, but that container is taller than the
-    // screen — so it reports the card as "intersecting" while it's still far
-    // below the fold, firing the animation before anyone can see it. Measuring
-    // the rect against the real viewport is the only check that stays honest,
-    // and at 200ms it costs nothing.
-    const poll = setInterval(() => {
-      if (isVisible()) { setSeen(true); clearInterval(poll); }
-    }, 200);
-    return () => clearInterval(poll);
-  }, []);
-
-  const towers = useMemo(() => {
-    const src = properties.slice(0, 9);
-    const maxPrice = Math.max(1, ...src.map((p) => p.price || 0));
-    const built = src.map((p) => ({
-      id: p.id,
-      h: 30 + ((p.price || 0) / maxPrice) * 76,
-      floors: Math.max(2, Math.min(5, p.rooms || 2)),
-      tone: p.stage === "فروخته شد" ? c.success : p.stage === "در حال مذاکره" ? c.attn : c.primary,
-    }));
-    built.sort((a, b) => b.h - a.h);
-    const arranged = [];
-    built.forEach((t, i) => (i % 2 ? arranged.push(t) : arranged.unshift(t)));
-    return arranged;
-  }, [properties, c]);
-
-  let winKey = 0;
-  const on = seen ? " flora-sky-go" : "";
-
-  return (
-    <div ref={wrapRef} className="relative overflow-hidden" style={{ height: 212 }}>
-      {/* dusk gradient */}
-      <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${c.purple}26 0%, ${c.primary}16 46%, transparent 78%)` }} />
-
-      {/* the town's own street map as the ground the towers stand on */}
-      <div className="absolute" style={{ left: "8%", right: "8%", bottom: -14, height: 128, pointerEvents: "none", maskImage: "linear-gradient(0deg, #000 8%, transparent 78%)", WebkitMaskImage: "linear-gradient(0deg, #000 8%, transparent 78%)" }}>
-        <SareinMap color={c.attn} opacity={0.2} strokeWidth={1.1} />
-      </div>
-
-      {/* stars — only meaningful once the sky darkens, so they fade in late */}
-      {[[38,26],[92,18],[150,32],[232,22],[290,30],[330,16]].map(([x, y], i) => (
-        <span key={i} className={"flora-sky-star" + on} style={{ position: "absolute", left: x, top: y, width: 2, height: 2, borderRadius: 999, background: "#fff", animationDelay: `${1.3 + i * 0.11}s` }} />
-      ))}
-
-      {/* sun, settling into the skyline */}
-      <div className={"flora-sky-sun absolute" + on} style={{ top: 26, left: "50%", width: 44, height: 44, marginLeft: -22, borderRadius: "50%", background: `radial-gradient(circle, ${c.attn}cc, ${c.attn}22 62%, transparent 72%)` }} />
-
-      {/* skyline — one tower per listing */}
-      <div className="absolute flex items-end justify-center" style={{ left: 0, right: 0, bottom: 0, height: 152, gap: 4, paddingInline: SP.lg }}>
-        {towers.map((t, i) => (
-          <div key={t.id} className={"flora-sky-tower relative flex flex-col-reverse items-center" + on}
-            style={{ width: 26, height: t.h, borderRadius: "3px 3px 0 0", background: `linear-gradient(180deg, ${t.tone}42, ${t.tone}14)`, borderTop: `2px solid ${t.tone}`, gap: 4, paddingBottom: 6, animationDelay: `${0.08 + i * 0.085}s` }}>
-            {Array.from({ length: t.floors }).map((_, f) => (
-              <span key={f} className={"flora-sky-win" + on} style={{ width: 12, height: 3.5, borderRadius: 1, background: c.attn, boxShadow: `0 0 6px ${c.attn}aa`, animationDelay: `${0.7 + winKey++ * 0.045}s` }} />
-            ))}
-          </div>
-        ))}
-        {towers.length === 0 && (
-          <div className="flex items-end" style={{ gap: 4, opacity: 0.3 }}>
-            {[32, 54, 42, 68, 46].map((h, i) => <div key={i} className={"flora-sky-tower" + on} style={{ width: 26, height: h, borderRadius: "3px 3px 0 0", background: c.surface2, borderTop: `2px solid ${c.border}`, animationDelay: `${0.08 + i * 0.085}s` }} />)}
-          </div>
-        )}
-      </div>
-
-      {/* reflection: a soft wash of the skyline's own colour on the ground */}
-      <div className={"flora-sky-glow absolute" + on} style={{ left: SP.lg, right: SP.lg, bottom: 0, height: 26, background: `linear-gradient(0deg, ${c.primary}1f, transparent)` }} />
-
-      {/* caption then figures — real HTML, so Persian shapes and joins correctly */}
-      <div className={"flora-sky-caption absolute" + on} style={{ top: SP.lg, right: SP.lg }}>
-        <p style={{ fontSize: 10, color: c.muted, letterSpacing: "0.14em" }}>{agencyCity || "سرعین"}</p>
-        <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginTop: 3 }}>{faDigits(towers.length)} فایل روی خط آسمان</p>
-      </div>
-
-      <div className={"flora-sky-stats absolute" + on} style={{ left: SP.lg, right: SP.lg, bottom: SP.lg }}>
-        <div className="flex items-end justify-between">
-          {[
-            { v: activeProps, l: "فایل فعال", go: () => goProperties("فعال") },
-            { v: customers.length, l: "مشتری", go: () => setTab("customers") },
-            { v: todayAppts, l: "بازدید امروز", go: () => setTab("calendar") },
-          ].map((s, i) => (
-            <button key={i} onClick={s.go} className="press text-right">
-              <p style={{ fontSize: 25, fontWeight: FW.heavy, letterSpacing: "-0.03em", lineHeight: 1, textShadow: `0 2px 12px ${c.bg}` }}>{faDigits(s.v)}</p>
-              <p style={{ fontSize: 10, color: c.muted, marginTop: 3 }}>{s.l}</p>
-            </button>
-          ))}
-          {pendingCalls > 0 && (
-            <button onClick={() => setDetail({ type: "calls" })} className="press flex items-center" style={{ gap: 4 }}>
-              <span className="flora-pulse" style={{ width: 5, height: 5, borderRadius: 999, background: c.attn }} />
-              <span style={{ fontSize: 10, color: c.attn, fontWeight: FW.bold }}>{faDigits(pendingCalls)} تماس</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes floraSkyRise { from { transform: scaleY(.06); opacity: .15; } to { transform: scaleY(1); opacity: 1; } }
-        @keyframes floraSkyWin  { from { opacity: 0; transform: scaleX(.4); } to { opacity: 1; transform: scaleX(1); } }
-        @keyframes floraSkySun  { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes floraSkyFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes floraSkyStar { from { opacity: 0; } to { opacity: .75; } }
-        @keyframes floraSkyGlow { from { opacity: 0; } to { opacity: 1; } }
-        /* Nothing animates until the card has actually been seen; before that
-           every piece simply holds its start state. */
-        .flora-sky-tower  { transform-origin: bottom; transform: scaleY(.06); opacity: .15; }
-        .flora-sky-win    { opacity: 0; }
-        .flora-sky-sun    { opacity: 0; }
-        .flora-sky-star   { opacity: 0; }
-        .flora-sky-glow   { opacity: 0; }
-        .flora-sky-caption, .flora-sky-stats { opacity: 0; }
-        .flora-sky-tower.flora-sky-go  { animation: floraSkyRise .8s cubic-bezier(.22,1,.36,1) both; }
-        .flora-sky-win.flora-sky-go    { animation: floraSkyWin .4s ease both; }
-        .flora-sky-sun.flora-sky-go    { animation: floraSkySun 1.1s cubic-bezier(.22,1,.36,1) both; }
-        .flora-sky-star.flora-sky-go   { animation: floraSkyStar .8s ease both; }
-        .flora-sky-glow.flora-sky-go   { animation: floraSkyGlow 1s ease .8s both; }
-        .flora-sky-caption.flora-sky-go { animation: floraSkyFade .6s ease .15s both; }
-        .flora-sky-stats.flora-sky-go   { animation: floraSkyFade .7s ease 1.1s both; }
-        @media (prefers-reduced-motion: reduce) {
-          .flora-sky-tower, .flora-sky-win, .flora-sky-sun, .flora-sky-star, .flora-sky-glow,
-          .flora-sky-caption, .flora-sky-stats { animation: none !important; opacity: 1; transform: none; }
-          .flora-sky-star { opacity: .75; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-
-
 // Big day number, small month name underneath — the "امروز" badge, sized to
 // sit comfortably next to the avatar without crowding the greeting text.
 // Big faded numeral + month, sitting on its own row above the greeting —
@@ -3158,28 +2610,13 @@ function HomeTab({ ctx }) {
             inside a form. */}
         <TourEntryCard ctx={ctx} />
 
-        {/* Direct door to divar.ir itself — same destination as the link
-            inside the "جستجوی دیوار با AI" sheet, just promoted to the
-            dashboard since it's the one agents reach for constantly, not only
-            when diagnosing a specific ad. */}
-        <a href="https://divar.ir" target="_blank" rel="noreferrer" className="press flex items-center w-full" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.lg, ...glass(c) }}>
-          <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: RAD.md, background: "#1E7A4F1F" }}><DivarMark size={20} color="#1E7A4F" /></div>
-          <div className="flex-1 text-right">
-            <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold, color: c.ink }}>ورود به وب دیوار</p>
-            <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>باز کردن سایت دیوار در مرورگر</p>
-          </div>
-          <ChevronLeft size={18} color={c.muted} />
-        </a>
-
         {/* Quick-launch tools — a compact icon dock instead of a horizontally
             scrolling row of full cards. Apple's own quick-actions pattern:
             uniform squircle icon, short label, evenly spaced, all four
             visible at once with nothing to scroll past. */}
         <div className="flex items-start" style={{ gap: SP.sm, padding: `${SP.sm}px ${SP.xs}px` }}>
           <VoiceAssistantTile ctx={ctx} />
-          <LegalTile ctx={ctx} />
           <WeeklyStatsTile ctx={ctx} />
-          <DocumentsTile ctx={ctx} />
         </div>
       </div>
 
@@ -3202,8 +2639,7 @@ function HomeTab({ ctx }) {
           being its own floating card followed by a second, separately
           headed section right under it. */}
       <div className="overflow-hidden" style={{ marginTop: SP.xxl, borderRadius: RAD.lg, border: `1px solid ${c.border}`, background: c.surface }}>
-        <BuildingScrollHero ctx={ctx} />
-        <div style={{ borderTop: `1px solid ${c.border}`, padding: SP.lg }}>
+        <div style={{ padding: SP.lg }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: SP.md }}>
             <h2 style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, letterSpacing: "-0.01em" }}>جدیدترین فایل‌ها</h2>
             <button onClick={() => setTab("properties")} style={{ fontSize: FS.caption, color: c.primary, fontWeight: FW.bold }}>همه ›</button>
@@ -4158,7 +3594,7 @@ function CollapsibleCard({ c, icon: Icon, tint, title, subtitle, count, children
 // Settings never shows account stats either, it's purely "who am I, tap to
 // manage" — a single clear entry point instead of a dashboard competing
 // with everything else at the top of the screen.
-function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, agentPhone, setAgentPhone, agentPhoto, notify }) {
+function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, agentName, setAgentName, agentPhone, setAgentPhone, agentPhoto, notify, footer }) {
   const [editing, setEditing] = useState(false);
   const [n, setN] = useState(agencyName);
   const [ct, setCt] = useState(agencyCity);
@@ -4202,6 +3638,7 @@ function OfficeCard({ c, agencyName, setAgencyName, agencyCity, setAgencyCity, a
           </div>
         </div>
       )}
+      {footer && <div style={{ borderTop: `1px solid ${c.border}` }}>{footer}</div>}
     </div>
   );
 }
@@ -4283,65 +3720,26 @@ function MoreTab({ ctx }) {
           cascading in below it, since this is the one card the person
           actually built (the iCloud-row identity card), not one row among
           many. */}
-      <div className="flora-bounce"><OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} agentPhone={ctx.agentPhone} setAgentPhone={ctx.setAgentPhone} agentPhoto={ctx.agentPhoto} notify={notify} /></div>
+      <div className="flora-bounce"><OfficeCard c={c} agencyName={agencyName} setAgencyName={setAgencyName} agencyCity={agencyCity} setAgencyCity={setAgencyCity} agentName={ctx.agentName} setAgentName={ctx.setAgentName} agentPhone={ctx.agentPhone} setAgentPhone={ctx.setAgentPhone} agentPhoto={ctx.agentPhoto} notify={notify}
+        footer={(
+        <div className="flex items-center gap-3" style={{ padding: "10px 14px" }}>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: simpleMode ? c.successSoft : c.primarySoft }}>
+            {simpleMode ? <Sparkles size={15} color={c.success} /> : <LayoutGrid size={15} color={c.primary} />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p style={{ fontSize: 13, fontWeight: 700 }}>{simpleMode ? "حالت ساده" : "حالت حرفه‌ای"}</p>
+            <p style={{ fontSize: 10.5, color: c.muted, marginTop: 1 }}>{simpleMode ? "فقط فایل‌ها و مشتری‌ها" : "همه‌ی امکانات فعال است"}</p>
+          </div>
+          <button onClick={() => { setSimpleMode(!simpleMode); notify(simpleMode ? "حالت حرفه‌ای فعال شد" : "حالت ساده فعال شد"); }}
+            className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: simpleMode ? c.border : c.primary, position: "relative", transition: "background .3s ease" }}>
+            <span style={{ position: "absolute", top: 3, right: simpleMode ? 3 : 25, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
+          </button>
+        </div>
+      )} /></div>
 
       <div className="flora-stagger">
       {/* Visit requests submitted from the public site's property pages. */}
       <VisitRequestsCard c={c} notify={notify} />
-      {/* Mode switch stays its own card — it's a toggle, not a navigation
-          row, and it changes what the rest of this screen even shows. */}
-      <div className="rounded-2xl p-4 mb-5 flex items-center gap-3" style={glass(c)}>
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: simpleMode ? c.successSoft : c.primarySoft }}>
-          {simpleMode ? <Sparkles size={18} color={c.success} /> : <LayoutGrid size={18} color={c.primary} />}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>{simpleMode ? "حالت ساده" : "حالت حرفه‌ای"}</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{simpleMode ? "فقط فایل‌ها و مشتری‌ها" : "همه‌ی امکانات فعال است"}</p>
-        </div>
-        <button onClick={() => { setSimpleMode(!simpleMode); notify(simpleMode ? "حالت حرفه‌ای فعال شد" : "حالت ساده فعال شد"); }}
-          className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: simpleMode ? c.border : c.primary, position: "relative", transition: "background .3s ease" }}>
-          <span style={{ position: "absolute", top: 3, right: simpleMode ? 3 : 25, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
-        </button>
-      </div>
-
-      {/* Scales the whole app — text, icons, tap targets — for anyone who
-          finds the default a bit small, without forcing that size on
-          everyone else. */}
-      <div className="rounded-2xl p-4 mb-5 flex items-center gap-3" style={glass(c)}>
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}>
-          <ZoomIn size={18} color={c.primary} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p style={{ fontSize: 13, fontWeight: 700 }}>متن و آیکون‌های بزرگ‌تر</p>
-          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>کل صفحه بزرگ‌تر دیده می‌شود</p>
-        </div>
-        <button onClick={() => setLargeText(!largeText)}
-          className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: largeText ? c.primary : c.border, position: "relative", transition: "background .3s ease" }}>
-          <span style={{ position: "absolute", top: 3, right: largeText ? 25 : 3, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
-        </button>
-      </div>
-
-      {/* Publishing to the public site is off for every account until this
-          code is redeemed — the same mechanism a future paid unlock would
-          use, just triggered manually for now. */}
-      <div className="rounded-2xl p-4 mb-5" style={glass(c)}>
-        <div className="flex items-center" style={{ gap: SP.sm, marginBottom: publishUnlocked ? 0 : 12 }}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: publishUnlocked ? c.successSoft : c.primarySoft }}>
-            <Globe size={18} color={publishUnlocked ? c.success : c.primary} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p style={{ fontSize: 13, fontWeight: 700 }}>کد دسترسی سایت عمومی</p>
-            <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{publishUnlocked ? "فعال — می‌تونی فایل منتشر کنی" : "برای فعال‌شدن «انتشار در سایت عمومی» کد را وارد کن"}</p>
-          </div>
-        </div>
-        {!publishUnlocked && (
-          <div className="flex" style={{ gap: SP.sm }}>
-            <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} placeholder="کد را اینجا وارد کن" dir="ltr" style={{ ...inputStyle(c), flex: 1, textAlign: "center" }} />
-            <button onClick={redeemCode} disabled={redeeming || !codeInput.trim()} className="press rounded-xl px-5" style={{ background: c.primary, color: "#fff", fontSize: 13, fontWeight: 700, opacity: redeeming || !codeInput.trim() ? 0.5 : 1 }}>{redeeming ? "..." : "فعال‌سازی"}</button>
-          </div>
-        )}
-      </div>
-
       <ListSection c={c} title="ابزارها">
         <ListRow c={c} icon={CalendarDays} label="تقویم بازدید" onClick={() => setTab("calendar")} />
         {/* The one row that carries live state gets the accent + count —
@@ -4349,8 +3747,6 @@ function MoreTab({ ctx }) {
         <ListRow c={c} icon={PhoneCall} label="پیگیری تماس‌ها" tint={pending > 0 ? c.attn : undefined} badge={pending > 0 ? pending : undefined} onClick={() => setDetail({ type: "calls" })} />
         <ListRow c={c} icon={ArrowUpRight} label="چک‌ها" onClick={() => ctx.setChecksOpen(true)} />
         <ListRow c={c} icon={HardHat} label="ساخت‌وساز" onClick={() => ctx.setConstructionOpen(true)} />
-        <ListRow c={c} icon={TrendingUp} label="قیمت‌گذاری سریع" onClick={() => ctx.setQuickValuationOpen(true)} />
-        <ListRow c={c} icon={Sparkles} label="تحلیل آگهی دیوار" onClick={() => ctx.setDivarSearchOpen(true)} />
         <ListRow c={c} icon={TrendingUp} label="سرمایه‌گذاری" onClick={() => setDetail({ type: "investment-center" })} />
         <ListRow c={c} icon={MessageSquare} label="پیام‌های آماده" onClick={() => setSheet("messages")} />
         {simpleMode && <ListRow c={c} icon={Wallet} label="مالی و کمیسیون" onClick={() => setTab("finance")} />}
@@ -4370,6 +3766,45 @@ function MoreTab({ ctx }) {
       {/* Account + cloud backup keeps its own richer card — it holds live
           status (last backup, device list) that a plain row can't carry. */}
       <AccountBackupCard ctx={ctx} />
+
+      {/* Publishing to the public site is off for every account until this
+          code is redeemed — the same mechanism a future paid unlock would
+          use, just triggered manually for now. */}
+      <div className="rounded-2xl p-4 mb-4" style={glass(c)}>
+        <div className="flex items-center" style={{ gap: SP.sm, marginBottom: publishUnlocked ? 0 : 12 }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: publishUnlocked ? c.successSoft : c.primarySoft }}>
+            <Globe size={18} color={publishUnlocked ? c.success : c.primary} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p style={{ fontSize: 13, fontWeight: 700 }}>کد دسترسی سایت عمومی</p>
+            <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>{publishUnlocked ? "فعال — می‌تونی فایل منتشر کنی" : "برای فعال‌شدن «انتشار در سایت عمومی» کد را وارد کن"}</p>
+          </div>
+        </div>
+        {!publishUnlocked && (
+          <div className="flex" style={{ gap: SP.sm }}>
+            <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} placeholder="کد را اینجا وارد کن" dir="ltr" style={{ ...inputStyle(c), flex: 1, textAlign: "center" }} />
+            <button onClick={redeemCode} disabled={redeeming || !codeInput.trim()} className="press rounded-xl px-5" style={{ background: c.primary, color: "#fff", fontSize: 13, fontWeight: 700, opacity: redeeming || !codeInput.trim() ? 0.5 : 1 }}>{redeeming ? "..." : "فعال‌سازی"}</button>
+          </div>
+        )}
+      </div>
+
+      {/* Scales the whole app — text, icons, tap targets — for anyone who
+          finds the default a bit small, without forcing that size on
+          everyone else. */}
+      <div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={glass(c)}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: c.primarySoft }}>
+          <ZoomIn size={18} color={c.primary} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p style={{ fontSize: 13, fontWeight: 700 }}>متن و آیکون‌های بزرگ‌تر</p>
+          <p style={{ fontSize: 11, color: c.muted, marginTop: 1 }}>کل صفحه بزرگ‌تر دیده می‌شود</p>
+        </div>
+        <button onClick={() => setLargeText(!largeText)}
+          className="press shrink-0" style={{ width: 52, height: 30, borderRadius: 999, background: largeText ? c.primary : c.border, position: "relative", transition: "background .3s ease" }}>
+          <span style={{ position: "absolute", top: 3, right: largeText ? 25 : 3, width: 24, height: 24, borderRadius: 999, background: "#fff", transition: "right .3s cubic-bezier(.34,1.4,.64,1)", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }} />
+        </button>
+      </div>
+
       </div>
 
       <div style={{ height: 12 }} />
@@ -4807,7 +4242,6 @@ function DetailView({ detail, ctx, onBack }) {
   if (detail.type === "ai-chat") return <AiChatView ctx={ctx} onBack={onBack} />;
   if (detail.type === "finance") return <FinanceCenterView ctx={ctx} onBack={onBack} />;
   if (detail.type === "investment-center") return <InvestmentCenterView ctx={ctx} onBack={onBack} />;
-  if (detail.type === "documents") return <DocumentCenterView ctx={ctx} onBack={onBack} />;
   if (detail.type === "investment") return <InvestmentDetail id={detail.id} ctx={ctx} onBack={onBack} />;
   return null;
 }
@@ -4879,251 +4313,6 @@ function InvestmentCard({ c, inv, onClick }) {
         </div>
       )}
     </button>
-  );
-}
-
-function DocumentCenterView({ ctx, onBack }) {
-  const { c, properties, customers, owners, agencyName, agencyCity, agentName, hasAiKey, callAI, notify } = ctx;
-  const [query, setQuery] = useState("");
-  const [openCat, setOpenCat] = useState(null);
-  const [draft, setDraft] = useState(null); // { title, propertyId, customerId, text, loading }
-
-  const results = useMemo(() => {
-    const q = query.trim();
-    if (!q) return null;
-    const hits = [];
-    DOC_CATEGORIES.forEach((g) => g.docs.forEach((d) => { if (d.includes(q)) hits.push({ cat: g, doc: d }); }));
-    return hits;
-  }, [query]);
-
-  const startDraft = (doc) => setDraft({ title: doc, propertyId: "", customerId: "", text: "", loading: false, shots: [] });
-
-  const generate = async () => {
-    if (!hasAiKey) { notify("اول یک کلید هوش مصنوعی در تنظیمات وارد کن"); return; }
-    setDraft((d) => ({ ...d, loading: true }));
-    try {
-      const p = properties.find((x) => x.id === draft.propertyId);
-      const owner = p ? owners.find((o) => o.id === p.ownerId) : null;
-      const cu = customers.find((x) => x.id === draft.customerId);
-      const facts = [
-        p ? `ملک: ${p.title} — ${p.type}، ${faDigits(p.area)} متر، طبقه ${faDigits(p.floor || 1)}، آدرس: ${p.address || "—"}، قیمت: ${fmtToman(p.price)}` : "",
-        owner ? `فروشنده/مالک: ${owner.name}${owner.phone ? ` — ${owner.phone}` : ""}` : "",
-        cu ? `خریدار/مستأجر: ${cu.name}${cu.phone ? ` — ${cu.phone}` : ""}` : "",
-        `دفتر: ${agencyName || "—"}${agencyCity ? `، ${agencyCity}` : ""}${agentName ? ` — مشاور: ${agentName}` : ""}`,
-      ].filter(Boolean).join("\n");
-      const prompt = `یک «${draft.title}» کامل و حرفه‌ای به فارسی بنویس، مطابق عرف قراردادهای املاک در ایران.
-اطلاعات واقعی موجود (حتماً در متن استفاده کن):
-${facts || "— اطلاعاتی انتخاب نشده —"}
-${draft.extraNotes?.trim() ? `\nاطلاعات و شرایط اضافی که مشاور مستقیم وارد کرده (این‌ها هم باید در قرارداد لحاظ شوند):\n${draft.extraNotes.trim()}\n` : ""}
-قوانین:
-- ساختار ماده‌بندی‌شده (ماده ۱، ماده ۲، ...) با عنوان هر ماده.
-- برای هر اطلاعاتی که در بالا داده نشده، به‌جای حدس‌زدن، نقطه‌چین بگذار (مثل: ............) تا دستی پر شود. هرگز اطلاعات ساختگی ننویس.
-- بندهای ضروری را بیاور: مشخصات طرفین، موضوع قرارداد، ثمن و نحوه پرداخت، تحویل، تعهدات طرفین، فسخ و خسارت، حل اختلاف، تعداد نسخ و امضا.
-- در پایان یک خط بنویس: «این متن پیش‌نویس است و باید پیش از امضا توسط مشاور حقوقی بررسی شود.»
-فقط خودِ متن قرارداد را برگردان، بدون توضیح اضافه.`;
-      const text = await callAI(prompt);
-      setDraft((d) => ({ ...d, text: text.trim(), loading: false }));
-    } catch (e) {
-      notify(`تولید ناموفق: ${e.message || "خطای نامشخص"}`);
-      setDraft((d) => ({ ...d, loading: false }));
-    }
-  };
-
-  // Turns the AI's plain text into a structured document instead of one
-  // flat <pre> block — "ماده N" lines become real headings (bold, spaced,
-  // separated by a rule) instead of just another line of body text, which
-  // is what actually makes a printed contract read as a contract and not a
-  // wall of text. Sub-items (الف/ب/ج, تبصره) get their own indent; the
-  // closing "این متن پیش‌نویس است..." line gets set apart, not lost in the
-  // paragraph above it.
-  const formatContractBlocks = (text) => {
-    const lines = (text || "").split("\n").map((l) => l.trim());
-    const blocks = [];
-    let para = [];
-    const flush = () => { if (para.length) { blocks.push({ type: "p", text: para.join(" ") }); para = []; } };
-    for (const line of lines) {
-      if (!line) { flush(); continue; }
-      const madde = line.match(/^ماده\s+([۰-۹0-9]+)\s*[-:–—]?\s*(.*)$/);
-      const sub = line.match(/^(تبصره[۰-۹0-9]*\s*[-:.]?|[الفبجدهوزحطی]\s*[-)]|[۰-۹0-9]+[-.)])\s*/);
-      if (madde) { flush(); blocks.push({ type: "madde", num: madde[1], title: madde[2] }); }
-      else if (/^این متن پیش‌نویس است/.test(line)) { flush(); blocks.push({ type: "disclaimer", text: line }); }
-      else if (sub) { flush(); blocks.push({ type: "sub", text: line }); }
-      else para.push(line);
-    }
-    flush();
-    return blocks;
-  };
-
-  const printDoc = () => {
-    const w = window.open("", "_blank");
-    if (!w) { notify("مرورگر پنجره‌ی چاپ را مسدود کرد"); return; }
-    const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const p = properties.find((x) => x.id === draft.propertyId);
-    const owner = p ? owners.find((o) => o.id === p.ownerId) : null;
-    const cu = customers.find((x) => x.id === draft.customerId);
-    const bodyHtml = formatContractBlocks(draft.text).map((b) => {
-      if (b.type === "madde") return `<h3 class="madde">ماده ${esc(b.num)}${b.title ? " — " + esc(b.title) : ""}</h3>`;
-      if (b.type === "disclaimer") return `<p class="disclaimer">${esc(b.text)}</p>`;
-      if (b.type === "sub") return `<p class="sub">${esc(b.text)}</p>`;
-      return `<p class="body-p">${esc(b.text)}</p>`;
-    }).join("\n");
-    // Attached photos print on their own pages after the text — a signed copy
-    // is what makes the printout a real record rather than just a draft.
-    const shotPages = (draft.shots || []).map((s) => `<div class="shot"><img src="${s.url}" /></div>`).join("");
-    w.document.write(`<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${esc(draft.title)}</title>
-      <style>
-      @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap');
-      @page { size: A4; margin: 2.5cm; }
-      * { box-sizing: border-box; }
-      body { font-family: 'Vazirmatn', Tahoma, sans-serif; color: #161616; font-size: 12pt; margin: 0; }
-      h1.doc-title { font-size: 16pt; font-weight: 700; text-align: center; margin: 0 0 0.3em; }
-      .doc-meta { text-align: center; font-size: 10pt; color: #666; margin-bottom: 1.8em; }
-      .contract-box { border: 1.5px solid #222; border-radius: 4px; padding: 2em 1.8em; }
-      .body-p { text-align: justify; line-height: 2; margin: 0 0 1em; }
-      .madde { font-size: 13pt; font-weight: 700; margin: 1.6em 0 0.7em; padding-top: 0.9em; border-top: 1px solid #ccc; }
-      .madde:first-of-type { border-top: none; padding-top: 0; margin-top: 0.3em; }
-      .sub { margin: 0 1.7em 0.8em; line-height: 1.9; text-align: justify; }
-      .disclaimer { margin-top: 2em; font-size: 10pt; color: #555; font-style: italic; border-top: 1px dashed #999; padding-top: 1em; text-align: center; }
-      .sign-row { display: flex; justify-content: space-between; gap: 2.5em; margin-top: 3.5em; page-break-inside: avoid; }
-      .sign-box { flex: 1; text-align: center; font-size: 10.5pt; }
-      .sign-box .role { font-weight: 700; margin-bottom: 0.3em; }
-      .sign-box .who { color: #444; margin-bottom: 2.8em; }
-      .sign-box .line { border-top: 1px solid #333; padding-top: 0.5em; }
-      .shot { page-break-before: always; text-align: center; }
-      .shot img { max-width: 100%; max-height: 25cm; object-fit: contain; }
-      </style>
-      </head><body>
-      <h1 class="doc-title">${esc(draft.title)}</h1>
-      <p class="doc-meta">${esc(agencyName || "")}${agencyCity ? ` — ${esc(agencyCity)}` : ""} · تاریخ تنظیم: ${esc(fmtJalali(todayISO()))}</p>
-      <div class="contract-box">${bodyHtml}</div>
-      <div class="sign-row">
-        <div class="sign-box"><p class="role">امضای طرف اول</p><p class="who">${esc(owner?.name || "................................")}</p><p class="line">امضا و اثر انگشت</p></div>
-        <div class="sign-box"><p class="role">امضای طرف دوم</p><p class="who">${esc(cu?.name || "................................")}</p><p class="line">امضا و اثر انگشت</p></div>
-      </div>
-      ${shotPages}
-      </body></html>`);
-    w.document.close();
-    setTimeout(() => w.print(), 500);
-  };
-
-  const shareDoc = async () => {
-    const payload = `${draft.title}\n\n${draft.text}`;
-    if (navigator.share) { try { await navigator.share({ title: draft.title, text: payload }); return; } catch (e) { if (e?.name === "AbortError") return; } }
-    navigator.clipboard?.writeText(payload);
-    notify("متن قرارداد کپی شد");
-  };
-
-  // ---- draft editor ----
-  if (draft) {
-    return (
-      <div className="pt-2">
-        <BackHeader c={c} title={draft.title} onBack={() => setDraft(null)} />
-        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
-          <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>فایل و مشتری را انتخاب کن تا اطلاعات خودکار در قرارداد بنشیند.</p>
-          <Field c={c} label="فایل ملک"><Select c={c} value={draft.propertyId} onChange={(e) => setDraft({ ...draft, propertyId: e.target.value })} placeholder="انتخاب فایل" options={properties.map((p) => ({ value: p.id, label: p.title }))} /></Field>
-          <Field c={c} label="مشتری"><Select c={c} value={draft.customerId} onChange={(e) => setDraft({ ...draft, customerId: e.target.value })} placeholder="انتخاب مشتری" options={customers.map((x) => ({ value: x.id, label: x.name }))} /></Field>
-          {/* Anything not covered by the file/customer selection — a special
-              condition, an agreed date, a clause the agent wants included —
-              goes straight into the same prompt as the file/customer facts
-              below, not a separate pass the model might ignore. */}
-          <Field c={c} label="اطلاعات یا شرایط اضافی برای هوش مصنوعی (اختیاری)">
-            <textarea
-              value={draft.extraNotes || ""}
-              onChange={(e) => setDraft({ ...draft, extraNotes: e.target.value })}
-              placeholder="مثلاً: تحویل دو ماه دیگه، پیش‌پرداخت ۲۰۰ میلیون، یا هر نکته‌ی دیگه‌ای که باید توی قرارداد باشه..."
-              rows={3}
-              style={{ ...inputStyle(c), resize: "vertical", lineHeight: 1.8 }}
-            />
-          </Field>
-          <button onClick={generate} disabled={draft.loading} className="press w-full flex items-center justify-center" style={{ gap: SP.sm, paddingBlock: SP.md, borderRadius: RAD.md, background: c.gradientPrimary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body }}>
-            {draft.loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{draft.loading ? "در حال نوشتن..." : draft.text ? "نوشتن دوباره" : "تنظیم قرارداد با AI"}
-          </button>
-        </div>
-
-        {/* Scans of the signed contract. Kept separate from the AI draft on
-            purpose: the photo is the legally meaningful artefact, the text is
-            only a working draft. */}
-        <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
-          <p style={{ fontSize: FS.body, fontWeight: FW.bold, marginBottom: SP.xs }}>عکس قرارداد</p>
-          <p style={{ fontSize: FS.caption, color: c.muted, lineHeight: 1.8, marginBottom: SP.md }}>از نسخه‌ی امضاشده عکس بگیر — همراه متن چاپ و ذخیره می‌شود.</p>
-          <MediaGallery c={c} media={draft.shots || []} uploading={false}
-            onAdd={async (files) => { const items = await filesToMedia(files); setDraft((d) => ({ ...d, shots: [...(d.shots || []), ...items] })); }}
-            onRemove={(id) => setDraft((d) => ({ ...d, shots: (d.shots || []).filter((x) => x.id !== id) }))}
-            onView={ctx.setLightbox} accept="image/*,application/pdf" />
-        </div>
-
-        {draft.text && (
-          <div className="flora-rise">
-            <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
-              <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm }}>متن قرارداد — قبل از چاپ می‌توانی ویرایش کنی</p>
-              <textarea value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} rows={16}
-                style={{ ...inputStyle(c), resize: "vertical", lineHeight: 2, fontSize: FS.caption + 1 }} />
-            </div>
-            <div className="grid grid-cols-2" style={{ gap: SP.md, marginBottom: SP.xxl }}>
-              <button onClick={printDoc} className="press flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: c.ink, color: c.bg, fontWeight: FW.bold, fontSize: FS.body }}><FileText size={15} color={c.bg} />چاپ / PDF</button>
-              <button onClick={shareDoc} className="press flex items-center justify-center" style={{ gap: SP.xs, paddingBlock: SP.md, borderRadius: RAD.md, background: c.surface2, color: c.ink, fontWeight: FW.bold, fontSize: FS.body }}><Share2 size={15} color={c.ink} />ارسال</button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ---- catalogue ----
-  return (
-    <div className="pt-2">
-      <BackHeader c={c} title="اسناد و قراردادها" onBack={onBack} />
-      <SearchBox c={c} value={query} setValue={setQuery} />
-      <div style={{ height: SP.lg }} />
-
-      {results ? (
-        <div className="flex flex-col flora-stagger" style={{ gap: SP.sm }}>
-          {results.map(({ cat, doc }, i) => (
-            <button key={i} onClick={() => startDraft(doc)} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.lg, borderRadius: RAD.md, ...glassLite(c, RAD.md) }}>
-              <cat.icon size={16} color={c[cat.tone] || c.muted} />
-              <div className="flex-1 min-w-0">
-                <p style={{ fontSize: FS.body, fontWeight: FW.bold }}>{doc}</p>
-                <p style={{ fontSize: 10, color: c.muted, marginTop: 1 }}>{cat.label}</p>
-              </div>
-              <ChevronLeft size={15} color={c.muted} />
-            </button>
-          ))}
-          {results.length === 0 && <EmptyLine c={c} text="سندی با این نام پیدا نشد" />}
-        </div>
-      ) : (
-        <div className="flex flex-col flora-stagger" style={{ gap: SP.md }}>
-          {DOC_CATEGORIES.map((g) => {
-            const open = openCat === g.id;
-            const tone = c[g.tone] || c.muted;
-            return (
-              <div key={g.id} style={{ borderRadius: RAD.lg, overflow: "hidden", ...glass(c) }}>
-                <button onClick={() => setOpenCat(open ? null : g.id)} className="press w-full flex items-center text-right" style={{ gap: SP.md, padding: SP.lg }}>
-                  <div className="flex items-center justify-center shrink-0" style={{ width: 38, height: 38, borderRadius: RAD.md, background: tone + "1f" }}><g.icon size={18} color={tone} /></div>
-                  <div className="flex-1 min-w-0">
-                    <p style={{ fontSize: FS.body + 1, fontWeight: FW.bold }}>{g.label}</p>
-                    <p style={{ fontSize: FS.caption, color: c.muted, marginTop: 2 }}>{faDigits(g.docs.length)} سند</p>
-                  </div>
-                  <ChevronDown size={16} color={c.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
-                </button>
-                {open && (
-                  <div className="flora-rise" style={{ paddingInline: SP.lg, paddingBottom: SP.lg }}>
-                    <div className="flex flex-col" style={{ gap: SP.sm }}>
-                      {g.docs.map((d) => (
-                        <button key={d} onClick={() => startDraft(d)} className="press w-full flex items-center justify-between text-right" style={{ padding: SP.md, borderRadius: RAD.md, background: c.surface2 }}>
-                          <span style={{ fontSize: FS.body, fontWeight: FW.medium }}>{d}</span>
-                          <ChevronLeft size={14} color={c.muted} />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <div style={{ height: SP.xxl }} />
-    </div>
   );
 }
 
@@ -5376,7 +4565,6 @@ function InvestmentDetail({ id, ctx, onBack }) {
   const [showPayment, setShowPayment] = useState(false);
   const [editPayment, setEditPayment] = useState(null);
   const [showExit, setShowExit] = useState(false);
-  const [uploadingDoc, setUploadingDoc] = useState(false);
   if (!inv) return null;
   const stats = computeInvestmentStats(inv);
   const percentOk = inv.partners.length === 0 || Math.round(stats.partnerPercentSum) === 100;
@@ -5388,8 +4576,6 @@ function InvestmentDetail({ id, ctx, onBack }) {
   const removeExpense = (eid) => update((x) => ({ ...x, expenses: x.expenses.filter((e) => e.id !== eid) }));
   const savePayment = (pay) => update((x) => ({ ...x, payments: (x.payments || []).some((p) => p.id === pay.id) ? x.payments.map((p) => p.id === pay.id ? pay : p) : [pay, ...(x.payments || [])] }));
   const removePayment = (pid) => update((x) => ({ ...x, payments: (x.payments || []).filter((p) => p.id !== pid) }));
-  const addDocs = async (fileList) => { setUploadingDoc(true); const items = await filesToMedia(fileList); update((x) => ({ ...x, documents: [...(x.documents || []), ...items] })); setUploadingDoc(false); };
-  const removeDoc = (did) => update((x) => ({ ...x, documents: (x.documents || []).filter((d) => d.id !== did) }));
 
   return (
     <div className="pt-2">
@@ -5533,12 +4719,6 @@ function InvestmentDetail({ id, ctx, onBack }) {
           })}
           {(inv.payments || []).length === 0 && <EmptyLine c={c} text="پرداختی ثبت نشده" />}
         </div>
-      </div>
-
-      {/* Documents — reuses the same media pipeline properties use */}
-      <div style={{ padding: SP.lg, borderRadius: RAD.lg, marginBottom: SP.md, ...glass(c) }}>
-        <p style={{ fontSize: FS.subtitle, fontWeight: FW.heavy, marginBottom: SP.md }}>اسناد و مدارک</p>
-        <MediaGallery c={c} media={inv.documents || []} uploading={uploadingDoc} onAdd={addDocs} onRemove={removeDoc} onView={ctx.setLightbox} accept="image/*,video/*,application/pdf,.doc,.docx" />
       </div>
 
       {showEdit && <InvestmentForm ctx={ctx} editId={id} onClose={() => setShowEdit(false)} />}
@@ -6032,7 +5212,6 @@ function PropertyDetail({ id, ctx, onBack }) {
   const owner = owners.find((o) => o.id === p?.ownerId);
   const builder = builders.find((b) => b.id === p?.builderId);
   const [uploading, setUploading] = useState(false);
-  const [valuationOpen, setValuationOpen] = useState(false);
   const [published, setPublished] = useState(false);
   const [publishBusy, setPublishBusy] = useState(false);
   useEffect(() => {
@@ -6171,12 +5350,6 @@ function PropertyDetail({ id, ctx, onBack }) {
               </>
             );
           })()}
-          {!ctx.customerMode && (
-            <button onClick={() => setValuationOpen(true)} className="press w-full flex items-center justify-center rounded-xl" style={{ gap: 6, paddingBlock: 11, marginTop: SP.sm, background: c.primarySoft, color: c.primary, fontWeight: FW.bold, fontSize: 12.5 }}>
-              <TrendingUp size={14} /> Flora Valuation — برآورد ارزش بازار
-            </button>
-          )}
-          {valuationOpen && <FloraValuationSheet ctx={ctx} propertyId={p.id} onClose={() => setValuationOpen(false)} />}
         </div>
 
         {p.furnished && <div className="flex items-center" style={{ gap: SP.xs, marginTop: SP.md, color: c.muted, fontSize: FS.caption }}><BadgeCheck size={13} />{p.furnished}</div>}
@@ -8697,7 +7870,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           <div className="grid grid-cols-3 gap-3">
             <Field c={c} label="تعداد اتاق"><input style={inputStyle(c)} inputMode="numeric" value={f.rooms} onChange={set("rooms")} /></Field>
             <Field c={c} label="طبقه"><Select c={c} value={f.floor} onChange={set("floor")} placeholder="طبقه" options={Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), label: faDigits(i + 1) }))} /></Field>
-            <Field c={c} label="لوازم"><Select c={c} value={f.furnished} onChange={set("furnished")} placeholder="وضعیت" options={["با لوازم","بدون لوازم"].map(v=>({value:v,label:v}))} /></Field>
+            <Field c={c} label="لوازم"><Select c={c} value={f.furnished} onChange={set("furnished")} placeholder="وضعیت" options={["با لوازم","با نصبیات","بدون لوازم"].map(v=>({value:v,label:v}))} /></Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field c={c} label="نام مالک"><input style={inputStyle(c)} value={f.ownerName} onChange={set("ownerName")} placeholder="اختیاری" /></Field>

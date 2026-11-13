@@ -18,8 +18,11 @@ const supportsWebp = () => {
 };
 const FALLBACK_DIM = 2048, FALLBACK_QUALITY = 0.86; // used only when WebP isn't actually supported
 const compressImage = (file) => new Promise((resolve) => {
-  const reader = new FileReader();
-  reader.onload = () => {
+  // Object URL instead of FileReader→base64 for decoding: far less memory
+  // and noticeably faster on big phone photos.
+  const srcUrl = URL.createObjectURL(file);
+  const reader = { result: srcUrl };
+  {
     const img = new Image();
     img.onload = () => {
       const webpOk = supportsWebp();
@@ -30,15 +33,15 @@ const compressImage = (file) => new Promise((resolve) => {
       const canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
       canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(srcUrl);
       try {
         resolve(webpOk ? canvas.toDataURL("image/webp", IMAGE_QUALITY) : canvas.toDataURL("image/jpeg", FALLBACK_QUALITY));
       }
-      catch { resolve(reader.result); }
+      catch { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); }
     };
-    img.onerror = () => resolve(reader.result);
-    img.src = reader.result;
-  };
-  reader.readAsDataURL(file);
+    img.onerror = () => { URL.revokeObjectURL(srcUrl); const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); };
+    img.src = srcUrl;
+  }
 });
 // Re-encodes an image already stored as a data URL (jpeg/png) into WebP —
 // used to bulk-shrink photos uploaded before WebP was the default.
