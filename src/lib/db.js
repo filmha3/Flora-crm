@@ -23,37 +23,57 @@ function withDbTimeout(promise, label) {
   ]);
 }
 
+// ONE shared connection for the whole app. Before, every dbGet/dbSet opened
+// a brand-new IndexedDB connection and never closed it — on iPhone they
+// piled up until Safari ran out of memory and reloaded the page.
+const DB_VERSION = 2, BLOB_STORE = "blobs";
+let _dbPromise = null;
 function openDB() {
-  return withDbTimeout(new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
+  if (_dbPromise) return _dbPromise;
+  const p = withDbTimeout(new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      if (!db.objectStoreNames.contains(BLOB_STORE)) db.createObjectStore(BLOB_STORE);
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => { try { db.close(); } catch (e) { /* ignore */ } _dbPromise = null; };
+      db.onclose = () => { _dbPromise = null; };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
-    // Fires when an older connection (e.g. a stale tab) is holding the
-    // upgrade open — without this handler the request just sits pending,
-    // which is exactly the kind of silent hang this whole wrapper exists to
-    // catch.
     req.onblocked = () => reject(new Error("indexeddb blocked"));
   }), "openDB");
+  _dbPromise = p;
+  p.catch(() => { if (_dbPromise === p) _dbPromise = null; });
+  return p;
 }
-async function dbGet(key) {
-  const db = await openDB();
-  return withDbTimeout(new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).get(scopedKey(key));
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  }), "dbGet");
+// iOS sometimes closes the connection silently — drop it and retry once.
+async function withStore(storeName, mode, fn) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const db = await openDB();
+    try {
+      return await withDbTimeout(new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, mode);
+        const res = fn(tx.objectStore(storeName));
+        tx.oncomplete = () => resolve(res && "result" in res ? res.result : undefined);
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error("tx aborted"));
+      }), storeName + ":" + mode);
+    } catch (e) {
+      if (attempt === 0 && (e?.name === "InvalidStateError" || /closing|closed/i.test(e?.message || ""))) { _dbPromise = null; continue; }
+      throw e;
+    }
+  }
 }
-async function dbSet(key, value) {
-  const db = await openDB();
-  return withDbTimeout(new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(value, scopedKey(key));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  }), "dbSet");
-}
+async function dbGet(key) { return withStore(STORE, "readonly", (st) => st.get(scopedKey(key))); }
+async function dbSet(key, value) { return withStore(STORE, "readwrite", (st) => { st.put(value, scopedKey(key)); }); }
+// Raw File/Blob storage for videos & documents — kept OUT of the main data.
+async function blobSet(id, blob) { return withStore(BLOB_STORE, "readwrite", (st) => { st.put(blob, id); }); }
+async function blobGet(id) { return withStore(BLOB_STORE, "readonly", (st) => st.get(id)); }
+async function blobDelete(id) { return withStore(BLOB_STORE, "readwrite", (st) => { st.delete(id); }); }
 
-export { DB_NAME, STORE, DATA_KEY, SETTINGS_KEY, REMINDER_KEY, COPILOT_KEY, CHAT_KEY, FINANCE_AI_KEY, MISSION_KEY, AUTOBACKUP_KEY, NBA_KEY, STREAK_KEY, MARKET_INSIGHT_KEY, DIVAR_CHAT_KEY, scopedKey, openDB, dbGet, dbSet };
+export { DB_NAME, STORE, DATA_KEY, SETTINGS_KEY, REMINDER_KEY, COPILOT_KEY, CHAT_KEY, FINANCE_AI_KEY, MISSION_KEY, AUTOBACKUP_KEY, NBA_KEY, STREAK_KEY, MARKET_INSIGHT_KEY, DIVAR_CHAT_KEY, scopedKey, openDB, dbGet, dbSet, blobSet, blobGet, blobDelete };
 export function setActiveUid(uid) { ACTIVE_UID = uid; }

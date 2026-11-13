@@ -67,7 +67,13 @@ const reencodeToWebp = (dataUrl) => new Promise((resolve) => {
   img.onerror = () => resolve(dataUrl);
   img.src = dataUrl;
 });
-const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (file) => {
+// Sequential, not Promise.all: one photo/video in memory at a time.
+const filesToMedia = async (fileList) => {
+  const out = [];
+  for (const file of Array.from(fileList)) out.push(await fileToMedia(file));
+  return out;
+};
+const fileToMedia = async (file) => {
   const isVideo = file.type.startsWith("video");
   const isImage = file.type.startsWith("image");
   if (isVideo) {
@@ -78,6 +84,6 @@ const filesToMedia = (fileList) => Promise.all(Array.from(fileList).map(async (f
   // Documents (PDF, Word, etc.) — stored as-is, no image compression pipeline applies.
   const url = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file); });
   return { id: uid(), type: "file", url, name: file.name };
-}));
+};
 
 export { MAX_IMAGE_DIM, IMAGE_QUALITY, supportsWebp, FALLBACK_DIM, FALLBACK_QUALITY, compressImage, reencodeToWebp, filesToMedia };

@@ -47,8 +47,15 @@ export function loadLeaflet() {
 
 export async function reverseGeocodeAddress(lat, lng) {
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fa`);
-    const data = await res.json();
+    // 7s cap — Nominatim is often slow/unreachable; without it the picker
+    // hung on "در حال یافتن آدرس..." forever.
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = setTimeout(() => ctrl?.abort(), 7000);
+    let data;
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fa`, ctrl ? { signal: ctrl.signal } : undefined);
+      data = await res.json();
+    } finally { clearTimeout(timer); }
     const a = data.address || {};
     const parts = [
       a.road || a.pedestrian || a.footway,

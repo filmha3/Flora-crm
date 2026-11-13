@@ -82,6 +82,14 @@ export function encodeCanvas(img, maxDim, quality) {
   return canvasToBlob(drawScaled(img, maxDim), quality);
 }
 
+// Tiny global queue: heavy image work runs strictly one after another.
+let _chain = Promise.resolve();
+export function runSerial(task) {
+  const run = _chain.then(task, task);
+  _chain = run.catch(() => {});
+  return run;
+}
+
 export function extFor(mime) { return mime === "image/webp" ? "webp" : "jpg"; }
 
 // Uploads one photo (File, Blob, or legacy base64 data URL) as a full-size +
@@ -92,13 +100,22 @@ export async function uploadPropertyImage({ userId, propertyId, source, name, so
   if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("برای آپلود عکس به اینترنت نیاز داری — دوباره وصل شو و امتحان کن.");
   if (!userId) throw new Error("uploadPropertyImage: missing userId");
   if (!propertyId) throw new Error("uploadPropertyImage: missing propertyId");
-  const img = await loadImage(source);
-  // Thumbnail is drawn from the already-downscaled full canvas, not the
-  // original 12MP photo — much less work for the same result.
-  const fullCanvas = drawScaled(img, FULL_MAX_DIM);
-  const thumbCanvas = drawScaled(fullCanvas, THUMB_MAX_DIM);
-  const [full, thumb] = await Promise.all([canvasToBlob(fullCanvas, FULL_QUALITY), canvasToBlob(thumbCanvas, THUMB_QUALITY)]);
-  fullCanvas.width = fullCanvas.height = 0; thumbCanvas.width = thumbCanvas.height = 0;
+  // Decode + resize runs ONE photo at a time app-wide (only the network
+  // uploads overlap) — decoding several 12MP photos at once is what blew
+  // iPhone's memory limit and reloaded the page.
+  const { full, thumb } = await runSerial(async () => {
+    const img = await loadImage(source);
+    try {
+      const fullCanvas = drawScaled(img, FULL_MAX_DIM);
+      const thumbCanvas = drawScaled(fullCanvas, THUMB_MAX_DIM);
+      const [f, t] = await Promise.all([canvasToBlob(fullCanvas, FULL_QUALITY), canvasToBlob(thumbCanvas, THUMB_QUALITY)]);
+      fullCanvas.width = fullCanvas.height = 0; thumbCanvas.width = thumbCanvas.height = 0;
+      if (!f?.blob || !t?.blob) throw new Error("پردازش عکس ناموفق بود");
+      return { full: f, thumb: t };
+    } finally {
+      img.onload = img.onerror = null; img.src = "";
+    }
+  });
 
   const fileId = uid();
   const base = `${userId}/${propertyId}/${fileId}`;

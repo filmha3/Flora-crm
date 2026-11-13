@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { CalendarDays, ChevronRight, ChevronLeft } from "lucide-react";
 import { SP, RAD, FS, glass } from "./theme.js";
 import { isoToJalali, jalaliMonthLength, jalaliFirstWeekday, jalaliToIso, fmtJalali, faDigits, MONTHS_FA, WEEK_FA, humanizeToman } from "./format.js";
 import { getImageObjectUrl } from "./imageStore.js";
+import { getMediaUrl } from "./mediaStore.js";
 
 const FLORA_GOLD = "#BA9358";
 
@@ -52,24 +54,29 @@ function EmptyLine({ c, text }) {
 // that don't pass onClose (rare) keep their previous behavior unchanged.
 function BodyPortal({ children, onClose }) {
   const ref = useRef(null);
+  // onClose is a fresh arrow each parent render — read it via a ref so focus
+  // + listener run once per open (re-focusing every render stole focus from
+  // inputs and closed the iPhone keyboard).
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const hasClose = !!onClose;
   useEffect(() => {
-    if (!onClose) return;
-    ref.current?.focus();
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    if (!hasClose) return;
+    ref.current?.focus({ preventScroll: true });
+    const onKey = (e) => { if (e.key === "Escape") closeRef.current?.(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return <div style={{ position: "fixed", inset: 0, zIndex: 2147483000, pointerEvents: "none" }}>
-    <div
-      ref={ref}
-      role={onClose ? "dialog" : undefined}
-      aria-modal={onClose ? "true" : undefined}
-      tabIndex={onClose ? -1 : undefined}
-      style={{ position: "absolute", inset: 0, pointerEvents: "auto", outline: "none" }}
-    >
-      {children}
+  }, [hasClose]);
+  // Real portal into <body>: no transformed/zoomed ancestor can trap it.
+  const node = (
+    <div dir="rtl" style={{ position: "fixed", inset: 0, zIndex: 2147483000, pointerEvents: "none", fontFamily: "'Vazirmatn', sans-serif" }}>
+      <div ref={ref} role={onClose ? "dialog" : undefined} aria-modal={onClose ? "true" : undefined} tabIndex={onClose ? -1 : undefined}
+        style={{ position: "absolute", inset: 0, pointerEvents: "auto", outline: "none" }}>
+        {children}
+      </div>
     </div>
-  </div>;
+  );
+  return typeof document !== "undefined" ? createPortal(node, document.body) : node;
 }
 
 function Field({ c, label, children }) { return <div style={{ marginBottom: SP.md }}><label style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.sm, display: "block" }}>{label}</label>{children}</div>; }
@@ -205,4 +212,27 @@ function MoneyField({ c, value, onChange, placeholder, style }) {
   );
 }
 
-export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, MoneyField, JalaliDatePicker, MediaThumb, MediaFull, CloudImage };
+// Videos/documents: resolves legacy inline url, cloud signed URL or device blob.
+function useMediaUrl(item) {
+  const [src, setSrc] = useState(item?.url || null);
+  const key = item ? (item.url ? "u" : item.storagePath || item.localBlobId || item.id) : null;
+  useEffect(() => {
+    if (!item || item.url) { setSrc(item?.url || null); return; }
+    let cancelled = false;
+    getMediaUrl(item).then((u) => { if (!cancelled) setSrc(u); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [key]); // eslint-disable-line
+  return src;
+}
+// preload="metadata": list thumbnails never pull a whole video into memory.
+function MediaVideo({ item, controls = false, autoPlay = false, muted, style, className }) {
+  const src = useMediaUrl(item);
+  if (!src) return <div style={{ ...style, background: "rgba(0,0,0,0.35)" }} className={className} />;
+  return <video src={src} controls={controls} autoPlay={autoPlay} muted={muted ?? !controls} playsInline preload={controls ? "auto" : "metadata"} style={style} className={className} />;
+}
+function MediaLink({ item, children, ...rest }) {
+  const src = useMediaUrl(item);
+  return <a href={src || undefined} download={item?.name || "file"} target="_blank" rel="noreferrer" {...rest}>{children}</a>;
+}
+
+export { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, MoneyField, JalaliDatePicker, MediaThumb, MediaFull, CloudImage, MediaVideo, MediaLink, useMediaUrl };

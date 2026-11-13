@@ -133,7 +133,7 @@ function NotificationsSettings({ ctx }) {
   const needsIosInstall = ios && !standalone;
 
   const loadTelegramStatus = async (uid) => {
-    const { data } = await supabase.from("telegram_links").select("chat_id").eq("user_id", uid).single().catch(() => ({ data: null }));
+    const { data } = await supabase.from("telegram_links").select("chat_id").eq("user_id", uid).maybeSingle().then((r) => r, () => ({ data: null }));
     setTelegramChatId(data?.chat_id ?? null);
   };
 

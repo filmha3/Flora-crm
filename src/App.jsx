@@ -22,8 +22,9 @@ import { MAX_IMAGE_DIM, IMAGE_QUALITY, supportsWebp, FALLBACK_DIM, FALLBACK_QUAL
 import { T, FS, FW, SP, RAD, glass, glassLite, glassSurface } from "./lib/theme.js";
 import { COORD_ORDER, coordMeta, KEY_ORDER, KEY_LABEL, DISLIKE_REASONS, RATING_ORDER, ratingMeta, mapsLink } from "./lib/tourMeta.js";
 import { useCountUp, CountUpToman, CountUpTomanSplit, CountUpNum } from "./lib/countup.jsx";
-import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker, MediaThumb, MediaFull } from "./lib/ui.jsx";
+import { FLORA_GOLD, FloraMark, DivarMark, EmptyLine, BodyPortal, Field, inputStyle, JalaliDatePicker, MediaThumb, MediaFull, MediaVideo, MediaLink } from "./lib/ui.jsx";
 import { uploadPropertyImageBatch, migrateLegacyMediaItem, deletePropertyPhotoPaths, deletePropertyFolder } from "./lib/imageStore.js";
+import { storeMediaFiles, deleteMediaItem, extractInlineMedia } from "./lib/mediaStore.js";
 import { AuthPhoneField, PasswordBoxes, AuthScreen, OnboardingTour, formatPhoneDisplay, phoneToE164 } from "./components/Auth.jsx";
 import { TourEntryCard, TourWizard, TourStepCustomer, TourStepProperties, TourStepReview, TourSession, TourFocusMode, TourCompleteScreen } from "./components/Tour.jsx";
 import { WeeklyStatsTile, WeeklyStatsHome } from "./components/WeeklyStats.jsx";
@@ -172,9 +173,10 @@ export default function FloraCRM() {
   useEffect(() => {
     document.documentElement.style.background = c.bg;
     document.body.style.background = c.bg;
+    document.body.style.color = c.ink; // overlays are portaled into <body>
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", c.bg);
-  }, [c.bg]);
+  }, [c.bg, c.ink]);
 
   // undefined = still checking on load, null = signed out, object = signed in
   const [session, setSession] = useState(undefined);
@@ -265,17 +267,22 @@ export default function FloraCRM() {
   const [showTour, setShowTour] = useState(false);
   useEffect(() => {
     if (!session) return;
+    // Once dismissed on this device it never comes back — even if saving
+    // tour_seen to the server failed (that made it reappear every launch).
+    const seenKey = `flora:tourSeen:${session.user.id}`;
+    try { if (localStorage.getItem(seenKey)) return; } catch (e) { /* ignore */ }
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await Promise.race([
+        const { data, error } = await Promise.race([
           supabase.from("profiles").select("tour_seen").eq("id", session.user.id).single(),
           new Promise((_, reject) => setTimeout(() => reject(new Error("profile check timed out")), 8000)),
         ]);
-        if (!cancelled && !data?.tour_seen) setShowTour(true);
-      } catch (e) {
-        if (!cancelled) setShowTour(true); // no row yet — still a first-time user
-      }
+        if (data?.tour_seen) { try { localStorage.setItem(seenKey, "1"); } catch (e) { /* ignore */ } }
+        // Only "no profile row" (PGRST116) means first-time user — a network
+        // error must never pop the tour over whatever the agent is doing.
+        else if (!cancelled && (!error || error.code === "PGRST116")) setShowTour(true);
+      } catch (e) { /* timeout/offline: don't show */ }
     })();
     return () => { cancelled = true; };
   }, [session?.user?.id]); // eslint-disable-line
@@ -293,6 +300,19 @@ export default function FloraCRM() {
     setCelebration(payload);
     celebrationTimer.current = setTimeout(() => setCelebration(null), 1600);
   };
+  const cloudPushTimerRef = useRef(null);
+  const cloudPushChainRef = useRef(Promise.resolve());
+  const cloudPushFlushRef = useRef(null);
+  // App going to background: send any pending cloud save right away.
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState !== "hidden" || !cloudPushFlushRef.current) return;
+      clearTimeout(cloudPushTimerRef.current);
+      cloudPushFlushRef.current();
+    };
+    document.addEventListener("visibilitychange", flush);
+    return () => document.removeEventListener("visibilitychange", flush);
+  }, []);
   const [mapPicker, setMapPicker] = useState(null); // separate overlay so it never closes the form underneath
   const [propStageHint, setPropStageHint] = useState("همه");
 
@@ -527,11 +547,41 @@ export default function FloraCRM() {
       };
       dbSet(DATA_KEY, core).catch(() => {});
       if (cloudReady && session?.user) {
-        pushCloudData(session.user.id, core).then(() => { cloudSyncedAtRef.current = now; }).catch(() => {});
+        // Extra 2s debounce + never overlapping: uploading the whole dataset
+        // after every small edit was a big memory spike on iPhone.
+        clearTimeout(cloudPushTimerRef.current);
+        const userId = session.user.id;
+        const fire = () => {
+          cloudPushTimerRef.current = null; cloudPushFlushRef.current = null;
+          const run = () => pushCloudData(userId, core).then(() => { cloudSyncedAtRef.current = now; }).catch(() => {});
+          cloudPushChainRef.current = cloudPushChainRef.current.then(run, run);
+        };
+        cloudPushFlushRef.current = fire;
+        cloudPushTimerRef.current = setTimeout(fire, 2000);
       }
-    }, 400);
+    }, 600);
     return () => clearTimeout(t);
   }, [loaded, cloudReady, properties, owners, builders, customers, appointments, calls, deals, payments, expenses, officeIncomes, investments, tours, checks, streetPrices, constructionProjects, constructionTransactions, materialCoefficients, materialEstimates, constructionCostEstimates, agentName, agentPhoto, agencyName, agencyCity, aiProvider, avalaiModel, geminiKey, avalaiKey, perplexityKey, splitShares, simpleMode, largeText, agentPhone]);
+
+  // One-time clean-up: old base64 videos/documents inside properties[].media
+  // were copied on every save + sync (main iPhone reload cause). Move them
+  // into the on-device blob store once, in the background.
+  const inlineMigratedRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || inlineMigratedRef.current) return;
+    if (!properties.some((p) => (p.media || []).some((m) => m.type !== "image" && typeof m.url === "string" && m.url.startsWith("data:")))) return;
+    inlineMigratedRef.current = true;
+    extractInlineMedia(properties).then((next) => {
+      if (!next) return;
+      const byId = new Map(next.map((p) => [p.id, p.media]));
+      setProperties((prev) => prev.map((p) => {
+        const nm = byId.get(p.id);
+        if (!nm || nm === p.media) return p;
+        const replaced = new Map(nm.map((m) => [m.id, m]));
+        return { ...p, media: (p.media || []).map((m) => replaced.get(m.id) || m) };
+      }));
+    }).catch(() => {});
+  }, [loaded, properties]); // eslint-disable-line
 
   // Live cross-device convergence: if a second signed-in device (or this
   // same account on the web) pushes a newer flora_data row while this tab
@@ -692,7 +742,7 @@ export default function FloraCRM() {
         nearest_check_label: nearestCheckLabel,
         top_action_label: topActionLabel,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" }).catch(() => {});
+      }, { onConflict: "user_id" }).then(() => {}, () => {}); // query builders have no .catch — this threw
     }, 1500);
     return () => clearTimeout(t);
   }, [loaded, calls, appointments, customers, checks, properties, deals, session]);
@@ -1278,6 +1328,7 @@ export default function FloraCRM() {
         {showTour && session?.user && (
           <OnboardingTour c={c} onDone={() => {
             setShowTour(false);
+            try { localStorage.setItem(`flora:tourSeen:${session.user.id}`, "1"); } catch (e) { /* ignore */ }
             supabase.from("profiles").upsert({ id: session.user.id, tour_seen: true }).then(() => {});
           }} />
         )}
@@ -2862,7 +2913,7 @@ function PropertyMiniCard({ p, c, onClick }) {
   return (
     <button onClick={onClick} className="press w-full text-right flex items-center" style={{ gap: SP.md, padding: SP.md, borderRadius: RAD.md, ...glassLite(c, RAD.md), opacity: sold ? 0.5 : 1 }}>
       <div className="flex items-center justify-center shrink-0 overflow-hidden" style={{ width: 56, height: 56, borderRadius: RAD.md, background: cover ? c.primarySoft : `linear-gradient(140deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
-        {cover ? (cover.type === "image" ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
+        {cover ? (cover.type === "image" ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <MediaVideo item={cover} style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <Icon size={22} color={c.primary} />}
       </div>
       <div className="flex-1 min-w-0">
         <p style={{ fontSize: FS.body, fontWeight: FW.bold, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: sold ? "line-through" : "none" }}>{p.title}</p>
@@ -3196,7 +3247,7 @@ function PropertyGridCard({ p, ctx, onClick, selectMode, selected, onToggleSelec
       {cover ? (
         cover.type === "image"
           ? <MediaThumb item={cover} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onLoad={(e) => { if (url && !domColorCache.has(url)) setRgb(sampleDominantColor(e.currentTarget, url)); }} />
-          : <video src={cover.url} muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          : <MediaVideo item={cover} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: `linear-gradient(150deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
           <Icon size={34} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} />
@@ -3262,7 +3313,7 @@ function PipelineBoard({ rows, ctx }) {
                   <div key={p.id} className="rounded-lg overflow-hidden" style={glass(c)}>
                     <button onClick={() => setDetail({ type: "property", id: p.id })} className="press w-full text-right">
                       <div className="w-full" style={{ height: 90, background: c.primarySoft }}>
-                        {cover ? (cover.type === "image" ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} /></div>}
+                        {cover ? (cover.type === "image" ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <MediaVideo item={cover} style={{ width: "100%", height: "100%", objectFit: "cover" }} />) : <div className="w-full h-full flex items-center justify-center"><Icon size={26} color={c.primary} className="flora-float" style={{ opacity: 0.5 }} /></div>}
                       </div>
                       <div className="p-2.5">
                         <p style={{ fontSize: 13, fontWeight: 700 }}>{p.title}</p>
@@ -3946,7 +3997,7 @@ function AccountBackupCard({ ctx }) {
   const deleteBackup = async (h) => {
     setConfirmDeleteId(null);
     if (h.storage_path) await supabase.storage.from("backups").remove([h.storage_path]).catch(() => {});
-    await supabase.from("backup_history").delete().eq("id", h.id).catch(() => {});
+    await supabase.from("backup_history").delete().eq("id", h.id).then(() => {}, () => {});
     setHistory((prev) => prev.filter((x) => x.id !== h.id));
     notify("بکاپ حذف شد");
   };
@@ -4786,7 +4837,7 @@ function MediaGallery({ c, media, onAdd, onRemove, onView, uploading, accept = "
         <div key={m.id} className="relative shrink-0 rounded-lg overflow-hidden" style={{ width: 84, height: 84 }}>
           <button onClick={() => onView({ media, index: mi })} className="w-full h-full">
             {m.type === "image" ? <MediaThumb item={m} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : m.type === "video" ? (
-              <div className="relative w-full h-full"><video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} /><div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={18} color="#fff" fill="#fff" /></div></div>
+              <div className="relative w-full h-full"><MediaVideo item={m} style={{ width: "100%", height: "100%", objectFit: "cover" }} /><div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}><Play size={18} color="#fff" fill="#fff" /></div></div>
             ) : (
               <div className="flex flex-col items-center justify-center w-full h-full" style={{ background: c.surface2, padding: 8 }}>
                 <FileText size={22} color={c.muted} />
@@ -4835,12 +4886,12 @@ function Lightbox({ item, onClose }) {
         {cur.type === "image"
           ? <div key={cur.id} className="flora-gallery-fade" style={{ maxWidth: "100%", maxHeight: "100%" }}><MediaFull item={cur} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14, objectFit: "contain" }} kenBurns /></div>
           : cur.type === "video"
-          ? <video src={cur.url} controls autoPlay style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14 }} />
+          ? <MediaVideo item={cur} controls autoPlay style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 14 }} />
           : (
             <div className="flex flex-col items-center" style={{ gap: 12 }}>
               <FileText size={48} color="rgba(255,255,255,0.7)" />
               <p style={{ color: "#fff", fontSize: 13, fontWeight: 600, textAlign: "center" }}>{cur.name || "فایل"}</p>
-              <a href={cur.url} download={cur.name || "file"} className="press" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.18)", padding: "10px 20px", borderRadius: 999 }}>باز کردن / دانلود</a>
+              <MediaLink item={cur} className="press" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.18)", padding: "10px 20px", borderRadius: 999 }}>باز کردن / دانلود</MediaLink>
             </div>
           )}
 
@@ -5097,7 +5148,7 @@ function PropertyHero({ c, p, media, onBack, onEdit, uploading, addMedia, setLig
         {cover ? (
           cover.type === "image"
             ? <MediaThumb item={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} kenBurns />
-            : <video src={cover.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            : <MediaVideo item={cover} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center" style={{ background: `linear-gradient(150deg, ${c.primarySoft}, ${c.purpleSoft})` }}>
             <Building2 size={48} color={c.primary} style={{ opacity: 0.4 }} />
@@ -5119,7 +5170,7 @@ function PropertyHero({ c, p, media, onBack, onEdit, uploading, addMedia, setLig
       <div className="absolute flex items-center flora-rise" style={{ left: 16, right: 16, bottom: 16, gap: 8, padding: 8, borderRadius: 22, background: "rgba(255,255,255,.14)", backdropFilter: "blur(18px) saturate(180%)", WebkitBackdropFilter: "blur(18px) saturate(180%)", border: "1px solid rgba(255,255,255,.2)", overflowX: "auto" }}>
         {media.slice(0, 4).map((m, i) => (
           <button key={m.id} onClick={() => setLightbox({ media, index: i })} className="press shrink-0" style={{ width: 46, height: 46, borderRadius: 14, overflow: "hidden", border: i === 0 ? "2px solid #fff" : "1px solid rgba(255,255,255,.3)" }}>
-            {m.type === "image" ? <MediaThumb item={m} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <video src={m.url} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            {m.type === "image" ? <MediaThumb item={m} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <MediaVideo item={m} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
           </button>
         ))}
         {media.length > 4 && (
@@ -5242,31 +5293,38 @@ function PropertyDetail({ id, ctx, onBack }) {
   };
 
   const addMedia = async (fileList) => {
+    if (uploading) return; // a second pick mid-processing doubled memory use
     setUploading(true);
-    const files = Array.from(fileList);
-    const videosAndDocs = files.filter((f) => !f.type.startsWith("image"));
-    const images = files.filter((f) => f.type.startsWith("image"));
-    const startSortOrder = (p.media || []).length;
-    // Videos/documents keep the old base64-inline path for now — only
-    // photos move to Storage here. A failed image upload never corrupts
-    // the property: it's simply skipped and reported, everything else
-    // that succeeded is still appended.
-    const [legacyItems, { items: cloudItems, failed }] = await Promise.all([
-      videosAndDocs.length ? filesToMedia(videosAndDocs) : Promise.resolve([]),
-      images.length && session?.user
-        ? uploadPropertyImageBatch({ userId: session.user.id, propertyId: id, files: images, startSortOrder })
-        : (images.length ? filesToMedia(images).then((items) => ({ items, failed: [] })) : Promise.resolve({ items: [], failed: [] })),
-    ]);
-    if (cloudItems.length || legacyItems.length) {
-      setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: [...(x.media || []), ...cloudItems, ...legacyItems] } : x));
+    try {
+      const files = Array.from(fileList);
+      const videosAndDocs = files.filter((f) => !f.type.startsWith("image"));
+      const images = files.filter((f) => f.type.startsWith("image"));
+      const startSortOrder = (p.media || []).length;
+      // Photos → Storage (resized one at a time); videos/docs → Storage or
+      // device blob store — never base64 inside the CRM data any more.
+      const imgRes = images.length
+        ? (session?.user
+          ? await uploadPropertyImageBatch({ userId: session.user.id, propertyId: id, files: images, startSortOrder })
+          : { items: await filesToMedia(images), failed: [] })
+        : { items: [], failed: [] };
+      const vidRes = videosAndDocs.length
+        ? await storeMediaFiles({ userId: session?.user?.id, propertyId: id, files: videosAndDocs, startSortOrder: startSortOrder + images.length })
+        : { items: [], failed: [] };
+      const added = [...imgRes.items, ...vidRes.items];
+      if (added.length) setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: [...(x.media || []), ...added] } : x));
+      const failedCount = imgRes.failed.length + vidRes.failed.length;
+      if (failedCount) notify(`${faDigits(failedCount)} فایل آپلود نشد — بقیه ذخیره شد`);
+    } catch (e) {
+      notify("آپلود ناموفق بود — دوباره امتحان کن");
+    } finally {
+      setUploading(false);
     }
-    if (failed.length) notify(`${faDigits(failed.length)} عکس آپلود نشد — بقیه ذخیره شد`);
-    setUploading(false);
   };
   const removeMedia = (mediaId) => {
     const target = (p.media || []).find((m) => m.id === mediaId);
     setProperties((prev) => prev.map((x) => x.id === id ? { ...x, media: x.media.filter((m) => m.id !== mediaId) } : x));
-    if (target?.storagePath) deletePropertyPhotoPaths([target.storagePath, target.thumbnailPath]).catch(() => {});
+    if (target?.type === "image" && target?.storagePath) deletePropertyPhotoPaths([target.storagePath, target.thumbnailPath]).catch(() => {});
+    else if (target) deleteMediaItem(target).catch(() => {});
   };
   const propAppts = appointments.filter((a) => a.propertyId === id);
 
@@ -7018,12 +7076,17 @@ function MoneyIdeasCard({ ctx, received }) {
 // ---------- Sheet shell + fields ----------
 function SheetShell({ c, title, onClose, children }) {
   const ref = useRef(null);
+  // onClose is a new arrow every render; via a ref this runs once per open.
+  // Before, every app re-render re-focused the sheet and pulled focus out of
+  // the field being typed in (iPhone keyboard kept closing).
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
-    ref.current?.focus();
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    ref.current?.focus({ preventScroll: true });
+    const onKey = (e) => { if (e.key === "Escape") closeRef.current?.(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
   return (
     // `fixed` (not `absolute`) — the app shell uses minHeight:100vh, so it can be
     // taller than the screen; an absolutely-positioned sheet would anchor to the
@@ -7107,10 +7170,18 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
   const mapRef = useRef(null); const mapObjRef = useRef(null);
   const [address, setAddress] = useState(""); const [loadingAddr, setLoadingAddr] = useState(false);
   const [coords, setCoords] = useState(initial && initial.lat ? [initial.lat, initial.lng] : SAREIN_CENTER);
+  // Only the LATEST tap may write the address (a slow earlier answer used to
+  // overwrite a newer one), and nothing updates after the picker closed.
+  const geoSeq = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
   const reverseGeocode = async (lat, lng) => {
+    const seq = ++geoSeq.current;
     setCoords([lat, lng]);
     setLoadingAddr(true);
-    setAddress(await reverseGeocodeAddress(lat, lng));
+    const addr = await reverseGeocodeAddress(lat, lng);
+    if (!alive.current || seq !== geoSeq.current) return;
+    setAddress(addr);
     setLoadingAddr(false);
   };
   useEffect(() => {
@@ -7133,6 +7204,10 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
       // invalidateSize() forces a fresh measurement after the animation
       // is done, which is the standard fix for this exact Leaflet issue.
       setTimeout(() => { if (!cancelled && mapObjRef.current) mapObjRef.current.invalidateSize(); }, 380);
+      // iOS keyboard closing / rotation resizes the viewport — re-measure.
+      const onResize = () => { if (mapObjRef.current) mapObjRef.current.invalidateSize(); };
+      window.addEventListener("resize", onResize);
+      map.on("unload", () => window.removeEventListener("resize", onResize));
     });
     return () => { cancelled = true; if (mapObjRef.current) { mapObjRef.current.remove(); mapObjRef.current = null; } };
   }, []);
@@ -7148,7 +7223,7 @@ function MapPickerModal({ c, onPick, onClose, initial }) {
           <div style={{ padding: SP.lg }} dir="rtl">
             <p style={{ fontSize: FS.caption, color: c.muted, marginBottom: SP.xs }}>روی نقشه لمس کن یا نشانگر را جابه‌جا کن</p>
             <p style={{ fontSize: FS.body, fontWeight: FW.medium, minHeight: 20, color: c.ink }}>{loadingAddr ? "در حال یافتن آدرس..." : address}</p>
-            <button onClick={() => onPick({ address, lat: coords[0], lng: coords[1] })} disabled={!address || loadingAddr} className="press w-full" style={{ marginTop: SP.md, borderRadius: RAD.md, paddingBlock: SP.md, background: !address || loadingAddr ? c.surface2 : c.primary, color: !address || loadingAddr ? c.muted : "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>تایید این آدرس</button>
+            <button onClick={() => onPick({ address: loadingAddr ? "" : address, lat: coords[0], lng: coords[1] })} className="press w-full" style={{ marginTop: SP.md, borderRadius: RAD.md, paddingBlock: SP.md, background: c.primary, color: "#fff", fontWeight: FW.bold, fontSize: FS.body + 1 }}>تایید این آدرس</button>
           </div>
         </div>
       </div>
@@ -7446,6 +7521,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
   useEffect(() => { if (prefillNew) setPrefillNew(null); }, []); // eslint-disable-line
   const [media, setMedia] = useState(editing?.media || []);
   const [uploading, setUploading] = useState(false);
+  const removedMediaRef = useRef([]); // deleted from storage only on save
   const [showMore, setShowMore] = useState(false);
   const [showDivar, setShowDivar] = useState(false);
   const [divarLink, setDivarLink] = useState("");
@@ -7458,24 +7534,36 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
   const isPreSale = f.deal === "پیش‌فروش";
 
   const addMedia = async (fileList) => {
+    if (uploading) return; // a second pick mid-processing doubled memory use
     setUploading(true);
-    const files = Array.from(fileList);
-    const videosAndDocs = files.filter((f) => !f.type.startsWith("image"));
-    const images = files.filter((f) => f.type.startsWith("image"));
-    const startSortOrder = media.length;
-    const [legacyItems, { items: cloudItems, failed }] = await Promise.all([
-      videosAndDocs.length ? filesToMedia(videosAndDocs) : Promise.resolve([]),
-      images.length && session?.user
-        ? uploadPropertyImageBatch({ userId: session.user.id, propertyId: formPropertyId, files: images, startSortOrder })
-        : (images.length ? filesToMedia(images).then((items) => ({ items, failed: [] })) : Promise.resolve({ items: [], failed: [] })),
-    ]);
-    if (cloudItems.length || legacyItems.length) setMedia((prev) => [...prev, ...cloudItems, ...legacyItems]);
-    if (failed.length) notify(`${faDigits(failed.length)} عکس آپلود نشد — بقیه ذخیره شد`);
-    setUploading(false);
+    try {
+      const files = Array.from(fileList);
+      const videosAndDocs = files.filter((f) => !f.type.startsWith("image"));
+      const images = files.filter((f) => f.type.startsWith("image"));
+      const startSortOrder = media.length;
+      // Photos → Storage (resized one at a time); videos/docs → Storage or
+      // device blob store — never base64 inside the CRM data any more.
+      const imgRes = images.length
+        ? (session?.user
+          ? await uploadPropertyImageBatch({ userId: session.user.id, propertyId: formPropertyId, files: images, startSortOrder })
+          : { items: await filesToMedia(images), failed: [] })
+        : { items: [], failed: [] };
+      const vidRes = videosAndDocs.length
+        ? await storeMediaFiles({ userId: session?.user?.id, propertyId: formPropertyId, files: videosAndDocs, startSortOrder: startSortOrder + images.length })
+        : { items: [], failed: [] };
+      const added = [...imgRes.items, ...vidRes.items];
+      if (added.length) setMedia((prev) => [...prev, ...added]);
+      const failedCount = imgRes.failed.length + vidRes.failed.length;
+      if (failedCount) notify(`${faDigits(failedCount)} فایل آپلود نشد — بقیه ذخیره شد`);
+    } catch (e) {
+      notify("آپلود ناموفق بود — دوباره امتحان کن");
+    } finally {
+      setUploading(false);
+    }
   };
   const openMapPicker = () => setMapPicker({
     initial: { lat: f.lat, lng: f.lng },
-    onPick: ({ address, lat, lng }) => { setF((prev) => ({ ...prev, address, lat, lng })); setMapPicker(null); },
+    onPick: ({ address, lat, lng }) => { setF((prev) => ({ ...prev, address: address || prev.address, lat, lng })); setMapPicker(null); },
   });
 
   const [importState, setImportState] = useState("idle"); // idle | extracting | parsing | normalizing | checking_duplicate | preview | error
@@ -7669,6 +7757,13 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
       notify("فایل با موفقیت ثبت شد");
       celebrate({ kind: "file", label: "فایل جدید ثبت شد" });
     }
+    // Removed media is deleted only on save — removing then cancelling used
+    // to leave the saved property pointing at a deleted photo.
+    for (const t of removedMediaRef.current) {
+      if (t.type === "image" && t.storagePath) deletePropertyPhotoPaths([t.storagePath, t.thumbnailPath]).catch(() => {});
+      else deleteMediaItem(t).catch(() => {});
+    }
+    removedMediaRef.current = [];
     onClose();
   };
 
@@ -7819,7 +7914,7 @@ function PropertyForm({ ctx, onClose, editId, prefillDivarLink }) {
           )}
         </div>
       )}
-      <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => { const t = media.find((m) => m.id === mid); setMedia((p) => p.filter((m) => m.id !== mid)); if (t?.storagePath) deletePropertyPhotoPaths([t.storagePath, t.thumbnailPath]).catch(() => {}); }} onView={() => {}} /></Field>
+      <Field c={c} label="عکس و فیلم فایل"><MediaGallery c={c} media={media} uploading={uploading} onAdd={addMedia} onRemove={(mid) => { const t = media.find((m) => m.id === mid); setMedia((p) => p.filter((m) => m.id !== mid)); if (t) removedMediaRef.current.push(t); }} onView={(v) => ctx.setLightbox(v)} /></Field>
       <Field c={c} label="عنوان فایل"><input style={inputStyle(c)} value={f.title} onChange={set("title")} placeholder="مثلاً آپارتمان ۹۰ متری تهرانپارس" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field c={c} label="نوع ملک"><Select c={c} value={f.type} onChange={set("type")} placeholder="انتخاب کنید" options={["آپارتمان","ویلا","زمین","مغازه","اداری"].map(v=>({value:v,label:v}))} /></Field>
