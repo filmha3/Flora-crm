@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const STATIC_PAGES = ["", "properties", "about", "contact"];
+const STATIC_PAGES = ["", "properties", "about", "contact", "guide",
+  "guide/buy-property-sarein", "guide/pre-sale-sarein", "guide/apartment-prices-sarein", "guide/property-contract-sarein", "guide/property-investment-sarein"];
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

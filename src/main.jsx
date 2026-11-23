@@ -8,7 +8,7 @@ const _p = _loc.pathname;
 const _isPublic = !(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) && (
   _p === "/"
     ? !(_q.has("share") || _q.has("legal") || _q.has("code") || _q.has("error") || _loc.hash.includes("access_token"))
-    : ["/properties", "/about", "/contact"].includes(_p) || _p.startsWith("/properties/")
+    : ["/properties", "/about", "/contact", "/guide"].includes(_p) || _p.startsWith("/properties/") || _p.startsWith("/guide/")
 );
 const App = React.lazy(() => (_isPublic ? import("./PublicApp.jsx") : import("./App.jsx")));
 import "./index.css";

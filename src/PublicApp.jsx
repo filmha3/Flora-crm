@@ -2,9 +2,10 @@
 // Loaded instead of the whole CRM bundle (App.jsx) so visitors and Google
 // only download what the public pages actually need.
 import React, { useState, useEffect } from "react";
+import { PublicGuidesIndexView, PublicGuideView } from "./components/PublicGuides.jsx";
 import { PublicHomeView, PublicPropertiesListView, PublicPropertyDetailView, PublicAboutView, PublicContactView } from "./components/PublicSite.jsx";
 
-export const isPublicPath = (p) => ["/", "/properties", "/about", "/contact"].includes(p) || p.startsWith("/properties/");
+export const isPublicPath = (p) => ["/", "/properties", "/about", "/contact", "/guide"].includes(p) || p.startsWith("/properties/") || p.startsWith("/guide/");
 
 export default function PublicApp() {
   const [path, setPath] = useState(() => window.location.pathname);
@@ -22,6 +23,8 @@ export default function PublicApp() {
   };
   if (path === "/properties") return <PublicPropertiesListView key={window.location.search} navigate={navigate} />;
   if (path.startsWith("/properties/")) return <PublicPropertyDetailView slug={decodeURIComponent(path.slice("/properties/".length))} navigate={navigate} />;
+  if (path === "/guide") return <PublicGuidesIndexView navigate={navigate} />;
+  if (path.startsWith("/guide/")) return <PublicGuideView slug={decodeURIComponent(path.slice("/guide/".length))} navigate={navigate} />;
   if (path === "/about") return <PublicAboutView navigate={navigate} />;
   if (path === "/contact") return <PublicContactView navigate={navigate} />;
   return <PublicHomeView navigate={navigate} />;

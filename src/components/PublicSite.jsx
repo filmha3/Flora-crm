@@ -108,7 +108,9 @@ const ORG_LD = {
   geo: { "@type": "GeoCoordinates", latitude: 38.14557, longitude: 48.07265 },
   areaServed: { "@type": "City", name: "سرعین" },
   employee: { "@type": "Person", name: "قبادی", jobTitle: "مدیر املاک" },
+  alternateName: ["Flora", "FloraPro", "فلورا", "فلورا پرو", "املاک گنجینه سرعین"],
 };
+const WEBSITE_LD = { "@context": "https://schema.org", "@type": "WebSite", "@id": SITE + "/#website", url: SITE + "/", name: "FloraPro", inLanguage: "fa-IR", publisher: { "@id": ORG_LD["@id"] } };
 const EXTRA_CSS = `
 html,body,#root{background:${pc.bg}!important}
 html,body{max-width:100%;overflow-x:hidden}
@@ -163,7 +165,7 @@ function setMeta(title, description, { path, image, jsonLd } = {}) {
   // Replace the CRM's SoftwareApplication schema with the agency + page schema.
   document.head.querySelectorAll('script[type="application/ld+json"]').forEach((x) => x.remove());
   const ld = document.createElement("script"); ld.type = "application/ld+json";
-  ld.textContent = JSON.stringify([ORG_LD, ...(jsonLd ? [].concat(jsonLd) : [])]);
+  ld.textContent = JSON.stringify([ORG_LD, WEBSITE_LD, ...(jsonLd ? [].concat(jsonLd) : [])]);
   document.head.appendChild(ld);
 }
 
@@ -257,6 +259,7 @@ function PublicFooter({ navigate, flush }) {
             <h2 style={h}>دسترسی سریع</h2>
             <div style={col}>
               <NavLink to="/properties" navigate={navigate} className="fp-flink">فایل‌ها</NavLink>
+              <NavLink to="/guide" navigate={navigate} className="fp-flink">راهنمای خرید ملک</NavLink>
               <NavLink to="/about" navigate={navigate} className="fp-flink">درباره ما</NavLink>
               <NavLink to="/contact" navigate={navigate} className="fp-flink">ارتباط با ما</NavLink>
               <a href="/site" className="fp-flink">ورود مشاوران</a>
@@ -1083,4 +1086,4 @@ function PublicContactView({ navigate }) {
   );
 }
 
-export { PublicHomeView, PublicPropertiesListView, PublicPropertyDetailView, PublicAboutView, PublicContactView };
+export { PublicHomeView, PublicPropertiesListView, PublicPropertyDetailView, PublicAboutView, PublicContactView, setMeta, pc, OFFICE, SITE, ORG_LD, NavLink, PublicHeader, PublicFooter };
