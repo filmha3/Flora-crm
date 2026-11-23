@@ -16,7 +16,7 @@
         var p = location.pathname, q = location.search;
         var isPublic = !(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) &&
           (p === "/" ? !/[?&](share|legal|code|error)=/.test(q) && location.hash.indexOf("access_token") < 0
-                     : /^\/(properties|about|contact)(\/|$)/.test(p));
+                     : /^\/(properties|about|contact|guide)(\/|$)/.test(p));
         if (isPublic) { document.documentElement.classList.add("public-route"); return; }
         // Agent CRM (/site, share links, …): app title, not indexed.
         document.title = "Flora CRM — ورود مشاوران املاک";
