@@ -3742,6 +3742,7 @@ function MoreTab({ ctx }) {
   const pending = calls.filter((cl) => cl.status !== "انجام‌شد").length;
   const [contactsOpen, setContactsOpen] = useState(null); // "owners" | "builders" | null
   const [backupOpen, setBackupOpen] = useState(false);
+  const [postsOpen, setPostsOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const [redeeming, setRedeeming] = useState(false);
   const redeemCode = async () => {
@@ -3812,6 +3813,7 @@ function MoreTab({ ctx }) {
         <ListRow c={c} icon={Bell} label="اعلان‌ها" onClick={() => ctx.setNotificationsOpen(true)} />
         <ListRow c={c} icon={Sparkles} label="هوش مصنوعی" onClick={() => setSheet("ai-settings")} />
         <ListRow c={c} icon={Download} label="پشتیبان‌گیری" onClick={() => setBackupOpen(true)} />
+        <ListRow c={c} icon={Globe} label="پست‌های روی سایت" onClick={() => setPostsOpen(true)} />
       </ListSection>
 
       {/* Account + cloud backup keeps its own richer card — it holds live
@@ -3861,6 +3863,7 @@ function MoreTab({ ctx }) {
       <div style={{ height: 12 }} />
 
       {contactsOpen && <ContactsSheet ctx={ctx} kind={contactsOpen} onClose={() => setContactsOpen(null)} />}
+      {postsOpen && <PublishedPostsSheet ctx={ctx} onClose={() => setPostsOpen(false)} />}
       {backupOpen && (
         <SheetShell c={c} title="پشتیبان‌گیری دستی" onClose={() => setBackupOpen(false)}>
           <p style={{ fontSize: 12, color: c.muted, marginBottom: SP.md, lineHeight: 1.9 }}>بکاپ کامل همه‌چیز را ذخیره می‌کند. برای بخشی از داده‌ها از دکمه‌های جدا استفاده کن.</p>
@@ -3887,6 +3890,48 @@ function MoreTab({ ctx }) {
         </SheetShell>
       )}
     </div>
+  );
+}
+
+// Lists everything currently published on the public site (public_properties)
+// for this account, so an old/orphaned post can be removed even if its CRM file
+// no longer exists. Only deletes the public copy — never the CRM record.
+function PublishedPostsSheet({ ctx, onClose }) {
+  const { c, notify, session } = ctx;
+  const [rows, setRows] = useState(null); // null = loading
+  const [busyId, setBusyId] = useState(null);
+  const load = async () => {
+    if (!session?.user) { setRows([]); return; }
+    const { data, error } = await supabase.from("public_properties").select("id, title, deal, price, updated_at").eq("user_id", session.user.id).order("updated_at", { ascending: false });
+    if (error) { notify("خواندن لیست ناموفق بود"); setRows([]); return; }
+    setRows(data || []);
+  };
+  useEffect(() => { load(); }, []); // eslint-disable-line
+  const remove = async (r) => {
+    if (!window.confirm(`«${r.title}» از سایت حذف شود؟`)) return;
+    setBusyId(r.id);
+    try { await unpublishProperty(r.id); setRows((prev) => prev.filter((x) => x.id !== r.id)); notify("از سایت حذف شد"); }
+    catch (e) { notify("حذف ناموفق بود"); }
+    finally { setBusyId(null); }
+  };
+  return (
+    <SheetShell c={c} title="پست‌های روی سایت" onClose={onClose}>
+      {rows === null && <EmptyLine c={c} text="در حال بارگذاری..." />}
+      {rows && rows.length === 0 && <EmptyLine c={c} text="پستی روی سایت نیست" />}
+      <div className="flex flex-col gap-2">
+        {(rows || []).map((r) => (
+          <div key={r.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: c.surface2 }}>
+            <div className="flex-1 min-w-0">
+              <p style={{ fontSize: 13, fontWeight: 600 }}>{r.title}</p>
+              <p style={{ fontSize: 11, color: c.muted }}>{[r.deal, r.price ? fmtToman(r.price) : null].filter(Boolean).join(" · ")}</p>
+            </div>
+            <button onClick={() => remove(r)} disabled={busyId === r.id} aria-label="حذف" title="حذف" className="press w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: c.danger, opacity: busyId === r.id ? 0.5 : 1 }}>
+              <Trash2 size={13} color="#fff" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </SheetShell>
   );
 }
 
