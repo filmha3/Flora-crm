@@ -18,7 +18,7 @@ export function generateDraft(floors, unitsPerFloor, areas, pricePerSqm) {
     floor_number: f + 1,
     units: Array.from({ length: unitsPerFloor }, (_, i) => {
       const area = list.length ? list[i % list.length] : 100;
-      return { key: tmpId(), unit_number: unitNumber(f + 1, i), area, price: pricePerSqm > 0 ? Math.round(area * pricePerSqm) : null };
+      return { key: tmpId(), unit_number: unitNumber(f + 1, i), area, bedrooms: null, price: pricePerSqm > 0 ? Math.round(area * pricePerSqm) : null };
     }),
   }));
 }
