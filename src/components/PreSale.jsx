@@ -40,6 +40,9 @@ function Wizard({ ctx, projectId, onBack, onSaved }) {
   const [perFloor, setPerFloor] = useState("3");
   const [areas, setAreas] = useState(["120", "135", "170"]);
   const [ppsqm, setPpsqm] = useState("");
+  const [bw, setBw] = useState("");
+  const [bd, setBd] = useState("22");
+  const [fh, setFh] = useState("3.2");
   const [draft, setDraft] = useState([]);
   const sig = useRef("");
   const [err, setErr] = useState("");
@@ -57,9 +60,9 @@ function Wizard({ ctx, projectId, onBack, onSaved }) {
         if (p.error) throw p.error; if (f.error) throw f.error;
         const P = p.data;
         setName(P.name); setImgs({ cover: P.cover_image, front: P.facade_front_image, back: P.facade_back_image, sides: P.facade_side_images || [] });
-        setWall(P.settings?.wall || null); setNFloors(String(P.total_floors)); setPpsqm(P.settings?.ppsqm ? String(P.settings.ppsqm) : "");
+        setWall(P.settings?.wall || null); setNFloors(String(P.total_floors)); setPpsqm(P.settings?.ppsqm ? String(P.settings.ppsqm) : ""); setBw(P.settings?.width ? String(P.settings.width) : ""); setBd(String(P.settings?.depth || 22)); setFh(String(P.settings?.floor_height || 3.2));
         if (P.settings?.areas?.length) setAreas(P.settings.areas.map(String));
-        const d = f.data.map((fl) => ({ floor_number: fl.floor_number, id: fl.id, units: u.filter((x) => x.floor_id === fl.id).sort((a, b) => (a.position_configuration?.order ?? 0) - (b.position_configuration?.order ?? 0)).map((x) => ({ key: x.id, id: x.id, unit_number: x.unit_number, area: x.area, price: x.price, status: x.status, buyer_name: x.buyer_name })) }));
+        const d = f.data.map((fl) => ({ floor_number: fl.floor_number, id: fl.id, units: u.filter((x) => x.floor_id === fl.id).sort((a, b) => (a.position_configuration?.order ?? 0) - (b.position_configuration?.order ?? 0)).map((x) => ({ key: x.id, id: x.id, unit_number: x.unit_number, area: x.area, bedrooms: x.bedrooms, price: x.price, status: x.status, buyer_name: x.buyer_name })) }));
         setDraft(d); setOrig({ floors: f.data, units: u, project: P });
         sig.current = "edit";
       } catch (e) { setErr("بارگذاری پروژه ممکن نشد."); }
@@ -111,10 +114,10 @@ function Wizard({ ctx, projectId, onBack, onSaved }) {
     if (f.floor_number !== num) return f;
     const used = new Set(f.units.map((u) => u.unit_number));
     let i = 0; while (used.has(unitNumber(num, i))) i++;
-    return { ...f, units: [...f.units, { key: tmpId(), unit_number: unitNumber(num, i), area: numAreas[f.units.length % numAreas.length] || 100, price: null }] };
+    return { ...f, units: [...f.units, { key: tmpId(), unit_number: unitNumber(num, i), area: numAreas[f.units.length % numAreas.length] || 100, bedrooms: null, price: null }] };
   }));
   const delUnit = (num, key) => setDraft((d) => d.map((f) => (f.floor_number !== num ? f : { ...f, units: f.units.filter((u) => u.key !== key) })));
-  const copyTo = (num) => setDraft((d) => { const src = d.find((f) => f.floor_number === num); return d.map((f) => (f.floor_number === num ? f : { ...f, units: src.units.map((u, i) => ({ key: tmpId(), unit_number: unitNumber(f.floor_number, i), area: u.area, price: null })) })); });
+  const copyTo = (num) => setDraft((d) => { const src = d.find((f) => f.floor_number === num); return d.map((f) => (f.floor_number === num ? f : { ...f, units: src.units.map((u, i) => ({ key: tmpId(), unit_number: unitNumber(f.floor_number, i), area: u.area, bedrooms: u.bedrooms ?? null, price: null })) })); });
 
   const validate = () => {
     const all = draft.flatMap((f) => f.units.map((u) => ({ ...u, f: f.floor_number })));
@@ -135,7 +138,7 @@ function Wizard({ ctx, projectId, onBack, onSaved }) {
     if (!uidv) return setErr("ابتدا وارد حساب شوید.");
     setErr(""); setSaving(true);
     const F = parseInt(nFloors, 10);
-    const settings = { ...(orig?.project.settings || {}), wall, areas: numAreas, ppsqm: +ppsqm || null };
+    const settings = { ...(orig?.project.settings || {}), wall, areas: numAreas, ppsqm: +ppsqm || null, width: +bw || null, depth: +bd || 22, floor_height: +fh || 3.2 };
     const pfields = { name: name.trim(), cover_image: imgs.cover, facade_front_image: imgs.front, facade_back_image: imgs.back, facade_side_images: imgs.sides, total_floors: F, settings };
     try {
       let pid = projectId;
@@ -154,11 +157,11 @@ function Wizard({ ctx, projectId, onBack, onSaved }) {
         if (!fid) { fid = newId(); floorRows.push({ id: fid, user_id: uidv, project_id: pid, floor_number: f.floor_number, floor_order: f.floor_number, unit_count: f.units.length }); }
         else { const o = oldFloors.find((x) => x.id === fid); if (o.unit_count !== f.units.length) updates.push(supabase.from("presale_floors").update({ unit_count: f.units.length }).eq("id", fid)); }
         f.units.forEach((u, i) => {
-          const price = +u.price > 0 ? +u.price : null, area = +u.area, num = String(u.unit_number).trim();
+          const price = +u.price > 0 ? +u.price : null, area = +u.area, num = String(u.unit_number).trim(), bed = u.bedrooms === "" || u.bedrooms == null ? null : +u.bedrooms;
           if (u.id) {
             const o = orig.units.find((x) => x.id === u.id);
-            if (o.unit_number !== num || +o.area !== area) updates.push(supabase.from("presale_units").update({ unit_number: num, area, price_per_sqm: o.price > 0 ? Math.round(o.price / area) : null }).eq("id", u.id));
-          } else unitRows.push({ id: newId(), user_id: uidv, project_id: pid, floor_id: fid, unit_number: num, area, price, price_per_sqm: price ? Math.round(price / area) : null, status: "available", position_configuration: { order: i } });
+            if (o.unit_number !== num || +o.area !== area || (o.bedrooms ?? null) !== bed) updates.push(supabase.from("presale_units").update({ unit_number: num, area, bedrooms: bed, price_per_sqm: o.price > 0 ? Math.round(o.price / area) : null }).eq("id", u.id));
+          } else unitRows.push({ id: newId(), user_id: uidv, project_id: pid, floor_id: fid, unit_number: num, area, bedrooms: bed, price, price_per_sqm: price ? Math.round(price / area) : null, status: "available", position_configuration: { order: i } });
         });
       });
       if (orig) {
@@ -220,6 +223,11 @@ function Wizard({ ctx, projectId, onBack, onSaved }) {
               </div>
               <p style={{ fontSize: 10.5, color: c.muted, marginTop: 6 }}>متراژها به‌ترتیب بین واحدهای هر طبقه تکرار می‌شوند؛ در مرحله بعد هر طبقه را جدا ویرایش کنید.</p>
             </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <label><span style={lab}>عرض (متر)</span><input style={field} inputMode="decimal" placeholder="خودکار" value={bw} onChange={(e) => setBw(e.target.value.replace(/[^\d.]/g, ""))} /></label>
+              <label><span style={lab}>عمق (متر)</span><input style={field} inputMode="decimal" value={bd} onChange={(e) => setBd(e.target.value.replace(/[^\d.]/g, ""))} /></label>
+              <label><span style={lab}>ارتفاع طبقه</span><input style={field} inputMode="decimal" value={fh} onChange={(e) => setFh(e.target.value.replace(/[^\d.]/g, ""))} /></label>
+            </div>
             {!edit && <label><span style={lab}>قیمت هر متر (تومان) — اختیاری</span><input style={field} inputMode="numeric" value={ppsqm} onChange={(e) => setPpsqm(e.target.value.replace(/\D/g, ""))} /></label>}
           </div>
         ) : (
@@ -236,7 +244,7 @@ function Wizard({ ctx, projectId, onBack, onSaved }) {
                     <div key={u.key} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input aria-label="شماره واحد" value={u.unit_number} onChange={(e) => upd(null, f.floor_number, u.key, { unit_number: e.target.value })} style={{ ...field, flex: 1, padding: "12px 10px", textAlign: "center" }} />
                       <input aria-label="متراژ" inputMode="decimal" value={u.area} onChange={(e) => upd(null, f.floor_number, u.key, { area: e.target.value.replace(/[^\d.]/g, "") })} style={{ ...field, flex: 1, padding: "12px 10px", textAlign: "center" }} />
-                      <span style={{ fontSize: 10.5, color: c.muted }}>متر</span>
+                      <input aria-label="تعداد خواب" placeholder="خواب" inputMode="numeric" value={u.bedrooms ?? ""} onChange={(e) => upd(null, f.floor_number, u.key, { bedrooms: e.target.value.replace(/\D/g, "") })} style={{ ...field, width: 58, padding: "12px 6px", textAlign: "center" }} />
                       {u.status && u.status !== "available" ? <span style={{ width: 34, textAlign: "center", fontSize: 9, fontWeight: 800, color: STATUS[u.status].color }}>{STATUS[u.status].label}</span>
                         : <button onClick={() => delUnit(f.floor_number, u.key)} aria-label="حذف واحد" className="press" style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center" }}><Trash2 size={14} color={c.muted} /></button>}
                     </div>

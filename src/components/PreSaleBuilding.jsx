@@ -1,114 +1,18 @@
-// Interactive building for one pre-sale project: CSS-3D model (no WebGL dependency, so it is light
-// on iPhone), floor selector, schematic floor plan, unit sheet, filters, customer mode.
+// Immersive pre-sale building screen: real WebGL model (PreSale3D, lazy), floating summary,
+// vertical floor selector, floor bottom sheet, unit actions, customer mode.
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { ChevronRight, Pencil, Eye, EyeOff, Layers, RotateCcw, Plus, Minus, SlidersHorizontal, X, Loader2, Box, LayoutList, ArrowLeftRight, ArrowUpDown } from "lucide-react";
+import { ChevronLeft, Pencil, Eye, EyeOff, Layers, Plus, X, Loader2, Box, Crosshair, Maximize2, Minimize2, ChevronUp, ChevronDown, Building2, Check, Clock, FileText, ArrowLeftRight, ArrowUpDown, BedDouble, Gem } from "lucide-react";
 import { supabase } from "../lib/supabaseClient.js";
 import { BodyPortal, inputStyle, JalaliDatePicker } from "../lib/ui.jsx";
-import { glass, FS, FW, SP } from "../lib/theme.js";
-import { todayISO, fmtJalali, humanizeToman } from "../lib/format.js";
+import { todayISO, humanizeToman } from "../lib/format.js";
 import { STATUS, STATUS_KEYS, summarize, orderedUnits, planRows } from "../lib/presale.js";
 import { fetchAll } from "../lib/presaleApi.js";
 
+const Viewer3D = React.lazy(() => import("./PreSale3D.jsx"));
 const money = (n) => (n > 0 ? `${Math.round(n).toLocaleString("en-US")} تومان` : "—");
 const sc = (k) => STATUS[k]?.color || "#999";
-const supports3d = () => { try { return typeof CSS !== "undefined" && CSS.supports("transform-style", "preserve-3d"); } catch { return false; } };
-
-// ---------- 3D model ----------
-function Building3D({ floors, byFloor, selId, onFloor, onUnit, exploded, wall, backImg, dim, rot, setRot, zoom, setZoom }) {
-  const F = floors.length;
-  const FH = Math.max(14, Math.min(34, Math.floor(260 / Math.max(F, 1))));
-  const gap = exploded ? Math.round(FH * 0.9) : 2;
-  const D = 120;
-  const sums = floors.map((f) => (byFloor[f.id] || []).reduce((s, u) => s + +u.area, 0));
-  const maxSum = Math.max(1, ...sums);
-  const selIdx = floors.findIndex((f) => f.id === selId);
-  const lift = selIdx >= 0 ? Math.round(FH * 1.8) : 0;
-  const totalH = F * (FH + gap) + lift;
-  const [dragging, setDragging] = useState(false);
-  const ptrs = useRef(new Map());
-  const st = useRef({ moved: false, rx: 0, ry: 0, x: 0, y: 0, d: 0, z: 1 });
-
-  const down = (e) => {
-    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const s = st.current;
-    if (ptrs.current.size === 1) { s.moved = false; s.x = e.clientX; s.y = e.clientY; s.rx = rot.rx; s.ry = rot.ry; setDragging(true); }
-    if (ptrs.current.size === 2) { const [a, b] = [...ptrs.current.values()]; s.d = Math.hypot(a.x - b.x, a.y - b.y); s.z = zoom; s.moved = true; }
-  };
-  const move = (e) => {
-    if (!ptrs.current.has(e.pointerId)) return;
-    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const s = st.current;
-    if (ptrs.current.size === 2) {
-      const [a, b] = [...ptrs.current.values()];
-      setZoom(Math.max(0.5, Math.min(2.2, s.z * (Math.hypot(a.x - b.x, a.y - b.y) / (s.d || 1)))));
-      return;
-    }
-    const dx = e.clientX - s.x, dy = e.clientY - s.y;
-    if (Math.abs(dx) + Math.abs(dy) > 6) s.moved = true;
-    if (s.moved) setRot({ rx: Math.max(2, Math.min(78, s.rx + dy * 0.4)), ry: s.ry + dx * 0.5 });
-  };
-  const up = (e) => { ptrs.current.delete(e.pointerId); if (!ptrs.current.size) setDragging(false); };
-  const wheel = (e) => setZoom((z) => Math.max(0.5, Math.min(2.2, z - e.deltaY * 0.001)));
-  const guard = (fn) => (e) => { e.stopPropagation(); if (st.current.moved) return; fn(); };
-
-  const face = { position: "absolute", backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" };
-  const winGrad = "linear-gradient(90deg,transparent 0 14%,rgba(255,255,255,.7) 14% 40%,transparent 40% 60%,rgba(255,255,255,.7) 60% 86%,transparent 86%)";
-
-  return (
-    <div onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} onWheel={wheel}
-      style={{ height: 340, perspective: 1100, touchAction: "none", position: "relative", overflow: "hidden", userSelect: "none", WebkitUserSelect: "none", cursor: dragging ? "grabbing" : "grab" }}>
-      <div style={{ position: "absolute", left: "50%", top: "50%", width: 0, height: 0, transformStyle: "preserve-3d", transform: `scale(${zoom}) rotateX(${-rot.rx}deg) rotateY(${rot.ry}deg)`, transition: dragging ? "none" : "transform .5s ease" }}>
-        {/* ground */}
-        <div style={{ position: "absolute", width: 360, height: 360, left: -180, top: -180, borderRadius: "50%", background: "radial-gradient(rgba(0,0,0,.22),transparent 65%)", transform: `translateY(${totalH / 2 + 4}px) rotateX(90deg)` }} />
-        {floors.map((f, i) => {
-          const list = orderedUnits(byFloor[f.id] || []);
-          const w = Math.max(90, Math.round((sums[i] / maxSum) * 230));
-          const y = totalH / 2 - (i + 1) * (FH + gap) - (selIdx >= 0 && i > selIdx ? lift : 0) - (i === selIdx ? 6 : 0);
-          const isSel = f.id === selId;
-          const fo = selId && !isSel ? 0.5 : 1;
-          const hl = isSel ? "inset 0 0 0 2px #fff, 0 0 14px rgba(255,255,255,.7)" : "none";
-          const rows = planRows(list);
-          const tap = guard(() => onFloor(f.id));
-          const unitTap = (u) => guard(() => (isSel ? onUnit(u.id) : onFloor(f.id)));
-          return (
-            <div key={f.id} onClick={tap} style={{ position: "absolute", left: -w / 2, top: 0, width: w, height: FH, transformStyle: "preserve-3d", transform: `translateY(${y}px)`, transition: "transform .5s cubic-bezier(.3,.7,.2,1)", cursor: "pointer" }}>
-              {/* front: one segment per unit, colored by real status */}
-              <div style={{ ...face, width: w, height: FH, transform: `translateZ(${D / 2}px)`, display: "flex", direction: "rtl", background: wall, opacity: fo, boxShadow: hl }}>
-                {list.map((u) => (
-                  <div key={u.id} onClick={unitTap(u)} style={{ flex: `${u.area} 1 0`, position: "relative", background: `${sc(u.status)}${dim(u) ? "D9" : "33"}`, borderInline: "1px solid rgba(255,255,255,.55)", opacity: dim(u) ? 1 : 0.35, overflow: "hidden" }}>
-                    <div style={{ position: "absolute", inset: "20% 8% 26% 8%", background: winGrad }} />
-                    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "16%", background: "rgba(0,0,0,.22)" }} />
-                    {FH >= 20 && <span style={{ position: "absolute", top: 1, right: 3, fontSize: 7.5, fontWeight: 800, color: "#fff", textShadow: "0 0 2px rgba(0,0,0,.6)" }}>{u.unit_number}</span>}
-                  </div>
-                ))}
-              </div>
-              <div style={{ ...face, width: w, height: FH, transform: `rotateY(180deg) translateZ(${D / 2}px)`, background: backImg ? `${wall} url(${backImg}) center/cover` : wall, opacity: fo, boxShadow: hl }}>
-                {!backImg && <div style={{ position: "absolute", inset: "20% 6%", background: winGrad, opacity: 0.6 }} />}
-              </div>
-              {[-1, 1].map((sd) => (
-                <div key={sd} style={{ ...face, width: D, height: FH, left: (w - D) / 2, background: `linear-gradient(rgba(0,0,0,.16),rgba(0,0,0,.16)),${wall}`, opacity: fo, boxShadow: hl, transform: `rotateY(${sd * 90}deg) translateZ(${w / 2}px)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.min(14, FH - 4), fontWeight: 900, color: "rgba(0,0,0,.45)" }}>{sd === 1 ? f.floor_number : ""}</div>
-              ))}
-              {/* roof/slab = schematic plan seen from above */}
-              <div style={{ ...face, width: w, height: D, top: (FH - D) / 2, transform: `rotateX(90deg) translateZ(${FH / 2}px)`, background: "#EFECE5", padding: 4, opacity: fo, boxShadow: hl, display: "flex", flexDirection: "column", gap: 3, direction: "rtl" }}>
-                {[rows[0], null, rows[1]].map((r, ri) => (r === null
-                  ? <div key="core" style={{ height: 12, background: "rgba(0,0,0,.08)", flexShrink: 0 }} />
-                  : r.length > 0 && (
-                    <div key={ri} style={{ display: "flex", gap: 3, flex: 1 }}>
-                      {r.map((u) => (
-                        <div key={u.id} onClick={unitTap(u)} style={{ flex: `${u.area} 1 0`, background: sc(u.status), opacity: dim(u) ? 1 : 0.25, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff" }}>{u.unit_number}</div>
-                      ))}
-                    </div>
-                  )))}
-              </div>
-              {/* balcony plate */}
-              <div style={{ position: "absolute", width: w - 8, height: 12, left: 4, top: FH - 6, transform: `translateZ(${D / 2 + 6}px) rotateX(90deg)`, background: "#F7F5F0", opacity: fo, border: "1px solid rgba(0,0,0,.12)" }} />
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+const DK = { bg: "#101522", bg2: "#171E30", ivory: "#F4F0E9", ink: "#F8F8FA", muted: "#9299AA", border: "rgba(255,255,255,.12)", surface2: "rgba(255,255,255,.08)", glass: "rgba(23,30,48,.62)" };
+const glassDark = { background: DK.glass, backdropFilter: "blur(18px) saturate(160%)", WebkitBackdropFilter: "blur(18px) saturate(160%)", border: `1px solid ${DK.border}`, borderRadius: 24 };
 
 // ---------- 2D fallback / alt view ----------
 function Stack2D({ c, floors, byFloor, selId, onFloor, onUnit, dim }) {
@@ -230,14 +134,6 @@ function UnitSheet({ c, unit, floor, byFloor, customer, showPrices, onClose, onP
 }
 
 // ---------- main building screen ----------
-function Shell({ c, onClose, children }) {
-  return (
-    <BodyPortal onClose={onClose}>
-      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: c.bg, direction: "rtl" }}>{children}</div>
-    </BodyPortal>
-  );
-}
-
 export function PreSaleBuilding({ ctx, projectId, onBack, onEdit, onClose }) {
   const { c, notify } = ctx;
   const [project, setProject] = useState(null);
@@ -246,14 +142,19 @@ export function PreSaleBuilding({ ctx, projectId, onBack, onEdit, onClose }) {
   const [state, setState] = useState("loading");
   const [selId, setSelId] = useState(null);
   const [unitId, setUnitId] = useState(null);
+  const [detailsId, setDetailsId] = useState(null);
   const [exploded, setExploded] = useState(false);
-  const [rot, setRot] = useState({ rx: 20, ry: -30 });
-  const [zoom, setZoom] = useState(1);
-  const [mode, setMode] = useState(supports3d() ? "3d" : "2d");
+  const [mode, setMode] = useState("3d"); // 3d | plan
+  const [noGL, setNoGL] = useState(false);
   const [customer, setCustomer] = useState(false);
   const [showPrices, setShowPrices] = useState(false);
-  const [fOpen, setFOpen] = useState(false);
-  const [flt, setFlt] = useState({ floor: "", area: "", status: "", beds: "" });
+  const [focus, setFocus] = useState(false);
+  const [sheet, setSheet] = useState("peek"); // peek | full
+  const [drag, setDrag] = useState(0);
+  const [viewCmd, setViewCmd] = useState(null);
+  const [backSide, setBackSide] = useState(false);
+  const selRef = useRef(null);
+  const dragRef = useRef(null);
 
   const load = useCallback(async () => {
     try {
@@ -270,12 +171,7 @@ export function PreSaleBuilding({ ctx, projectId, onBack, onEdit, onClose }) {
 
   const byFloor = useMemo(() => { const m = {}; floors.forEach((f) => { m[f.id] = []; }); units.forEach((u) => { (m[u.floor_id] ||= []).push(u); }); return m; }, [floors, units]);
   const sum = useMemo(() => summarize(units), [units]);
-  const filtering = !!(flt.floor || flt.area || flt.status || flt.beds);
-  const floorNoOf = useMemo(() => { const m = {}; floors.forEach((f) => { m[f.id] = String(f.floor_number); }); return m; }, [floors]);
-  const dim = useCallback((u) => (!flt.floor || floorNoOf[u.floor_id] === flt.floor) && (!flt.area || String(u.area) === flt.area) && (!flt.status || u.status === flt.status) && (!flt.beds || String(u.bedrooms) === flt.beds), [flt, floorNoOf]);
-  const matches = useMemo(() => (filtering ? units.filter(dim) : []), [units, dim, filtering]);
-  const areaOpts = useMemo(() => [...new Set(units.map((u) => String(u.area)))].sort((a, b) => a - b), [units]);
-  const bedOpts = useMemo(() => [...new Set(units.map((u) => u.bedrooms).filter((b) => b != null))].sort(), [units]);
+  const dim = useCallback(() => true, []);
 
   const patchUnit = async (id, patch) => {
     const prev = units.find((u) => u.id === id);
@@ -294,127 +190,197 @@ export function PreSaleBuilding({ ctx, projectId, onBack, onEdit, onClose }) {
   };
   const moveUnit = (u, kind) => {
     const list = orderedUnits(byFloor[u.floor_id] || []);
-    if (kind === 0) { // toggle plan row
+    if (kind === 0) {
       const cur = u.position_configuration?.row ?? (list.length >= 4 && list.indexOf(u) >= Math.ceil(list.length / 2) ? 1 : 0);
-      list.forEach((x, i) => { if (x.id !== u.id && x.position_configuration?.row == null) { /* freeze auto rows so only this unit moves */ patchUnit(x.id, { position_configuration: { ...x.position_configuration, order: i, row: list.length >= 4 && i >= Math.ceil(list.length / 2) ? 1 : 0 } }); } });
+      list.forEach((x, i) => { if (x.id !== u.id && x.position_configuration?.row == null) patchUnit(x.id, { position_configuration: { ...x.position_configuration, order: i, row: list.length >= 4 && i >= Math.ceil(list.length / 2) ? 1 : 0 } }); });
       patchUnit(u.id, { position_configuration: { ...u.position_configuration, order: list.indexOf(u), row: cur === 0 ? 1 : 0 } });
       return;
     }
-    const i = list.indexOf(u), j = i + (kind < 0 ? -1 : 1);
-    const k = j < 0 ? list.length - 1 : j >= list.length ? 0 : j; // wraps, so one button is enough
+    const i = list.indexOf(u), j = i + (kind < 0 ? -1 : 1), k = j < 0 ? list.length - 1 : j >= list.length ? 0 : j;
     if (list.length < 2 || k === i) return;
     const other = list[k];
     patchUnit(u.id, { position_configuration: { ...u.position_configuration, order: k } });
     patchUnit(other.id, { position_configuration: { ...other.position_configuration, order: i } });
   };
 
+  const pickFloor = (id) => { setSelId((cur) => (cur === id ? null : id)); setUnitId(null); setSheet("peek"); };
+  const pickUnit = (id) => { const u = units.find((x) => x.id === id); if (!u) return; setSelId(u.floor_id); setUnitId(id); setSheet("full"); };
+  const cmd = (name) => setViewCmd({ name, n: Date.now() });
+  const closeSheet = () => { setSelId(null); setUnitId(null); };
+
   const selFloor = floors.find((f) => f.id === selId) || null;
-  const selUnits = selFloor ? byFloor[selFloor.id] || [] : [];
+  const selUnits = selFloor ? orderedUnits(byFloor[selFloor.id] || []) : [];
   const fs = selFloor ? summarize(selUnits) : null;
   const unit = units.find((u) => u.id === unitId) || null;
-  const pickFloor = (id) => { setSelId((cur) => (cur === id ? null : id)); setRot((r) => ({ ...r, rx: Math.max(r.rx, 34) })); };
-  const pickUnit = (id) => setUnitId(id);
+  const detailUnit = units.find((u) => u.id === detailsId) || null;
+  const cfg = useMemo(() => ({ depth: +project?.settings?.depth || 0, height: +project?.settings?.floor_height || 0, width: +project?.settings?.width || 0 }), [project]);
+  const sheetOpen = !!selFloor && !focus;
+  const insets = useMemo(() => ({ top: focus ? 70 : 215, bottom: focus ? 40 : sheetOpen ? (sheet === "full" && unit ? 470 : 250) : 90 }), [focus, sheetOpen, sheet, unit]);
+
+  // floor selector scroll
+  useEffect(() => { selRef.current?.querySelector("[data-sel='1']")?.scrollIntoView({ block: "nearest" }); }, [selId]);
 
   if (state !== "ok") return (
-    <Shell c={c} onClose={onClose}>
-      <div className="flex-1 flex flex-col items-center justify-center" style={{ gap: 12 }}>
-        {state === "loading" ? <Loader2 className="animate-spin" color={c.muted} /> : <><p style={{ color: c.muted, fontSize: 13 }}>بارگذاری پروژه ممکن نشد.</p><button onClick={() => { setState("loading"); load(); }} className="press" style={{ padding: "10px 20px", borderRadius: 12, background: c.surface2 }}>تلاش دوباره</button></>}
-        <button onClick={onBack} className="press" style={{ color: c.muted, fontSize: 12 }}>بازگشت</button>
+    <BodyPortal onClose={onClose}>
+      <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center" style={{ background: DK.bg, direction: "rtl", color: DK.ink, gap: 12 }}>
+        {state === "loading" ? <Loader2 className="animate-spin" color={DK.muted} /> : <><p style={{ color: DK.muted, fontSize: 13 }}>بارگذاری پروژه ممکن نشد.</p><button onClick={() => { setState("loading"); load(); }} className="press" style={{ padding: "10px 20px", borderRadius: 12, background: DK.surface2 }}>تلاش دوباره</button></>}
+        <button onClick={onBack} className="press" style={{ color: DK.muted, fontSize: 12 }}>بازگشت</button>
       </div>
-    </Shell>
+    </BodyPortal>
   );
-  const iconBtn = { background: c.surface2, width: 40, height: 40, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center" };
-  const chip = (on) => ({ padding: "7px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, background: on ? c.ink : c.surface2, color: on ? c.bg : c.ink, whiteSpace: "nowrap" });
-  const sel = { ...inputStyle(c), padding: "10px 12px", fontSize: 13 };
+
+  const glassBtn = { ...glassDark, width: 48, height: 48, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", color: DK.ink, flexShrink: 0 };
+  const dkC = { ...c, ink: DK.ink, muted: DK.muted, border: DK.border, surface2: DK.surface2, bg: DK.bg };
+  const use3d = mode === "3d" && !noGL;
+  const floorsDesc = [...floors].reverse();
+  const ud = (u) => ({ price: u.price, pps: u.price_per_sqm || (u.price > 0 && u.area > 0 ? Math.round(u.price / u.area) : null) });
+
+  // sheet swipe
+  const onSheetDown = (e) => { dragRef.current = { y: e.clientY }; e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const onSheetMove = (e) => { if (dragRef.current) setDrag(e.clientY - dragRef.current.y); };
+  const onSheetUp = () => {
+    const d = drag; dragRef.current = null; setDrag(0);
+    if (d > 70) { if (sheet === "full") setSheet("peek"); else closeSheet(); } else if (d < -50) setSheet("full");
+  };
 
   return (
-    <Shell c={c} onClose={onClose}>
-      <div className="flex items-center shrink-0" style={{ gap: 8, padding: SP.lg, paddingTop: "calc(16px + env(safe-area-inset-top, 0px))" }}>
-        <button onClick={customer ? () => setCustomer(false) : onBack} className="press" style={iconBtn}>{customer ? <X size={16} color={c.ink} /> : <ChevronRight size={18} color={c.ink} />}</button>
-        <p className="flex-1 min-w-0 truncate" style={{ fontSize: FS.subtitle, fontWeight: FW.heavy }}>{project.name}</p>
-        {!customer && <button onClick={() => onEdit(project.id)} className="press" style={iconBtn} aria-label="ویرایش پروژه"><Pencil size={15} color={c.ink} /></button>}
-        <button onClick={() => { setCustomer((v) => !v); setUnitId(null); }} className="press" style={{ ...iconBtn, width: "auto", padding: "0 14px", gap: 6, fontSize: 12, fontWeight: 800, background: customer ? c.ink : c.surface2, color: customer ? c.bg : c.ink }}>{customer ? <EyeOff size={14} /> : <Eye size={14} />}نمای مشتری</button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 pb-10">
-        {/* compact summary */}
-        <div style={{ ...glass(c), padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", textAlign: "center" }}>
-            {[["کل", sum.total, c.ink], ["موجود", sum.available, sc("available")], ["رزرو", sum.reserved, sc("reserved")], ["فروخته", sum.sold, sc("sold")]].map(([k, v, col]) => (
-              <div key={k} style={{ flex: 1 }}><p style={{ fontSize: 20, fontWeight: 900, color: col }}>{v}</p><p style={{ fontSize: 10.5, color: c.muted }}>{k}</p></div>
-            ))}
-          </div>
-          <div style={{ height: 6, borderRadius: 9, background: c.surface2, margin: "10px 0 6px", display: "flex", overflow: "hidden", direction: "rtl" }}>
-            <div style={{ width: `${sum.total ? (sum.sold / sum.total) * 100 : 0}%`, background: sc("sold") }} />
-            <div style={{ width: `${sum.total ? (sum.reserved / sum.total) * 100 : 0}%`, background: sc("reserved") }} />
-          </div>
-          <p style={{ fontSize: 11, color: c.muted }}>{sum.pct}٪ فروخته شده · {sum.available + sum.reserved} واحد باقی‌مانده</p>
-          {!customer && sum.hasPrices && <p style={{ fontSize: 11, color: c.muted, marginTop: 4 }}>ارزش فروخته‌شده: <b style={{ color: c.ink }}>{humanizeToman(sum.soldValue)}</b> · ارزش موجودی: <b style={{ color: c.ink }}>{humanizeToman(sum.remainingValue)}</b></p>}
-          {customer && <label style={{ fontSize: 11, color: c.muted, display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}><input type="checkbox" checked={showPrices} onChange={(e) => setShowPrices(e.target.checked)} />نمایش قیمت واحدها</label>}
-        </div>
-
-        {/* controls */}
-        <div style={{ display: "flex", gap: 8, margin: "12px 0 4px", overflowX: "auto" }}>
-          {mode === "3d" && <button onClick={() => setExploded((v) => !v)} className="press" style={{ ...chip(exploded), display: "flex", gap: 6, alignItems: "center" }}><Layers size={13} />نمای تفکیک طبقات</button>}
-          {mode === "3d" && <button onClick={() => { setRot({ rx: 20, ry: -30 }); setZoom(1); }} className="press" style={iconSm(c)} aria-label="بازنشانی"><RotateCcw size={14} color={c.ink} /></button>}
-          {mode === "3d" && <><button onClick={() => setZoom((z) => Math.min(2.2, z + 0.2))} className="press" style={iconSm(c)} aria-label="بزرگ‌نمایی"><Plus size={14} color={c.ink} /></button><button onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))} className="press" style={iconSm(c)} aria-label="کوچک‌نمایی"><Minus size={14} color={c.ink} /></button></>}
-          <button onClick={() => setMode((m) => (m === "3d" ? "2d" : "3d"))} className="press" style={{ ...chip(false), display: "flex", gap: 6, alignItems: "center" }}>{mode === "3d" ? <><LayoutList size={13} />نمای ۲بعدی</> : <><Box size={13} />نمای ۳بعدی</>}</button>
-          <button onClick={() => setFOpen((v) => !v)} className="press" style={{ ...chip(filtering), display: "flex", gap: 6, alignItems: "center" }}><SlidersHorizontal size={13} />فیلتر</button>
-        </div>
-
-        {fOpen && (
-          <div style={{ ...glass(c), padding: 12, margin: "8px 0", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <select style={sel} value={flt.floor} onChange={(e) => setFlt({ ...flt, floor: e.target.value })}><option value="">همه طبقات</option>{floors.map((f) => <option key={f.id} value={f.floor_number}>طبقه {f.floor_number}</option>)}</select>
-            <select style={sel} value={flt.area} onChange={(e) => setFlt({ ...flt, area: e.target.value })}><option value="">همه متراژها</option>{areaOpts.map((a) => <option key={a} value={a}>{a} متر</option>)}</select>
-            <select style={sel} value={flt.status} onChange={(e) => setFlt({ ...flt, status: e.target.value })}><option value="">همه وضعیت‌ها</option>{STATUS_KEYS.map((k) => <option key={k} value={k}>{STATUS[k].label}</option>)}</select>
-            <select style={sel} value={flt.beds} onChange={(e) => setFlt({ ...flt, beds: e.target.value })} disabled={!bedOpts.length}><option value="">همه خواب‌ها</option>{bedOpts.map((b) => <option key={b} value={b}>{b} خواب</option>)}</select>
-            {filtering && <div style={{ gridColumn: "1 / -1" }}>
-              <p style={{ fontSize: 11, color: c.muted, marginBottom: 6 }}>{matches.length} واحد مطابق فیلتر <button onClick={() => setFlt({ floor: "", area: "", status: "", beds: "" })} style={{ color: c.primary, marginInlineStart: 8 }}>پاک کردن</button></p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{matches.slice(0, 30).map((u) => <button key={u.id} onClick={() => { setSelId(u.floor_id); pickUnit(u.id); }} style={{ padding: "4px 10px", borderRadius: 99, fontSize: 11, fontWeight: 800, color: "#fff", background: sc(u.status) }}>{u.unit_number}</button>)}</div>
-            </div>}
+    <BodyPortal onClose={onClose}>
+      <div className="fixed inset-0 z-[200] overflow-hidden" style={{ background: DK.bg, direction: "rtl", color: DK.ink }}>
+        {/* scene */}
+        {use3d ? (
+          <React.Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" color={DK.muted} /></div>}>
+            <Viewer3D floors={floors} byFloor={byFloor} cfg={cfg} wall={project.settings?.wall} frontImg={project.facade_front_image} backImg={project.facade_back_image}
+              selId={selId} unitId={unitId} exploded={exploded} units={units} filtering={false} hi={dim} viewCmd={viewCmd} insets={insets} onFloor={pickFloor} onUnit={pickUnit} onFail={() => setNoGL(true)} />
+          </React.Suspense>
+        ) : (
+          <div className="absolute inset-0 overflow-y-auto" style={{ paddingTop: 215, paddingBottom: sheetOpen ? 270 : 100 }}>
+            {noGL && mode === "3d" && <p style={{ fontSize: 11, color: DK.muted, textAlign: "center", marginBottom: 8 }}>نمایش سه‌بعدی در این دستگاه پشتیبانی نمی‌شود؛ نمای ۲بعدی فعال است.</p>}
+            <Stack2D c={dkC} floors={floors} byFloor={byFloor} selId={selId} onFloor={pickFloor} onUnit={pickUnit} dim={dim} />
+            {selFloor && <div style={{ margin: "12px 16px", padding: 14, borderRadius: 22, background: DK.ivory, color: "#1b2233" }}><FloorPlan c={{ ...c, ink: "#1b2233", muted: "#6b7385", border: "#d8d2c6" }} units={selUnits} onPick={pickUnit} dim={dim} /></div>}
           </div>
         )}
 
-        {/* model */}
-        <div style={{ ...glass(c), marginTop: 8, overflow: "hidden" }}>
-          {mode === "3d"
-            ? <Building3D floors={floors} byFloor={byFloor} selId={selId} onFloor={pickFloor} onUnit={pickUnit} exploded={exploded} wall={project.settings?.wall || "#D9D4CA"} backImg={project.facade_back_image} dim={dim} rot={rot} setRot={setRot} zoom={zoom} setZoom={setZoom} />
-            : <Stack2D c={c} floors={floors} byFloor={byFloor} selId={selId} onFloor={pickFloor} onUnit={pickUnit} dim={dim} />}
-        </div>
-        {mode === "3d" && <p style={{ fontSize: 10.5, color: c.muted, textAlign: "center", marginTop: 6 }}>بکشید تا بچرخد · دو انگشت برای زوم · روی طبقه بزنید</p>}
-
-        {/* floor selector */}
-        <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "10px 0" }}>
-          {[...floors].reverse().map((f) => {
-            const s = summarize(byFloor[f.id] || []);
-            return (
-              <button key={f.id} onClick={() => pickFloor(f.id)} className="press" style={{ minWidth: 52, padding: "8px 6px", borderRadius: 14, background: selId === f.id ? c.ink : c.surface2, color: selId === f.id ? c.bg : c.ink, display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                <b style={{ fontSize: 14 }}>{f.floor_number}</b>
-                <span style={{ display: "flex", width: 30, height: 4, borderRadius: 4, overflow: "hidden" }}>
-                  {[["available", s.available], ["reserved", s.reserved], ["sold", s.sold]].map(([k, n]) => n > 0 && <i key={k} style={{ flex: n, background: sc(k) }} />)}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* selected floor */}
-        {selFloor && (
-          <div style={{ ...glass(c), padding: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
-              <p style={{ flex: 1, fontSize: 15, fontWeight: 900 }}>طبقه {selFloor.floor_number}</p>
-              <p style={{ fontSize: 11, color: c.muted }}>
-                <span style={{ color: sc("available") }}>{fs.available} موجود</span> · <span style={{ color: sc("reserved") }}>{fs.reserved} رزرو</span> · <span style={{ color: sc("sold") }}>{fs.sold} فروخته</span>
-              </p>
+        {/* header + summary */}
+        {!focus && (
+          <div className="absolute left-0 right-0" style={{ top: 0, padding: "calc(10px + env(safe-area-inset-top, 0px)) 14px 0", pointerEvents: "none" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, direction: "ltr", pointerEvents: "auto" }}>
+              <button onClick={customer ? () => setCustomer(false) : onBack} className="press" style={glassBtn} aria-label="بازگشت">{customer ? <X size={18} /> : <ChevronLeft size={20} />}</button>
+              <div style={{ flex: 1 }} />
+              <div style={{ textAlign: "right", direction: "rtl", minWidth: 0 }}>
+                <p className="truncate" style={{ fontSize: 18, fontWeight: 900, textShadow: "0 1px 8px rgba(0,0,0,.5)" }}>{project.name}</p>
+                <p style={{ fontSize: 11, color: DK.muted }}>{customer ? "نمای مشتری" : "پروژه پیش‌فروش"}</p>
+              </div>
+              <button onClick={() => { setCustomer((v) => !v); setDetailsId(null); }} className="press" style={{ ...glassBtn, background: customer ? DK.ivory : DK.glass, color: customer ? "#1b2233" : DK.ink }} aria-label="نمای مشتری">{customer ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+              {!customer && <button onClick={() => onEdit(project.id)} className="press" style={glassBtn} aria-label="ویرایش پروژه"><Pencil size={16} /></button>}
             </div>
-            <FloorPlan c={c} units={selUnits} onPick={pickUnit} dim={dim} />
+            <div style={{ ...glassDark, marginTop: 10, padding: "12px 10px 10px", pointerEvents: "auto" }}>
+              <div style={{ display: "flex", textAlign: "center" }}>
+                {[["کل واحدها", sum.total, DK.ink], ["موجود", sum.available, sc("available")], ["رزرو", sum.reserved, sc("reserved")], ["فروخته", sum.sold, sc("sold")]].map(([k, v, col], i) => (
+                  <div key={k} style={{ flex: 1, borderInlineStart: i ? `1px solid ${DK.border}` : "none" }}><p style={{ fontSize: 20, fontWeight: 900, color: col, lineHeight: 1.2 }}>{v}</p><p style={{ fontSize: 10.5, color: DK.muted }}>{k}</p></div>
+                ))}
+              </div>
+              <div style={{ height: 4, borderRadius: 9, background: "rgba(255,255,255,.1)", margin: "9px 4px 6px", display: "flex", overflow: "hidden" }}>
+                <div style={{ width: `${sum.total ? (sum.sold / sum.total) * 100 : 0}%`, background: sc("sold") }} /><div style={{ width: `${sum.total ? (sum.reserved / sum.total) * 100 : 0}%`, background: sc("reserved") }} />
+              </div>
+              {!customer && sum.hasPrices
+                ? <p style={{ fontSize: 10.5, color: DK.muted, textAlign: "center" }}>پیشرفت {sum.pct}٪ · فروش رفته <b style={{ color: DK.ink }}>{humanizeToman(sum.soldValue)}</b> · موجودی <b style={{ color: DK.ink }}>{humanizeToman(sum.remainingValue)}</b></p>
+                : <p style={{ fontSize: 10.5, color: DK.muted, textAlign: "center" }}>پیشرفت فروش {sum.pct}٪{customer ? "" : ""}</p>}
+              {customer && <label style={{ fontSize: 11, color: DK.muted, display: "flex", gap: 6, marginTop: 6, justifyContent: "center", alignItems: "center" }}><input type="checkbox" checked={showPrices} onChange={(e) => setShowPrices(e.target.checked)} />نمایش قیمت واحدها</label>}
+            </div>
+            <div style={{ display: "inline-flex", marginTop: 10, padding: 3, borderRadius: 99, ...{ background: DK.glass, border: `1px solid ${DK.border}`, backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }, direction: "rtl", pointerEvents: "auto", float: "right" }}>
+              {[["3d", "نمای سه‌بعدی"], ["plan", "پلان طبقات"]].map(([k, l]) => <button key={k} onClick={() => setMode(k)} className="press" style={{ padding: "8px 16px", borderRadius: 99, fontSize: 12.5, fontWeight: 800, background: mode === k ? DK.ivory : "transparent", color: mode === k ? "#1b2233" : DK.ink }}>{l}</button>)}
+            </div>
           </div>
         )}
-        {!selFloor && <p style={{ fontSize: 12, color: c.muted, textAlign: "center", padding: 12 }}>یک طبقه را انتخاب کنید تا پلان و واحدهایش باز شود.</p>}
-      </div>
 
-      {unit && <UnitSheet key={unit.id} c={c} unit={unit} floor={floors.find((f) => f.id === unit.floor_id)} byFloor={byFloor} customer={customer} showPrices={showPrices} onClose={() => setUnitId(null)} onPatch={patchUnit} onStatus={setStatus} onMove={moveUnit} />}
-    </Shell>
+        {/* vertical floor selector (right) */}
+        {!focus && (
+          <div style={{ position: "absolute", right: 12, top: 262, bottom: insets.bottom + 72, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, maxHeight: 520, justifyContent: "center" }}>
+            {floors.length > 6 && <button onClick={() => selRef.current?.scrollBy({ top: -140, behavior: "smooth" })} className="press" style={{ ...glassBtn, width: 52, height: 40, borderRadius: 14 }} aria-label="طبقات بالاتر"><ChevronUp size={18} /></button>}
+            <div ref={selRef} style={{ overflowY: "auto", scrollbarWidth: "none", display: "flex", flexDirection: "column", gap: 6, maxHeight: "100%" }}>
+              {floorsDesc.map((f) => {
+                const on = f.id === selId, n = (byFloor[f.id] || []).length;
+                return (
+                  <div key={f.id} data-sel={on ? "1" : "0"} style={{ position: "relative" }}>
+                    {on && <div style={{ position: "absolute", right: 58, top: 4, whiteSpace: "nowrap", padding: "6px 12px", borderRadius: 14, background: DK.glass, border: "1px solid #F3C26B", fontSize: 11.5, fontWeight: 800, backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }}>طبقه {f.floor_number}<br /><span style={{ color: DK.muted, fontWeight: 600 }}>{n} واحد</span></div>}
+                    <button onClick={() => pickFloor(f.id)} className="press" style={{ width: 52, height: 52, borderRadius: 16, fontSize: 19, fontWeight: 900, background: on ? "linear-gradient(180deg,#F9D58A,#E9A93C)" : DK.glass, color: on ? "#2a1c05" : DK.ink, border: `1px solid ${on ? "#F3C26B" : DK.border}`, backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", boxShadow: on ? "0 6px 20px rgba(235,163,59,.45)" : "none" }}>{f.floor_number}</button>
+                  </div>
+                );
+              })}
+            </div>
+            {floors.length > 6 && <button onClick={() => selRef.current?.scrollBy({ top: 140, behavior: "smooth" })} className="press" style={{ ...glassBtn, width: 52, height: 40, borderRadius: 14 }} aria-label="طبقات پایین‌تر"><ChevronDown size={18} /></button>}
+          </div>
+        )}
+
+        {/* left controls + explode */}
+        {use3d && (
+          <div style={{ position: "absolute", left: 12, bottom: insets.bottom + 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <button onClick={() => cmd("default")} className="press" style={{ ...glassBtn, flexDirection: "column", fontSize: 10, fontWeight: 900, gap: 1 }} aria-label="نمای سه‌بعدی"><Box size={18} />3D</button>
+            <button onClick={() => { const b = !backSide; setBackSide(b); cmd(b ? "back" : "front"); }} className="press" style={{ ...glassBtn, fontSize: 11, fontWeight: 800 }}>{backSide ? "پشت" : "جلو"}</button>
+            <button onClick={() => cmd("default")} className="press" style={glassBtn} aria-label="بازنشانی دوربین"><Crosshair size={20} /></button>
+            <button onClick={() => setFocus((v) => !v)} className="press" style={glassBtn} aria-label="تمام‌صفحه">{focus ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>
+          </div>
+        )}
+        {use3d && (
+          <button onClick={() => setExploded((v) => !v)} className="press" style={{ ...glassDark, position: "absolute", right: 12, bottom: insets.bottom + 12, height: 48, padding: "0 16px", borderRadius: 16, display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 800, background: exploded ? DK.ivory : DK.glass, color: exploded ? "#1b2233" : DK.ink }}>نمای تفکیک طبقات<Layers size={18} /></button>
+        )}
+        {focus && <button onClick={() => setFocus(false)} className="press" style={{ ...glassBtn, position: "absolute", top: "calc(12px + env(safe-area-inset-top, 0px))", left: 12 }} aria-label="خروج از تمام‌صفحه"><X size={18} /></button>}
+
+        {/* floor bottom sheet */}
+        {sheetOpen && (
+          <div className="flora-up" style={{ position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "62vh", overflowY: "auto", background: "rgba(244,240,233,.94)", color: "#1b2233", backdropFilter: "blur(22px) saturate(160%)", WebkitBackdropFilter: "blur(22px) saturate(160%)", borderRadius: "30px 30px 0 0", boxShadow: "0 -12px 40px rgba(0,0,0,.35)", paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))", transform: `translateY(${Math.max(0, drag)}px)`, transition: dragRef.current ? "none" : "transform .25s ease", maxWidth: 520, margin: "0 auto" }}>
+            <div onPointerDown={onSheetDown} onPointerMove={onSheetMove} onPointerUp={onSheetUp} onPointerCancel={onSheetUp} style={{ touchAction: "none", padding: "8px 16px 4px", cursor: "grab" }}>
+              <div style={{ width: 44, height: 4, borderRadius: 4, background: "rgba(0,0,0,.18)", margin: "0 auto 10px" }} />
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <button onClick={closeSheet} className="press" style={{ width: 38, height: 38, borderRadius: 99, background: "rgba(0,0,0,.07)", display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="بستن"><X size={17} /></button>
+                <p style={{ flex: 1, textAlign: "center", fontSize: 17, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Building2 size={18} />طبقه {selFloor.floor_number}</p>
+                <button onClick={() => setSheet((s) => (s === "full" ? "peek" : "full"))} className="press" style={{ width: 38, height: 38, borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="باز/بسته">{sheet === "full" ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button>
+              </div>
+              <p style={{ fontSize: 11, color: "#6b7385", textAlign: "center", margin: "2px 0 8px" }}>{fs.available} موجود · {fs.reserved} رزرو · {fs.sold} فروخته</p>
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "4px 16px 12px", overflowX: "auto", direction: "rtl" }}>
+              {selUnits.map((u) => {
+                const on = u.id === unitId, col = sc(u.status);
+                return (
+                  <button key={u.id} onClick={() => { setUnitId(u.id); setSheet("full"); }} className="press" style={{ flex: "1 0 104px", minWidth: 104, padding: "12px 8px", borderRadius: 20, background: `${col}22`, border: `${on ? 2.5 : 1.5}px solid ${col}`, textAlign: "center", boxShadow: on ? `0 6px 18px ${col}55` : "none" }}>
+                    <p style={{ fontSize: 15, fontWeight: 900 }}>واحد {u.unit_number}</p>
+                    <p style={{ fontSize: 12, color: "#4d5568", margin: "3px 0 8px" }}>{u.area} مترمربع</p>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 99, fontSize: 11.5, fontWeight: 800, color: col, background: `${col}26` }}><i style={{ width: 8, height: 8, borderRadius: 9, background: col }} />{STATUS[u.status].label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {unit && unit.floor_id === selId && sheet === "full" && (
+              <div style={{ padding: "0 16px" }}>
+                <div style={{ display: "flex", gap: 12, padding: 10, borderRadius: 22, background: "rgba(255,255,255,.65)", border: "1px solid rgba(0,0,0,.06)", alignItems: "stretch" }}>
+                  <div style={{ width: 104, minHeight: 104, borderRadius: 16, background: project.cover_image ? `url(${project.cover_image}) center/cover` : "rgba(0,0,0,.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{!project.cover_image && <Building2 size={26} color="#9299AA" />}</div>
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <p style={{ fontSize: 17, fontWeight: 900 }}>واحد {unit.unit_number}</p>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 99, fontSize: 11.5, fontWeight: 800, color: sc(unit.status), background: `${sc(unit.status)}26` }}><i style={{ width: 8, height: 8, borderRadius: 9, background: sc(unit.status) }} />{STATUS[unit.status].label}</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: "#6b7385" }}>{unit.area} مترمربع · طبقه {selFloor.floor_number}{unit.bedrooms != null ? ` · ${unit.bedrooms} خواب` : ""}</p>
+                    {(!customer || showPrices) && ud(unit).pps && <p style={{ fontSize: 11.5, color: "#4d5568" }}>قیمت هر متر: {money(ud(unit).pps)}</p>}
+                    {(!customer || showPrices) && unit.price > 0 && <p style={{ fontSize: 15, fontWeight: 900 }}>{humanizeToman(unit.price)} تومان</p>}
+                    {!customer && unit.status === "sold" && unit.buyer_name && <p style={{ fontSize: 11.5, color: "#6b7385" }}>خریدار: {unit.buyer_name}</p>}
+                  </div>
+                </div>
+                {!customer && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button disabled={unit.status === "sold"} onClick={() => setStatus(unit, "sold")} className="press" style={{ flex: 1.2, height: 50, borderRadius: 16, background: "#1b2233", color: "#fff", fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: unit.status === "sold" ? 0.4 : 1 }}>ثبت فروش<Check size={16} /></button>
+                    <button disabled={unit.status === "reserved"} onClick={() => setStatus(unit, "reserved")} className="press" style={{ flex: 1.1, height: 50, borderRadius: 16, background: "#F8DFAE", color: "#9a5b00", fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: unit.status === "reserved" ? 0.4 : 1 }}>رزرو کردن<Clock size={16} /></button>
+                    <button onClick={() => setDetailsId(unit.id)} className="press" style={{ flex: 1, height: 50, borderRadius: 16, background: "rgba(0,0,0,.07)", fontWeight: 800, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>جزئیات بیشتر<FileText size={15} /></button>
+                  </div>
+                )}
+                {!customer && unit.status !== "available" && <button onClick={() => setStatus(unit, "available")} className="press" style={{ width: "100%", marginTop: 8, height: 42, borderRadius: 14, background: `${sc("available")}22`, color: sc("available"), fontWeight: 800, fontSize: 12.5 }}>بازگرداندن به «موجود»</button>}
+              </div>
+            )}
+          </div>
+        )}
+        {!selFloor && !focus && use3d && <p style={{ position: "absolute", left: 0, right: 0, bottom: "calc(24px + env(safe-area-inset-bottom, 0px))", textAlign: "center", fontSize: 11, color: DK.muted, pointerEvents: "none" }}>بکشید تا بچرخد · دو انگشت برای زوم · طبقه را لمس کنید</p>}
+
+        {detailUnit && <UnitSheet key={detailUnit.id} c={c} unit={detailUnit} floor={floors.find((f) => f.id === detailUnit.floor_id)} byFloor={byFloor} customer={customer} showPrices={showPrices} onClose={() => setDetailsId(null)} onPatch={patchUnit} onStatus={setStatus} onMove={moveUnit} />}
+      </div>
+    </BodyPortal>
   );
 }
-const iconSm = (c) => ({ background: c.surface2, width: 34, height: 34, borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 });
