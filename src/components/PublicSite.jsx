@@ -131,6 +131,9 @@ img{max-width:100%}
 .fp-gbtn:hover{background:#fff}
 .fp-in{width:100%;height:48px;border:1px solid ${pc.border};background:#fff;padding:0 14px;font-size:14px;outline:none;border-radius:2px;font-family:inherit}
 .fp-in:focus{border-color:${pc.brand}}
+.fp-vf .fp-in{height:56px;border-radius:12px;font-size:16px;padding:0 16px;box-shadow:0 1px 2px rgba(14,20,37,.04)}
+.fp-vf .fp-btn{border-radius:12px}
+.fp-vf .fp-in:focus{box-shadow:0 0 0 3px rgba(34,63,153,.12)}
 .fp-faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:16px;padding:22px 0;font-size:16px;font-weight:700}
 .fp-faq summary::-webkit-details-marker{display:none}
 .fp-faq summary:after{content:"+";font-size:22px;color:${pc.brand};line-height:1}
@@ -711,46 +714,56 @@ function PropertyMap({ lat, lng }) {
 }
 
 const VISIT_TIMES = ["هر زمان", "امروز", "فردا", "همین هفته", "آخر هفته"];
-function VisitRequestForm({ p, onDone, compact }) {
+const NAME_RE = /^[\u0600-\u06FFa-zA-Z\u200c\s.'-]{2,60}$/;
+const phoneErr = (v) => (!v ? "شماره موبایل را وارد کنید" : /^09\d{9}$/.test(v) ? "" : "شماره موبایل معتبر نیست (مثل ۰۹۱۲۱۲۳۴۵۶۷)");
+const nameErr = (v) => (v && !NAME_RE.test(v) ? "نام را فقط با حروف وارد کنید" : "");
+function VisitRequestForm({ p, onDone }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [when, setWhen] = useState(VISIT_TIMES[0]);
-  const [part, setPart] = useState("صبح");
-  const [note, setNote] = useState("");
   const [hp, setHp] = useState("");
-  const [state, setState] = useState("idle"); // idle | sending | done | error
-  const [err, setErr] = useState("");
+  const [touched, setTouched] = useState({});
+  const [state, setState] = useState("idle"); // idle | sending | done
+  const [srvErr, setSrvErr] = useState("");
+  const busy = useRef(false);
+  const cleanName = name.trim().replace(/\s+/g, " ");
   const clean = toEnDigits(phone).replace(/\D/g, "");
-  const valid = /^09\d{9}$/.test(clean);
+  const errs = { name: nameErr(cleanName), phone: phoneErr(clean) };
+  const show = (k) => touched[k] && errs[k];
   const submit = async (e) => {
     e.preventDefault();
-    if (!valid) { setErr("شماره موبایل را درست وارد کنید (مثل ۰۹۱۲۱۲۳۴۵۶۷)"); return; }
-    setState("sending"); setErr("");
-    const { data, error } = await supabase.functions.invoke("visit-request", { body: { property_id: p.id, name: name.trim(), phone: clean, preferred_time: `${when} — ${part}`, note: note.trim(), website: hp } });
-    if (error || data?.error) { setState("error"); setErr(data?.error || "ارسال نشد. لطفاً تماس بگیرید."); return; }
-    setState("done"); onDone?.();
+    if (busy.current) return;
+    setTouched({ name: true, phone: true });
+    if (errs.name || errs.phone) return;
+    busy.current = true; setState("sending"); setSrvErr("");
+    try {
+      const { data, error } = await supabase.functions.invoke("visit-request", { body: { property_id: p.id, name: cleanName, phone: clean, preferred_time: when, website: hp } });
+      if (error || data?.error) throw new Error(data?.error || "ارسال نشد. لطفاً دوباره تلاش کنید.");
+      setState("done"); onDone?.();
+    } catch (er) {
+      setSrvErr(er.message || "ارسال نشد. لطفاً دوباره تلاش کنید."); setState("idle"); busy.current = false;
+    }
   };
   if (state === "done") return (
-    <div style={{ textAlign: "center", padding: "18px 4px" }}>
-      <span className="flex items-center justify-center" style={{ width: 52, height: 52, margin: "0 auto", borderRadius: "50%", background: pc.accentSoft, color: pc.brand }}><Check size={24} /></span>
-      <p style={{ fontSize: 16, fontWeight: 800, marginTop: 14 }}>درخواست بازدید ثبت شد</p>
-      <p style={{ fontSize: 13, color: pc.inkSoft, lineHeight: 2, marginTop: 6 }}>{OFFICE.agent} به‌زودی برای هماهنگی زمان بازدید با شما تماس می‌گیرد.</p>
+    <div role="status" style={{ textAlign: "center", padding: "24px 8px" }}>
+      <span className="flex items-center justify-center" style={{ width: 56, height: 56, margin: "0 auto", borderRadius: "50%", background: pc.accentSoft, color: pc.brand }}><Check size={26} /></span>
+      <p style={{ fontSize: 15, fontWeight: 700, lineHeight: 2, marginTop: 16 }}>درخواست بازدید شما ثبت شد.<br />به‌زودی با شما تماس می‌گیریم.</p>
     </div>
   );
-  const label = { fontSize: 12, fontWeight: 700, color: pc.inkSoft, marginBottom: 6, display: "block" };
+  const label = { fontSize: 13, fontWeight: 700, color: pc.inkSoft, marginBottom: 8, display: "block" };
+  const errP = (m) => <p role="alert" style={{ fontSize: 12.5, color: "#B42318", marginTop: 6 }}>{m}</p>;
   return (
-    <form onSubmit={submit} className="flex flex-col" style={{ gap: compact ? 12 : 14, position: "relative" }}>
+    <form onSubmit={submit} noValidate className="fp-vf flex flex-col" style={{ gap: 16, position: "relative" }}>
       <input value={hp} onChange={(e) => setHp(e.target.value)} name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", width: 1, height: 1, padding: 0, border: 0, opacity: 0, overflow: "hidden", clipPath: "inset(50%)", pointerEvents: "none" }} />
-      <label><span style={label}>نام و نام خانوادگی</span><input className="fp-in" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="اختیاری" /></label>
-      <label><span style={label}>شماره موبایل <b style={{ color: "#B42318" }}>*</b></span><input className="fp-in" value={phone} onChange={(e) => { setPhone(e.target.value); setErr(""); }} inputMode="tel" autoComplete="tel" dir="ltr" placeholder="09xx xxx xxxx" required style={{ textAlign: "right", borderColor: err ? "#B42318" : undefined }} /></label>
-      <div className="grid grid-cols-2" style={{ gap: 10 }}>
-        <label><span style={label}>روز بازدید</span><select className="fp-in" value={when} onChange={(e) => setWhen(e.target.value)}>{VISIT_TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
-        <label><span style={label}>ساعت</span><select className="fp-in" value={part} onChange={(e) => setPart(e.target.value)}><option>صبح</option><option>عصر</option></select></label>
-      </div>
-      {!compact && <label><span style={label}>توضیحات</span><textarea className="fp-in" value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="اختیاری" style={{ height: "auto", padding: 12, resize: "vertical" }} /></label>}
-      {err && <p style={{ fontSize: 12.5, color: "#B42318", lineHeight: 1.9 }}>{err}</p>}
-      <button type="submit" disabled={state === "sending"} className="fp-btn fp-btn-brand" style={{ width: "100%", height: 52, opacity: state === "sending" ? 0.7 : 1, border: "none" }}>
-        {state === "sending" ? <Loader2 size={16} className="animate-spin" /> : <CalendarDays size={16} />} ثبت درخواست بازدید
+      <label><span style={label}>نام و نام خانوادگی <span style={{ fontWeight: 400, color: pc.muted }}>(اختیاری)</span></span>
+        <input className="fp-in" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, name: true }))} autoComplete="name" aria-invalid={!!show("name")} style={{ borderColor: show("name") ? "#B42318" : undefined }} />{show("name") && errP(errs.name)}</label>
+      <label><span style={label}>شماره موبایل <b style={{ color: "#B42318" }}>*</b></span>
+        <input className="fp-in" value={phone} onChange={(e) => setPhone(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, phone: true }))} inputMode="tel" autoComplete="tel" dir="ltr" placeholder="09xxxxxxxxx" aria-invalid={!!show("phone")} style={{ textAlign: "right", borderColor: show("phone") ? "#B42318" : undefined }} />{show("phone") && errP(errs.phone)}</label>
+      <label><span style={label}>روز بازدید</span>
+        <select className="fp-in" value={when} onChange={(e) => setWhen(e.target.value)}>{VISIT_TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
+      {srvErr && errP(srvErr)}
+      <button type="submit" disabled={state === "sending"} className="fp-btn fp-btn-brand" style={{ width: "100%", height: 56, marginTop: 8, opacity: state === "sending" ? 0.7 : 1, border: "none" }}>
+        {state === "sending" ? <><Loader2 size={16} className="animate-spin" /> در حال ثبت…</> : <><CalendarDays size={16} /> ثبت درخواست</>}
       </button>
     </form>
   );
@@ -1022,7 +1035,7 @@ function PublicPropertyDetailView({ slug, navigate }) {
             <button type="button" aria-label="بستن" onClick={() => setVisitOpen(false)} style={{ position: "absolute", top: 14, left: 14, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", background: pc.soft, borderRadius: 2 }}><X size={16} /></button>
             <p style={{ fontSize: 18, fontWeight: 800 }}>درخواست بازدید</p>
             <p style={{ fontSize: 13, color: pc.inkSoft, marginTop: 4, marginBottom: 18, lineHeight: 1.9 }}>{p.title}</p>
-            <VisitRequestForm p={p} compact />
+            <VisitRequestForm p={p} />
           </div>
         </div>
       )}
