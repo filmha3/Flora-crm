@@ -56,6 +56,7 @@ const PublicPropertyDetailView = lazyNamed(loadPublicSite, "PublicPropertyDetail
 const PublicAboutView = lazyNamed(loadPublicSite, "PublicAboutView");
 const PublicContactView = lazyNamed(loadPublicSite, "PublicContactView");
 const NotificationsView = lazyNamed(() => import("./components/Notifications.jsx"), "NotificationsView");
+const PreSaleHome = lazyNamed(() => import("./components/PreSale.jsx"), "PreSaleHome");
 const ConstructionHome = lazyNamed(() => import("./components/Construction.jsx"), "ConstructionHome");
 const ChecksHome = lazyNamed(() => import("./components/Checks.jsx"), "ChecksHome");
 
@@ -351,6 +352,7 @@ export default function FloraCRM() {
   const [openTourId, setOpenTourId] = useState(null); // active/reviewing tour currently on screen
   const [weeklyStatsOpen, setWeeklyStatsOpen] = useState(false);
   const [constructionOpen, setConstructionOpen] = useState(false);
+  const [presaleOpen, setPresaleOpen] = useState(false);
   const [checksOpen, setChecksOpen] = useState(false);
   // One-shot hand-off from Quick Valuation to the real property form, so
   // "ذخیره به‌عنوان فایل" never re-asks for location/area it already has.
@@ -1068,7 +1070,7 @@ export default function FloraCRM() {
     customers, setCustomers, appointments, setAppointments, calls, setCalls,
     deals, setDeals, payments, setPayments, expenses, setExpenses, officeIncomes, setOfficeIncomes, investments, setInvestments, checks, setChecks, streetPrices, setStreetPrices, constructionProjects, setConstructionProjects, constructionTransactions, setConstructionTransactions, materialCoefficients, setMaterialCoefficients, materialEstimates, setMaterialEstimates, constructionCostEstimates, setConstructionCostEstimates, splitShares, setSplitShares, simpleMode, setSimpleMode, largeText, setLargeText,
     tours, setTours, tourBuilder, setTourBuilder, openTourId, setOpenTourId,
-    weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, checksOpen, setChecksOpen,
+    weeklyStatsOpen, setWeeklyStatsOpen, notificationsOpen, setNotificationsOpen, customerMode, setCustomerMode, showCustomerPrice, setShowCustomerPrice, prefillNew, setPrefillNew, constructionOpen, setConstructionOpen, presaleOpen, setPresaleOpen, checksOpen, setChecksOpen,
     notify, setDetail, setTab, setSheet, setLightbox, setMapPicker, focusQueue, setFocusQueue, celebrate, geminiKey, setGeminiKey,
     perplexityKey, setPerplexityKey, avalaiKey, setAvalaiKey, avalaiModel, setAvalaiModel, aiProvider, setAiProvider, hasAiKey, callAI, canTranscribe, transcribeAudio, canStage, agentName, setAgentName, agentPhoto, setAgentPhoto, agentPhone, setAgentPhone, publishUnlocked, setPublishUnlocked, agencyName, setAgencyName, agencyCity, setAgencyCity,
     scheduleReminder, goProperties, exportBackup, importBackup, exportProperties, exportFinance, shareBackupNow,
@@ -1322,6 +1324,7 @@ export default function FloraCRM() {
         {weeklyStatsOpen && <WeeklyStatsHome ctx={ctx} />}
         <VisitRequestWatcher userId={session?.user?.id} notify={notify} />
         {constructionOpen && <ConstructionHome ctx={ctx} onClose={() => setConstructionOpen(false)} />}
+        {presaleOpen && <PreSaleHome ctx={ctx} onClose={() => setPresaleOpen(false)} />}
         {checksOpen && <ChecksHome ctx={ctx} onClose={() => setChecksOpen(false)} />}
         {notificationsOpen && <NotificationsView ctx={ctx} onBack={() => setNotificationsOpen(false)} />}
         {/* City is edited inline in OfficeCard now — no more popup gate. */}
@@ -3799,6 +3802,7 @@ function MoreTab({ ctx }) {
         <ListRow c={c} icon={PhoneCall} label="پیگیری تماس‌ها" tint={pending > 0 ? c.attn : undefined} badge={pending > 0 ? pending : undefined} onClick={() => setDetail({ type: "calls" })} />
         <ListRow c={c} icon={ArrowUpRight} label="چک‌ها" onClick={() => ctx.setChecksOpen(true)} />
         <ListRow c={c} icon={HardHat} label="ساخت‌وساز" onClick={() => ctx.setConstructionOpen(true)} />
+        <ListRow c={c} icon={Building2} label="پیش‌فروش پروژه‌ها" onClick={() => ctx.setPresaleOpen(true)} />
         <ListRow c={c} icon={TrendingUp} label="سرمایه‌گذاری" onClick={() => setDetail({ type: "investment-center" })} />
         <ListRow c={c} icon={MessageSquare} label="پیام‌های آماده" onClick={() => setSheet("messages")} />
         {simpleMode && <ListRow c={c} icon={Wallet} label="مالی و کمیسیون" onClick={() => setTab("finance")} />}
